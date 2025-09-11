@@ -132,6 +132,7 @@ function App(){
   const [weeks, setWeeks] = useState([]);
   const [assignPicker, setAssignPicker] = useState(null); // {date}
   const [dragBadge, setDragBadge] = useState(null); // {wi,ti}
+  const [expandedDays, setExpandedDays] = useState(new Set()); // tracks which calendar days are expanded
   const touchHover = useRef(null);
 
   useEffect(()=>{
@@ -177,6 +178,14 @@ function App(){
       const t = clone[wi].tasks[ti];
       t.completed = !t.completed;
       return clone;
+    });
+  }
+
+  function toggleExpandedDay(key){
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if(next.has(key)) next.delete(key); else next.add(key);
+      return next;
     });
   }
 
@@ -361,6 +370,7 @@ function App(){
             const key = d.format('YYYY-MM-DD');
             const items = scheduledMap[key]||[];
             const out = !inRange(d, startDate, numWeeks);
+            const expanded = expandedDays.has(key);
             return (
               <div
                 key={idx}
@@ -375,7 +385,7 @@ function App(){
                   <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
                 </div>
                 <div className="space-y-1">
-                  {items.slice(0,3).map((it,i)=> (
+                  {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
                     <div
                       key={i}
                       className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
@@ -402,7 +412,15 @@ function App(){
                       </button>
                     </div>
                   ))}
-                  {items.length>3 && <div className="text-[11px] text-slate-500">+{items.length-3} more…</div>}
+                  {items.length>3 && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-slate-500"
+                      onClick={()=> toggleExpandedDay(key)}
+                    >
+                      {expanded ? 'Show less' : `+${items.length-3} more…`}
+                    </button>
+                  )}
                 </div>
               </div>
             );
