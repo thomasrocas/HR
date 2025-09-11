@@ -75,7 +75,7 @@
 </div>
 <!-- /Lightweight Auth Panel -->
 
-<div id="root" class="max-w-7xl mx-auto px-4 py-6"></div>
+<div id="root" class="max-w-7xl mx-auto px-4"></div>
 
 <script type="text/babel">
 const { useEffect, useMemo, useState, useRef } = React;
@@ -128,9 +128,9 @@ function AuthPanel({ onAuthed }){
   }
 
   return (
-    <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-6">
+    <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
       <div className="card p-6">
-        <h2 className="text-xl font-semibold mb-1">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
+        <h2 className="text-xl font-semibold mb-4">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
         <p className="text-sm text-slate-500 mb-4">Use a local account as an alternate to Google SSO.</p>
         {mode === 'register' && (
           <>
@@ -157,11 +157,11 @@ function AuthPanel({ onAuthed }){
         <button className="btn btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
       </div>
       <div className="card p-6">
-        <h3 className="text-lg font-semibold mb-2">Welcome to ANX Orientation</h3>
-        <p className="text-sm text-slate-600">
+        <h3 className="text-lg font-semibold mb-4">Welcome to ANX Orientation</h3>
+        <p className="text-sm text-slate-600 mb-4">
           Sign in to load your calendar, tasks, and preferences. Your session is stored securely and restores your last view.
         </p>
-        <ul className="list-disc pl-5 text-sm text-slate-600 mt-3 space-y-1">
+        <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
           <li>Use <strong>local username/password</strong> or <strong>Google SSO</strong>.</li>
           <li>Your tasks are tied to your account and won’t mix with others.</li>
           <li>Safe for FileMaker Web Viewer (cookies: SameSite=Lax).</li>
@@ -513,7 +513,7 @@ function App({ me, onSignOut }){
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 py-6">
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
@@ -638,10 +638,18 @@ function Root(){
   }, []);
 
   if (!checked){
-    return <div className="max-w-2xl mx-auto card p-6">Loading…</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center w-full">
+        <div className="max-w-2xl mx-auto card p-6">Loading…</div>
+      </div>
+    );
   }
   if (!me){
-    return <AuthPanel onAuthed={async ()=> { const user = await apiGetMe(); setMe(user); }} />;
+    return (
+      <div className="min-h-screen flex items-center justify-center w-full">
+        <AuthPanel onAuthed={async ()=> { const user = await apiGetMe(); setMe(user); }} />
+      </div>
+    );
   }
   return <App me={me} onSignOut={async ()=> { await apiLogout(); setMe(null); }} />;
 }
