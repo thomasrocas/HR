@@ -313,6 +313,7 @@ function App(){
                   {items.slice(0,3).map((it,i)=> (
                     <div
                       key={i}
+                      className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
                       draggable
                       data-wi={it.wi}
                       data-ti={it.ti}
@@ -323,7 +324,17 @@ function App(){
                       onTouchEnd={handleTouchEnd}
                       onTouchCancel={handleTouchEnd}
                     >
-                      <div className={`text-[11px] px-2 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}>{it.label}</div>
+                      {it.label}
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                        onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
                   {items.length>3 && <div className="text-[11px] text-slate-500">+{items.length-3} more…</div>}
