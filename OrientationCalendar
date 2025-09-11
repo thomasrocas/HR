@@ -233,8 +233,8 @@ function App(){
       wk: w.wk,
       title: w.title,
       items: (w.tasks||[])
-        .filter(t=>!t.scheduled_for)
-        .map((t,ti)=> ({ label: t.title, wi, ti }))
+        .map((t, ti) => (!t.scheduled_for ? { label: t.title, wi, ti } : null))
+        .filter(Boolean)
     }));
   }, [weeks]);
 
