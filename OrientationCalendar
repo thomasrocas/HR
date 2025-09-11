@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANX • Halle Orientation – Boxed Badges (Calendar Font + Full Tooltip)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { anx: { sky: '#0ea5e9', mint:'#10b981', slate:'#1f2937' }}}}};
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
+  <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
+  <style>
+    .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
+    .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
+    .btn-ghost{ @apply border-transparent hover:bg-slate-50; }
+    .btn-outline{ @apply border-slate-300 hover:bg-slate-50; }
+    .input{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+
+    /* Calendar badge constraints & theme-aligned typography */
+    .badge{
+      @apply text-xs text-slate-700 rounded-md border flex items-center justify-between gap-2;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      background: #f8fafc;             /* slate-50 */
+      border-color: #cbd5e1;            /* slate-300 */
+      cursor: grab;
+      overflow: hidden;
+    }
+    .badge:active{ cursor: grabbing; }
+    .badge .badge-label{
+      display: block;
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.15;
+    }
+    .badge.todo{ background:#f0f9ff; border-color:#7dd3fc; }
+    .badge.done{ background:#ecfdf5; border-color:#86efac; }
+    .badge-del{ @apply shrink-0 inline-flex items-center justify-center rounded-full bg-slate-400 text-white text-[10px] leading-none; width:16px; height:16px; }
+    .drop-target{ outline: 2px dashed #94a3b8; outline-offset: 2px; }
+
+    .day-cell{ min-height:120px; }
+    .badge-list{ display:flex; flex-direction:column; gap:6px; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div id="root" class="max-w-7xl mx-auto px-4 py-6"></div>
+
+<script type="text/babel">
+const { useEffect, useMemo, useState } = React;
+const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
+const DEFAULT_TRAINEE   = localStorage.getItem('anx_trainee') || 'Halle Angeles';
+const fmt = (d) => dayjs(d).format('MMM D, YYYY');
+const in6WeekRange = (d, start) => { const s = dayjs(start); const e = s.add(41,'day'); const x = dayjs(d); return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day'); };
+const uid = () => Math.random().toString(36).slice(2);
+
+function seedWeeks(){
+  return [
+    {wk:1, tasks:[
+      {title:'Onboarding: badges, EMR, safety & HIPAA'},
+      {title:'Meet mentor & set 3 primary outcomes'},
+      {title:'Daily priming: gratitude + incantations'} ]},
+    {wk:2, tasks:[
+      {title:'Shadow RN case managers'},
+      {title:'Patient teaching with supervision'},
+      {title:'Reframe limiting belief → empowering story'} ]},
+    {wk:3, tasks:[
+      {title:'Shadow hospice RN (admission + routine)'},
+      {title:'Family meeting observation & debrief'},
+      {title:'Journal: presence & meaning'} ]},
+    {wk:4, tasks:[
+      {title:'Skills lab: wound, catheter, oxygen'},
+      {title:'Mock emergency (home code)'},
+      {title:'Feedback sprint & celebration'} ]},
+    {wk:5, tasks:[
+      {title:'Attend QI/patient safety meeting'},
+      {title:'Interview DON/Admin: leadership clues'},
+      {title:'Lead a mini-huddle / family teach-back'} ]},
+    {wk:6, tasks:[
+      {title:'Independent supervised visits'},
+      {title:'Capstone: My Breakthroughs talk'},
+      {title:'90-day growth plan (RPM)'} ]},
+  ];
+}
+
+function App(){
+  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [weeks, setWeeks] = useState([]);
+  const [assignPicker, setAssignPicker] = useState(null);
+  const [dragInfo, setDragInfo] = useState(null);
+
+  useEffect(()=>{
+    if(!weeks.length) setWeeks(seedWeeks().map(w=> ({...w, id: uid(), tasks: (w.tasks||[]).map(t=> ({...t, id: uid(), completed:false, scheduled_for:null})) })));
+  }, []);
+
+  const calDays = useMemo(()=>{
+    const s = dayjs(startDate).startOf('week');
+    return Array.from({length:42}, (_,i)=> s.add(i,'day'));
+  }, [startDate]);
+
+  const scheduledMap = useMemo(()=>{
+    const map = {};
+    weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
+      if(t.scheduled_for){
+        const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
+        map[key] = map[key] || [];
+        map[key].push({ label:`W${w.wk}: ${t.title}`, done: t.completed, wi, ti, full:`Week ${w.wk}: ${t.title}` });
+      }
+    }));
+    return map;
+  }, [weeks]);
+
+  function setTaskDate(wi, ti, date){
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      clone[wi].tasks[ti].scheduled_for = date;
+      return clone;
+    });
+  }
+  function clearTaskDate(wi, ti){
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      clone[wi].tasks[ti].scheduled_for = null;
+      return clone;
+    });
+  }
+
+  function handleDragStart(e, wi, ti){
+    setDragInfo({wi, ti});
+    e.dataTransfer.setData('text/plain', JSON.stringify({wi, ti}));
+    e.dataTransfer.effectAllowed = 'move';
+    const crt = e.currentTarget.cloneNode(true);
+    crt.style.position = 'absolute'; crt.style.top = '-99999px'; crt.style.width = `${e.currentTarget.offsetWidth}px`;
+    document.body.appendChild(crt);
+    e.dataTransfer.setDragImage(crt, 10, 10);
+    setTimeout(()=> document.body.removeChild(crt), 0);
+  }
+  function handleDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('drop-target'); }
+  function handleDragLeave(e){ e.currentTarget.classList.remove('drop-target'); }
+  function handleDrop(e, date){
+    e.preventDefault();
+    e.currentTarget.classList.remove('drop-target');
+    let data;
+    try{ data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch{ data = dragInfo; }
+    if(!data) return;
+    setTaskDate(data.wi, data.ti, date);
+    setDragInfo(null);
+  }
+
+  // Unscheduled list for Assign modal (hides already scheduled)
+  const weekColumns = useMemo(()=> {
+    const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
+    return sorted.map((w,wi)=> ({
+      wk: w.wk,
+      items: (w.tasks||[]).filter(t=> !t.scheduled_for).map((t,ti)=> {
+        const realTi = (weeks[wi]?.tasks||[]).findIndex(x=> x.id===t.id);
+        return { label: t.title, wi, ti: realTi };
+      })
+    }));
+  }, [weeks]);
+
+  function AssignModal({date, onClose}){
+    const empty = weekColumns.every(col => (col.items||[]).length===0);
+    return ReactDOM.createPortal(
+      <div className="fixed inset-0 bg-black/45 z-[2147483000] flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-[1200px] w-full z-[2147483640]" onClick={(e)=> e.stopPropagation()}>
+          <div className="flex items-center justify-between px-4 py-3 border-b">
+            <div className="font-semibold">Assign Task to {fmt(date)}</div>
+            <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="max-h-[70vh] overflow-auto p-4">
+            {empty ? (
+              <div className="text-center text-slate-500 text-sm py-10">All tasks are already scheduled. Clear one to reassign.</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                {weekColumns.map((col, idx)=> (
+                  <div key={idx} className="border rounded-xl overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">Week {col.wk}</div>
+                    <div className="p-2 grid gap-2">
+                      {col.items.map((it, i)=> (
+                        <button key={i}
+                          className="btn btn-outline justify-start truncate text-left"
+                          title={`Week ${col.wk}: ${it.label}`}
+                          onClick={()=> { setTaskDate(it.wi, it.ti, date); onClose(); }}>
+                          {it.label}
+                        </button>
+                      ))}
+                      {col.items.length===0 && <div className="text-[11px] text-slate-400 italic">No unscheduled tasks</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {DEFAULT_TRAINEE}</h1>
+        <p className="text-sm text-slate-500">Badges use calendar font size & show full tooltip text.</p>
+      </header>
+
+      <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
+        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        {calDays.map((d,idx)=>{
+          const key = d.format('YYYY-MM-DD');
+          const items = scheduledMap[key]||[];
+          return (
+            <div key={idx}
+              className="card p-2 day-cell"
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={(e)=> handleDrop(e, key)}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-xs font-semibold">{d.format('D')}</div>
+                <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
+              </div>
+              <div className="badge-list">
+                {items.map((it,i)=> (
+                  <div key={i}
+                    className={`badge ${it.done?'done':'todo'}`}
+                    draggable
+                    onDragStart={(e)=> handleDragStart(e, it.wi, it.ti)}
+                    title={it.full}
+                    aria-label={it.full}
+                  >
+                    <span className="badge-label">{it.label}</span>
+                    <button className="badge-del" aria-label="Remove" onClick={(e)=> { e.stopPropagation(); clearTaskDate(it.wi, it.ti); }}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
