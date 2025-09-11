@@ -201,12 +201,13 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 
 app.get('/tasks', ensureAuth, async (req, res) => {
   try {
-    const { start, end } = req.query;
+    const { start, end, program_id } = req.query;
     const conds = ['user_id = $1'];
     const vals = [req.user.id];
 
     if (start) { vals.push(start); conds.push(`scheduled_for >= $${vals.length}`); }
     if (end)   { vals.push(end);   conds.push(`scheduled_for <= $${vals.length}`); }
+    if (program_id) { vals.push(program_id); conds.push(`program_id = $${vals.length}`); }
 
     const where = `WHERE ${conds.join(' AND ')}`;
     const sql = `SELECT * FROM public.orientation_tasks ${where}

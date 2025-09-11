@@ -84,7 +84,7 @@ const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 /* Use same origin the page is served from */
 const API = window.location.origin;
 const qs = new URLSearchParams(location.search);
-const QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
+let QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
 
 /* Helpers */
 const fmt = (d) => dayjs(d).format('MMM D, YYYY');
@@ -181,6 +181,21 @@ async function apiLogout(){
   await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
 }
 
+async function apiGetPrefs(){
+  const r = await fetch(`${API}/prefs`, { credentials:'include' });
+  if(!r.ok) return {};
+  return r.json();
+}
+async function apiPatchPrefs(data){
+  const r = await fetch(`${API}/prefs`, {
+    method:'PATCH', credentials:'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('PATCH /prefs failed');
+  return r.json();
+}
+
 /* ---- TASK helpers ---- */
 async function apiGetTasks(params = {}){
   const usp = new URLSearchParams(params);
@@ -266,7 +281,16 @@ function App({ me, onSignOut }){
   useEffect(() => {
     async function load() {
       try {
-        const rows = await apiGetTasks({ trainee: encodeURIComponent(trainee) });
+        if (!QS_PROGRAM_ID) {
+          const prefs = await apiGetPrefs();
+          QS_PROGRAM_ID = prefs.program_id || null;
+          if (QS_PROGRAM_ID) localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+        } else {
+          localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+          try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch (e) {}
+        }
+        if (!QS_PROGRAM_ID) return;
+        const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
         const byWeek = {};
         rows.forEach(r => {
           const wk = r.week_number || 0;
@@ -347,7 +371,6 @@ function App({ me, onSignOut }){
     if(!label) return;
     try {
       const created = await apiCreateTask({
-        trainee,
         label,
         week_number: weeks[wi].wk,
         program_id: QS_PROGRAM_ID
