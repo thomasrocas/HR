@@ -344,6 +344,8 @@ function App(){
                       draggable
                       data-wi={it.wi}
                       data-ti={it.ti}
+                      title={it.label}
+                      aria-label={it.label}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onTouchStart={handleDragStart}
