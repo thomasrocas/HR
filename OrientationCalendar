@@ -81,46 +81,6 @@ async function apiPatchScheduledFor(taskId, scheduledFor) {
   return res.json();
 }
 
-/* Seed data for weeks/tasks with a persistent task_id for each task */
-function seedWeeks(){
-  const data = [
-    {wk:1, title:'Orientation & Foundations – STATE', theme:'Prime physiology • Focus • Language', result:'Certainty stepping into nursing role', purpose:'Align ANX mission with personal WHY', actions:'Priming, onboarding, mentor goals', tasks:[
-      {title:'Onboarding: badges, EMR, safety & HIPAA', rpm:{result:'Ready for patient-facing', purpose:'Protect patients & data', actions:['HIPAA & safety modules','ID badge & EMR login','Review ANX mission & values']}},
-      {title:'Meet mentor & set 3 primary outcomes', rpm:{result:'3 clear outcomes', purpose:'Clarity → confidence', actions:['Schedule check-ins','Document outcomes']}},
-      {title:'Daily priming: gratitude + incantations', rpm:{result:'Empowered daily state', purpose:'State → Story → Strategy', actions:['3 gratitudes','2 incantations before visits']}}
-    ]},
-    {wk:2, title:'Home Health Immersion – STORY', theme:'Shift beliefs → empowering story', result:'Confident assessment & education', purpose:'Progress over perfection', actions:'Shadow, teach-back, reframe belief', tasks:[
-      {title:'Shadow RN case managers', rpm:{result:'Assessment flow understood', purpose:'Model excellence', actions:['Observe 3 visits','Map assessment checklist']}},
-      {title:'Patient teaching with supervision', rpm:{result:'Deliver 1 session', purpose:'Build voice & influence', actions:['Med rec & teach-back','Chart note']}},
-      {title:'Reframe limiting belief → empowering story', rpm:{result:'1 belief rewritten', purpose:'Identity growth', actions:['Journal what held me back','Write new story & anchor']}}
-    ]},
-    {wk:3, title:'Hospice Practice – PURPOSE', theme:'Meaning • Presence • Contribution', result:'Competence in hospice philosophy', purpose:'Dignity & love at end of life', actions:'Shadow, family meeting, journal', tasks:[
-      {title:'Shadow hospice RN (admission + routine)', rpm:{result:'Symptom mgmt & goals of care', purpose:'Comfort-focused care', actions:['Observe 2 admissions','Review pain protocols']}},
-      {title:'Family meeting observation & debrief', rpm:{result:'Communication insights', purpose:'Empathy & clarity', actions:['Trust-building phrases','Share insights']}},
-      {title:'Journal: presence & meaning', rpm:{result:'Purpose anchored', purpose:'Sustain resilience', actions:['15-min reflection','Create grounding ritual']}}
-    ]},
-    {wk:4, title:'Skills & Simulation – CANI', theme:'Relentless improvement', result:'Technical mastery under guidance', purpose:'Confidence under pressure', actions:'Skills lab, mock code, feedback sprint', tasks:[
-      {title:'Skills lab: wound, catheter, oxygen', rpm:{result:'Pass checklists', purpose:'Safe, effective care', actions:['Practice + signoff','Note gaps → micro-goals']}},
-      {title:'Mock emergency (home code)', rpm:{result:'Calm, structured response', purpose:'Patient safety', actions:['Run scenario','After-action review']}},
-      {title:'Feedback sprint & celebration', rpm:{result:'3 improvements', purpose:'Reinforce progress', actions:['Ask 2 clinicians for feedback','Anchor progress: “YES!”']}}
-    ]},
-    {wk:5, title:'Leadership & Contribution – Modeling Excellence', theme:'Success leaves clues', result:'System awareness & leadership reps', purpose:'Create raving fans', actions:'QI, leadership interview, lead huddle', tasks:[
-      {title:'Attend QI/patient safety meeting', rpm:{result:'1 improvement idea', purpose:'Quality mindset', actions:['Pick a metric','Propose micro-experiment']}},
-      {title:'Interview DON/Admin: leadership clues', rpm:{result:'Top 3 habits', purpose:'Model mastery', actions:['15-min interview','Summarize in journal']}},
-      {title:'Lead a mini-huddle / family teach-back', rpm:{result:'1 led interaction', purpose:'Service & influence', actions:['Prep script','Debrief with mentor']}}
-    ]},
-    {wk:6, title:'Integration & Capstone – Raise Your Standard', theme:'Future pacing & identity', result:'Independent (supervised) visits + capstone', purpose:'Own growth & set standards', actions:'Visits, talk, 90-day RPM', tasks:[
-      {title:'Independent supervised visits', rpm:{result:'2 successful visits', purpose:'Embodied confidence', actions:['Plan visit flow','Self-review with mentor']}},
-      {title:'Capstone: My Breakthroughs talk', rpm:{result:'5–7 min presentation', purpose:'Integrate & inspire', actions:['Story → lesson → action','Thank mentors']}},
-      {title:'90-day growth plan (RPM)', rpm:{result:'Next-level outcomes set', purpose:'CANI continues', actions:['Define Results & Purpose','Map Massive Actions']}}
-    ]}
-  ];
-
-  return data.map(w => ({
-    ...w,
-    tasks: (w.tasks || []).map(t => ({ ...t, task_id: uid() }))
-  }));
-}
 
 /* UI atoms */
 function Section({title, subtitle, children, right}){
@@ -165,21 +125,34 @@ function App(){
   const [expandedDays, setExpandedDays] = useState(new Set());
   const touchHover = useRef(null);
 
-  /* --- Add a persistent task_id to each task on mount --- */
-  useEffect(()=>{
-    if(!weeks.length) {
-      setWeeks(
-        seedWeeks().map(w => ({
-          ...w,
-          id: uid(),
-          tasks: (w.tasks||[]).map(t => ({
-            ...t,
-            id: uid(),
-            notes:'', completed:false, scheduled_for:null
-          }))
-        }))
-      );
+  /* --- Load tasks from server on mount --- */
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`${DEFAULT_API_BASE}/tasks?trainee=${encodeURIComponent(trainee)}`);
+        if (!res.ok) throw new Error(`GET /tasks failed (${res.status})`);
+        const rows = await res.json();
+        const byWeek = {};
+        rows.forEach(r => {
+          const wk = r.week_number || 0;
+          if (!byWeek[wk]) {
+            byWeek[wk] = { id: uid(), wk, title:'', theme:'', result:'', purpose:'', actions:'', tasks: [] };
+          }
+          byWeek[wk].tasks.push({
+            id: r.task_id,
+            task_id: r.task_id,
+            title: r.label,
+            notes: r.notes || '',
+            completed: r.done,
+            scheduled_for: r.scheduled_for
+          });
+        });
+        setWeeks(Object.values(byWeek).sort((a,b)=> a.wk - b.wk));
+      } catch (err) {
+        console.error('Failed to load tasks', err);
+      }
     }
+    load();
   }, []);
 
   const totals = useMemo(()=>{
