@@ -160,7 +160,7 @@ function App(){
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
-  the [assignPicker, setAssignPicker] = useState(null); // {date}
+  const [assignPicker, setAssignPicker] = useState(null); // {date}
   const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
   const [expandedDays, setExpandedDays] = useState(new Set());
   const touchHover = useRef(null);
