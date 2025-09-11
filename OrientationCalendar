@@ -637,6 +637,19 @@ function Root(){
     })();
   }, []);
 
+  // Hide lightweight auth toggle/panel once user is authenticated
+  useEffect(() => {
+    const toggle = document.getElementById('lite-auth-toggle');
+    const panel = document.getElementById('lite-auth');
+    if (me) {
+      toggle?.classList.add('hidden');
+      panel?.classList.add('hidden');
+    } else {
+      toggle?.classList.remove('hidden');
+      panel?.classList.add('hidden');
+    }
+  }, [me]);
+
   if (!checked){
     return (
       <div className="min-h-screen flex items-center justify-center w-full">
