@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ANX • Halle Orientation – Fixed Modal + Excel‑Grid Assign</title>
+  <title>ANX • Halle Orientation – Fixed Modal + Excel‑Grid Assign (Start/Weeks Controls)</title>
   <!-- Tailwind (Play CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -16,15 +16,6 @@
   <!-- Day.js -->
   <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
   <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
-  <script>
-    if (!Array.prototype.flatMap) {
-      Array.prototype.flatMap = function (callback, thisArg) {
-        return this.reduce(function (acc, x, i, arr) {
-          return acc.concat(callback.call(thisArg, x, i, arr));
-        }, []);
-      };
-    }
-  </script>
   <style>
     .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
     .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
@@ -64,8 +55,10 @@ const qs = new URLSearchParams(location.search);
 const QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
 
 const fmt = (d) => dayjs(d).format('MMM D, YYYY');
-const in6WeekRange = (d, start) => {
-  const s = dayjs(start); const e = s.add(41,'day'); const x = dayjs(d);
+const inRange = (d, start, numWeeks) => {
+  const s = dayjs(start);
+  const e = s.add((numWeeks*7)-1,'day');
+  const x = dayjs(d);
   return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day');
 };
 const uid = () => Math.random().toString(36).slice(2);
@@ -102,7 +95,7 @@ function seedWeeks(){
 function Section({title, subtitle, children, right}){
   return (
     <section className="card p-4 md:p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-semibold">{title}</h2>
           {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
@@ -134,7 +127,8 @@ function Ring({value=0}){
 
 function App(){
   const [trainee, setTrainee] = useState(DEFAULT_TRAINEE);
-  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD')); // program start date
+  const [numWeeks, setNumWeeks] = useState(6); // NEW: dynamic # of weeks
   const [weeks, setWeeks] = useState([]);
   const [assignPicker, setAssignPicker] = useState(null); // {date}
   const [dragBadge, setDragBadge] = useState(null); // {wi,ti}
@@ -144,7 +138,7 @@ function App(){
     if(!weeks.length) setWeeks(seedWeeks().map(w=> ({...w, id: uid(), tasks: (w.tasks||[]).map(t=> ({...t, id: uid(), notes:'', completed:false, scheduled_for:null})) })));
   }, []);
 
-  const totals = React.useMemo(()=>{
+  const totals = useMemo(()=>{
     const all = weeks.flatMap(w=> w.tasks||[]);
     const done = all.filter(t=> t.completed).length;
     const total = all.length || 1;
@@ -152,11 +146,13 @@ function App(){
   }, [weeks]);
 
   // Calendar helpers
-  const calDays = React.useMemo(()=>{
-    const s = dayjs(startDate).startOf('week');
-    return Array.from({length:42}, (_,i)=> s.add(i,'day'));
-  }, [startDate]);
-  const scheduledMap = React.useMemo(()=>{
+  const calDays = useMemo(()=>{
+    const s = dayjs(startDate).startOf('week'); // keep grid aligned to week start (Sun) for visual clarity
+    const totalDays = Math.max(7, numWeeks * 7);
+    return Array.from({length: totalDays}, (_,i)=> s.add(i,'day'));
+  }, [startDate, numWeeks]);
+
+  const scheduledMap = useMemo(()=>{
     const map = {};
     weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
       if(t.scheduled_for){
@@ -170,14 +166,14 @@ function App(){
 
   function setTaskDate(wi, ti, date){
     setWeeks(prev => {
-      const clone = JSON.parse(JSON.stringify(prev));
+      const clone = structuredClone(prev);
       clone[wi].tasks[ti].scheduled_for = date;
       return clone;
     });
   }
   function toggleTask(wi, ti){
     setWeeks(prev => {
-      const clone = JSON.parse(JSON.stringify(prev));
+      const clone = structuredClone(prev);
       const t = clone[wi].tasks[ti];
       t.completed = !t.completed;
       return clone;
@@ -234,7 +230,7 @@ function App(){
   }
 
   // Build week-grouped task matrix for Excel-like grid
-  const weekColumns = React.useMemo(()=> {
+  const weekColumns = useMemo(()=> {
     const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
     // Only surface tasks that have not been scheduled yet so the
     // assignment modal shows remaining work.
@@ -275,7 +271,6 @@ function App(){
                           key={i}
                           className="btn btn-outline justify-start truncate text-left"
                           title={it.label}
-                          aria-label={it.label}
                           onClick={()=> handleAssign(it)}
                         >
                           {it.label}
@@ -297,25 +292,67 @@ function App(){
     );
   }
 
+  // Controls: Start Date + Weeks
+  const controlBar = (
+    <div className="flex items-center gap-3">
+      <label className="text-sm text-slate-600">Start</label>
+      <input
+        type="date"
+        className="input w-[160px]"
+        value={startDate}
+        onChange={(e)=> setStartDate(e.target.value)}
+      />
+      <div className="h-6 w-px bg-slate-200" />
+      <label className="text-sm text-slate-600">Weeks</label>
+      <div className="flex items-center gap-1">
+        <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.max(1, w-1))} aria-label="Decrease weeks">−</button>
+        <input
+          type="number"
+          min="1"
+          max="24"
+          step="1"
+          className="input w-16 text-center"
+          value={numWeeks}
+          onChange={(e)=> setNumWeeks(()=> {
+            const v = parseInt(e.target.value||'1',10);
+            return isNaN(v) ? 1 : Math.min(24, Math.max(1, v));
+          })}
+        />
+        <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.min(24, w+1))} aria-label="Increase weeks">+</button>
+      </div>
+      <div className="h-6 w-px bg-slate-200" />
+      <button
+        className="btn btn-ghost"
+        title="Jump to today (keeps grid aligned to week start)"
+        onClick={()=> setStartDate(dayjs().format('YYYY-MM-DD'))}
+      >Today</button>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
-          <p className="text-sm text-slate-500">Six‑Week Program • Start {fmt(startDate)}</p>
+          <p className="text-sm text-slate-500">{numWeeks}‑Week Program • Start {fmt(startDate)}</p>
         </div>
+        {controlBar}
       </header>
 
       {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-4">
         <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={totals.pct}/></div>
         <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{totals.done}/{totals.total}</div></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">6</div></div>
+        <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">{numWeeks}</div></div>
         <div className="card p-4"><div className="text-sm text-slate-500">Start</div><div className="text-2xl font-semibold mt-2">{fmt(startDate)}</div></div>
       </div>
 
-      {/* Calendar (unchanged) */}
-      <Section title="6‑Week Visual Calendar" subtitle="Assign tasks by date; click Assign on a day.">
+      {/* Calendar */}
+      <Section
+        title={`${numWeeks}‑Week Visual Calendar`}
+        subtitle="Assign tasks by date; click Assign on a day."
+        right={controlBar}
+      >
         <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
         </div>
@@ -323,7 +360,7 @@ function App(){
           {calDays.map((d,idx)=>{
             const key = d.format('YYYY-MM-DD');
             const items = scheduledMap[key]||[];
-            const out = !in6WeekRange(d, startDate);
+            const out = !inRange(d, startDate, numWeeks);
             return (
               <div
                 key={idx}
@@ -345,8 +382,6 @@ function App(){
                       draggable
                       data-wi={it.wi}
                       data-ti={it.ti}
-                      title={it.label}
-                      aria-label={it.label}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onTouchStart={handleDragStart}
