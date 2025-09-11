@@ -521,7 +521,7 @@ function App({ me, onSignOut }){
         </div>
         <div className="flex items-center gap-2">
           {controlBar}
-          <button className="btn btn-outline ml-2" onClick={async ()=>{ await apiLogout(); onSignOut(); }}>Sign out</button>
+          <button className="btn btn-outline ml-2" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
 
@@ -664,7 +664,7 @@ function Root(){
       </div>
     );
   }
-  return <App me={me} onSignOut={async ()=> { await apiLogout(); setMe(null); }} />;
+  return <App me={me} onSignOut={async () => { await apiLogout(); window.location.href = '/'; }} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
