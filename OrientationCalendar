@@ -81,6 +81,10 @@ async function apiPatchTask(taskId, payload) {
   return res.json();
 }
 
+async function apiPatchScheduledFor(taskId, date) {
+  return apiPatchTask(taskId, { scheduled_for: date || null });
+}
+
 /* --- API helpers for POST and DELETE /tasks --- */
 async function apiCreateTask(data) {
   const res = await fetch(`${DEFAULT_API_BASE}/tasks`, {
@@ -202,7 +206,9 @@ function App(){
   }, [weeks]);
 
   /* --- Make setTaskDate async + PATCH to server --- */
-  async function setTaskDate(wi, ti, date, taskIdOverride){
+  async function setTaskDate(wi, ti, date, taskId){
+    const prevWeeks = structuredClone(weeks);
+
     // 1) update local state immediately for snappy UI
     setWeeks(prev => {
       const clone = structuredClone(prev);
@@ -210,17 +216,25 @@ function App(){
       return clone;
     });
 
-    // 2) persist to API
-    const taskId = taskIdOverride ?? weeks[wi]?.tasks?.[ti]?.task_id;
-    if (!taskId) { console.warn('No task_id found for PATCH'); return; }
+    if (!taskId) {
+      console.error('setTaskDate: missing task_id', { wi, ti, date, task: weeks[wi]?.tasks?.[ti] });
+      setWeeks(prevWeeks);
+      alert('Failed to save scheduled date');
+      return;
+    }
 
-      try {
-        await apiPatchTask(taskId, { scheduled_for: date || null });
-      } catch (err) {
-        console.error('Failed to save scheduled_for', err);
+    try {
+      const row = await apiPatchScheduledFor(taskId, date);
+      if (!row || !row.task_id) {
+        console.error('setTaskDate: PATCH returned no row', { wi, ti, date, taskId, row });
+        setWeeks(prevWeeks);
         alert('Failed to save scheduled date');
-        // Optional: revert UI if needed
       }
+    } catch (err) {
+      console.error('setTaskDate: failed to save scheduled_for', { err, wi, ti, date, taskId });
+      setWeeks(prevWeeks);
+      alert('Failed to save scheduled date');
+    }
   }
 
     function toggleTask(wi, ti){
