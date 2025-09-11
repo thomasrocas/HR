@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ANX • Halle Orientation – Fixed Modal + Excel‑Grid Assign (Start/Weeks Controls)</title>
+  <title>ANX • Halle Orientation – Auth + Calendar</title>
   <!-- Tailwind (Play CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -43,20 +43,46 @@
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">
+<!-- Toggle for lightweight auth panel -->
+<div class="max-w-7xl mx-auto px-4 mt-4">
+  <button id="lite-auth-toggle" class="btn btn-outline text-sm" type="button">Open quick auth panel</button>
+</div>
+<!-- === Lightweight Auth Panel (non-React) === -->
+<div id="lite-auth" class="max-w-2xl mx-auto card p-4 mb-4 hidden">
+  <div class="flex items-center justify-between gap-2 mb-2">
+    <h2 class="text-lg font-semibold">Quick Sign-in / Register</h2>
+    <button id="lite-auth-close" class="btn btn-ghost text-sm" type="button" aria-label="Close">✕</button>
+  </div>
+  <p class="text-sm text-slate-600 mb-3">Use this minimal panel to log in or create a local account. Cookies are set with <code>SameSite=Lax</code> for Web Viewer safety.</p>
+  <div class="grid md:grid-cols-2 gap-4">
+    <form id="local-login" onsubmit="return doLocalLogin(event)" class="card p-3">
+      <div class="text-sm font-semibold mb-2">Sign in</div>
+      <input class="input mb-2" placeholder="Username" id="li_user" required />
+      <input class="input mb-3" type="password" placeholder="Password" id="li_pass" required />
+      <button class="btn btn-primary w-full" type="submit">Sign in</button>
+    </form>
+
+    <form id="local-register" onsubmit="return doLocalRegister(event)" class="card p-3">
+      <div class="text-sm font-semibold mb-2">Create account</div>
+      <input class="input mb-2" placeholder="Username" id="rg_user" required />
+      <input class="input mb-1" placeholder="Email (optional)" id="rg_email" />
+<div class="text-[11px] text-slate-500 mb-2">Tip: If this email is already used by a Google account, leave this blank or use another email.</div>
+      <input class="input mb-2" placeholder="Full name (optional)" id="rg_name" />
+      <input class="input mb-3" type="password" placeholder="Password (min 8)" id="rg_pass" required />
+      <button class="btn btn-outline w-full" type="submit">Create account</button>
+    </form>
+  </div>
+</div>
+<!-- /Lightweight Auth Panel -->
+
 <div id="root" class="max-w-7xl mx-auto px-4 py-6"></div>
 
 <script type="text/babel">
-/**
- * Persist task assignments to PostgreSQL by PATCH-ing /tasks/:id
- * Client: orientation_index.html (React + Babel)
- * Server: orientation_server.js (Express on same origin, e.g., http://localhost:3002)
- */
 const { useEffect, useMemo, useState, useRef } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
-/* Use same origin the page is served from (works on 3002 and when deployed) */
-const DEFAULT_API_BASE = localStorage.getItem('anx_api_base') || window.location.origin;
-const DEFAULT_TRAINEE   = localStorage.getItem('anx_trainee') || 'Halle Angeles';
+/* Use same origin the page is served from */
+const API = window.location.origin;
 const qs = new URLSearchParams(location.search);
 const QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
 
@@ -70,10 +96,101 @@ const inRange = (d, start, numWeeks) => {
 };
 const uid = () => Math.random().toString(36).slice(2);
 
-/* --- API helper for PATCH /tasks/:id --- */
+/* ---- AUTH PANEL (Local + Google) ---- */
+function AuthPanel({ onAuthed }){
+  const [mode, setMode] = useState('login');
+  const [u, setU] = useState('');
+  const [p, setP] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [err, setErr] = useState('');
+
+  async function doLogin(e){
+    e.preventDefault(); setErr('');
+    const r = await fetch(`${API}/auth/local/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({ username: u.trim(), password: p })
+    });
+    if(!r.ok){ setErr('Login failed.'); return; }
+    onAuthed();
+  }
+  async function doRegister(e){
+    e.preventDefault(); setErr('');
+    const r = await fetch(`${API}/auth/local/register`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({ username: u.trim(), password: p, full_name: name.trim(), email: email.trim() })
+    });
+    if(!r.ok){ setErr('Registration failed (username taken?).'); return; }
+    onAuthed();
+  }
+  function doGoogle(){
+    window.location.href = `${API}/auth/google`;
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-6">
+      <div className="card p-6">
+        <h2 className="text-xl font-semibold mb-1">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
+        <p className="text-sm text-slate-500 mb-4">Use a local account as an alternate to Google SSO.</p>
+        {mode === 'register' && (
+          <>
+            <label className="text-sm">Full name</label>
+            <input className="input mb-2" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" />
+            <label className="text-sm">Email</label>
+            <input className="input mb-2" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@anx.com" />
+          </>
+        )}
+        <label className="text-sm">Username</label>
+        <input className="input mb-2" value={u} onChange={e=>setU(e.target.value)} placeholder="e.g., halle" />
+        <label className="text-sm">Password</label>
+        <input className="input mb-4" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
+        {err && <div className="text-sm text-red-600 mb-3">{err}</div>}
+        {mode === 'login' ? (
+          <button className="btn btn-primary w-full" onClick={doLogin}>Sign in</button>
+        ) : (
+          <button className="btn btn-primary w-full" onClick={doRegister}>Create account</button>
+        )}
+        <button className="btn btn-ghost w-full mt-2" onClick={()=> setMode(m => m==='login'?'register':'login')}>
+          {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
+        </button>
+        <div className="h-px bg-slate-200 my-4"></div>
+        <button className="btn btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
+      </div>
+      <div className="card p-6">
+        <h3 className="text-lg font-semibold mb-2">Welcome to ANX Orientation</h3>
+        <p className="text-sm text-slate-600">
+          Sign in to load your calendar, tasks, and preferences. Your session is stored securely and restores your last view.
+        </p>
+        <ul className="list-disc pl-5 text-sm text-slate-600 mt-3 space-y-1">
+          <li>Use <strong>local username/password</strong> or <strong>Google SSO</strong>.</li>
+          <li>Your tasks are tied to your account and won’t mix with others.</li>
+          <li>Safe for FileMaker Web Viewer (cookies: SameSite=Lax).</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/* ---- API helpers with credentials ---- */
+async function apiGetMe(){
+  const r = await fetch(`${API}/me`, { credentials:'include' });
+  if(!r.ok) return null;
+  return r.json();
+}
+async function apiLogout(){
+  await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
+}
+
+/* ---- TASK helpers ---- */
+async function apiGetTasks(params = {}){
+  const usp = new URLSearchParams(params);
+  const r = await fetch(`${API}/tasks?${usp.toString()}`, { credentials:'include' });
+  if(!r.ok) throw new Error('GET /tasks failed');
+  return r.json();
+}
 async function apiPatchTask(taskId, payload) {
-  const res = await fetch(`${DEFAULT_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
-    method: 'PATCH',
+  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'PATCH', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
@@ -81,33 +198,28 @@ async function apiPatchTask(taskId, payload) {
   if (!res.ok) throw new Error(`PATCH /tasks/${taskId} failed (${res.status})`);
   return res.json();
 }
-
 async function apiPatchScheduledFor(taskId, date) {
   return apiPatchTask(taskId, { scheduled_for: date || null });
 }
-
-/* --- API helpers for POST and DELETE /tasks --- */
 async function apiCreateTask(data) {
-  const res = await fetch(`${DEFAULT_API_BASE}/tasks`, {
-    method: 'POST',
+  const res = await fetch(`${API}/tasks`, {
+    method: 'POST', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error(`POST /tasks failed (${res.status})`);
   return res.json();
 }
-
 async function apiDeleteTask(taskId) {
-  const res = await fetch(`${DEFAULT_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
-    method: 'DELETE'
+  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE', credentials:'include'
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`DELETE /tasks/${taskId} failed (${res.status})`);
   return res.json();
 }
 
-
-/* UI atoms */
+/* ---- APP ---- */
 function Section({title, subtitle, children, right}){
   return (
     <section className="card p-4 md:p-6">
@@ -140,8 +252,8 @@ function Ring({value=0}){
   );
 }
 
-function App(){
-  const [trainee, setTrainee] = useState(DEFAULT_TRAINEE);
+function App({ me, onSignOut }){
+  const [trainee, setTrainee] = useState(me?.name || 'Halle Angeles');
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
@@ -150,13 +262,11 @@ function App(){
   const [expandedDays, setExpandedDays] = useState(new Set());
   const touchHover = useRef(null);
 
-  /* --- Load tasks from server on mount --- */
+  /* Load tasks */
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${DEFAULT_API_BASE}/tasks?trainee=${encodeURIComponent(trainee)}`);
-        if (!res.ok) throw new Error(`GET /tasks failed (${res.status})`);
-        const rows = await res.json();
+        const rows = await apiGetTasks({ trainee: encodeURIComponent(trainee) });
         const byWeek = {};
         rows.forEach(r => {
           const wk = r.week_number || 0;
@@ -180,21 +290,19 @@ function App(){
     load();
   }, []);
 
-  const totals = useMemo(()=>{
+  const progress = useMemo(()=>{
     const all = weeks.flatMap(w=> w.tasks||[]);
     const done = all.filter(t=> t.completed).length;
     const total = all.length || 1;
     return {done, total, pct: Math.round(100*done/total)};
   }, [weeks]);
 
-  /* Calendar helpers */
   const calDays = useMemo(()=>{
-    const s = dayjs(startDate).startOf('week'); // keep grid aligned to week start (Sun)
+    const s = dayjs(startDate).startOf('week');
     const totalDays = Math.max(7, numWeeks * 7);
     return Array.from({length: totalDays}, (_,i)=> s.add(i,'day'));
   }, [startDate, numWeeks]);
 
-  /* Map of YYYY-MM-DD to scheduled items */
   const scheduledMap = useMemo(()=>{
     const map = {};
     weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
@@ -207,36 +315,18 @@ function App(){
     return map;
   }, [weeks]);
 
-  /* --- Make setTaskDate async + PATCH to server --- */
   async function setTaskDate(wi, ti, date, taskId){
     const prevWeeks = structuredClone(weeks);
-
-    // 1) update local state immediately for snappy UI
     setWeeks(prev => {
       const clone = structuredClone(prev);
       if (clone[wi]?.tasks?.[ti]) clone[wi].tasks[ti].scheduled_for = date;
       return clone;
     });
-
-    if (!taskId) {
-      console.error('setTaskDate: missing task_id', { wi, ti, date, task: weeks[wi]?.tasks?.[ti] });
-      setWeeks(prevWeeks);
-      alert('Failed to save scheduled date');
-      return;
-    }
-
+    if (!taskId) { setWeeks(prevWeeks); alert('Failed to save scheduled date'); return; }
     try {
       const row = await apiPatchScheduledFor(taskId, date);
-      if (!row || !row.task_id) {
-        console.error('setTaskDate: PATCH returned no row', { wi, ti, date, taskId, row });
-        setWeeks(prevWeeks);
-        alert('Failed to save scheduled date');
-      }
-    } catch (err) {
-      console.error('setTaskDate: failed to save scheduled_for', { err, wi, ti, date, taskId });
-      setWeeks(prevWeeks);
-      alert('Failed to save scheduled date');
-    }
+      if (!row || !row.task_id) { setWeeks(prevWeeks); alert('Failed to save scheduled date'); }
+    } catch (err) { setWeeks(prevWeeks); alert('Failed to save scheduled date'); }
   }
 
   function toggleTask(wi, ti){
@@ -245,20 +335,8 @@ function App(){
       const t = clone[wi].tasks[ti];
       const newValue = !t.completed;
       t.completed = newValue;
-      const revert = () => setWeeks(p => {
-        const c = structuredClone(p);
-        const tt = c[wi]?.tasks?.[ti];
-        if (tt) tt.completed = !newValue;
-        return c;
-      });
-      apiPatchTask(t.task_id, { done: newValue }).then(row => {
-        if (!row) {
-          console.error('Failed to update task completion: not found');
-          revert();
-        }
-      }).catch(err => {
+      apiPatchTask(t.task_id, { done: newValue }).catch(err => {
         console.error('Failed to update task completion', err);
-        revert();
       });
       return clone;
     });
@@ -300,9 +378,7 @@ function App(){
     if(!confirm('Delete this task?')) return;
     try {
       const res = await apiDeleteTask(task.task_id);
-      if (res === null) {
-        console.warn('Task already missing on server');
-      }
+      if (res === null) console.warn('Task missing on server');
       setWeeks(prev => {
         const clone = structuredClone(prev);
         clone[wi].tasks.splice(ti,1);
@@ -334,8 +410,6 @@ function App(){
   function handleDragLeave(e){
     e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
   }
-
-  /* --- Use async setTaskDate (PATCH) on drop --- */
   function handleDrop(e, date){
     e.preventDefault();
     handleDragLeave(e);
@@ -344,7 +418,7 @@ function App(){
       setDragBadge(null);
     }
   }
-
+  
   function handleTouchMove(e){
     const touch = e.touches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -372,7 +446,6 @@ function App(){
     }
   }
 
-  /* Build week-grouped task matrix for Assign modal */
   const weekColumns = useMemo(()=> {
     const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
     return sorted.map((w,wi)=> ({
@@ -384,13 +457,9 @@ function App(){
     }));
   }, [weeks]);
 
-  /* --- Assign uses async setTaskDate (PATCH) --- */
   function AssignModal({date, onClose}){
     const visible = weekColumns.filter(c => c.items.length);
-    const handleAssign = (it) => {
-      setTaskDate(it.wi, it.ti, date, it.task_id);
-      onClose();
-    };
+    const handleAssign = (it) => { setTaskDate(it.wi, it.ti, date, it.task_id); onClose(); };
     return ReactDOM.createPortal(
       <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
         <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
@@ -403,17 +472,10 @@ function App(){
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                 {visible.map((col, idx)=> (
                   <div key={idx} className="border rounded-xl overflow-hidden">
-                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">
-                      Week {col.wk}
-                    </div>
+                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">Week {col.wk}</div>
                     <div className="p-2 grid gap-2">
                       {col.items.map((it, i)=> (
-                        <button
-                          key={i}
-                          className="btn btn-outline justify-start truncate text-left"
-                          title={it.label}
-                          onClick={()=> handleAssign(it)}
-                        >
+                        <button key={i} className="btn btn-outline justify-start truncate text-left" title={it.label} onClick={()=> handleAssign(it)}>
                           {it.label}
                         </button>
                       ))}
@@ -433,40 +495,20 @@ function App(){
     );
   }
 
-  /* Controls: Start Date + Weeks */
   const controlBar = (
     <div className="flex items-center gap-3">
       <label className="text-sm text-slate-600">Start</label>
-      <input
-        type="date"
-        className="input w-[160px]"
-        value={startDate}
-        onChange={(e)=> setStartDate(e.target.value)}
-      />
+      <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
       <div className="h-6 w-px bg-slate-200" />
       <label className="text-sm text-slate-600">Weeks</label>
       <div className="flex items-center gap-1">
         <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.max(1, w-1))} aria-label="Decrease weeks">−</button>
-        <input
-          type="number"
-          min="1"
-          max="24"
-          step="1"
-          className="input w-16 text-center"
-          value={numWeeks}
-          onChange={(e)=> setNumWeeks(()=> {
-            const v = parseInt(e.target.value||'1',10);
-            return isNaN(v) ? 1 : Math.min(24, Math.max(1, v));
-          })}
-        />
+        <input type="number" min="1" max="24" step="1" className="input w-16 text-center" value={numWeeks}
+               onChange={(e)=> setNumWeeks(()=> { const v = parseInt(e.target.value||'1',10); return isNaN(v) ? 1 : Math.min(24, Math.max(1, v)); })} />
         <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.min(24, w+1))} aria-label="Increase weeks">+</button>
       </div>
       <div className="h-6 w-px bg-slate-200" />
-      <button
-        className="btn btn-ghost"
-        title="Jump to today (keeps grid aligned to week start)"
-        onClick={()=> setStartDate(dayjs().format('YYYY-MM-DD'))}
-      >Today</button>
+      <button className="btn btn-ghost" title="Jump to today" onClick={()=> setStartDate(dayjs().format('YYYY-MM-DD'))}>Today</button>
     </div>
   );
 
@@ -477,23 +519,22 @@ function App(){
           <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
           <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
         </div>
-        {controlBar}
+        <div className="flex items-center gap-2">
+          {controlBar}
+          <button className="btn btn-outline ml-2" onClick={async ()=>{ await apiLogout(); onSignOut(); }}>Sign out</button>
+        </div>
       </header>
 
       {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-4">
-        <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={totals.pct}/></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{totals.done}/{totals.total}</div></div>
+        <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={progress.pct}/></div>
+        <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{progress.done}/{progress.total}</div></div>
         <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">{numWeeks}</div></div>
         <div className="card p-4"><div className="text-sm text-slate-500">Start</div><div className="text-2xl font-semibold mt-2">{fmt(startDate)}</div></div>
       </div>
 
       {/* Calendar */}
-      <Section
-        title={`${numWeeks}-Week Visual Calendar`}
-        subtitle="Assign tasks by date; click Assign on a day."
-        right={controlBar}
-      >
+      <Section title={`${numWeeks}-Week Visual Calendar`} subtitle="Assign tasks by date; click Assign on a day." right={controlBar}>
         <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
         </div>
@@ -504,53 +545,31 @@ function App(){
             const out = !inRange(d, startDate, numWeeks);
             const expanded = expandedDays.has(key);
             return (
-              <div
-                key={idx}
-                data-date={key}
-                className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={(e)=>handleDrop(e,key)}
-              >
+              <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
+                   onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-xs font-semibold">{d.format('D')}</div>
                   <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
-                    <div
-                      key={i}
-                      className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
-                      draggable
-                      data-wi={it.wi}
-                      data-ti={it.ti}
-                      data-taskid={it.task_id}   /* carry id during drag */
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      onTouchStart={handleDragStart}
-                      onTouchMove={handleTouchMove}
-                      onTouchEnd={handleTouchEnd}
-                      onTouchCancel={handleTouchEnd}
-                    >
+                    <div key={i}
+                         className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
+                         draggable data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
+                         onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                         onTouchStart={handleDragStart} onTouchMove={handleTouchMove}
+                         onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
                       {it.label}
-                      <button
-                        type="button"
-                        aria-label="Remove"
-                        className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
-                        onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                      >
+                      <button type="button" aria-label="Remove"
+                              className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                              onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
+                              onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
                         ✕
                       </button>
                     </div>
                   ))}
                   {items.length>3 && (
-                    <button
-                      type="button"
-                      className="text-[11px] text-slate-500"
-                      onClick={()=> toggleExpandedDay(key)}
-                    >
+                    <button type="button" className="text-[11px] text-slate-500" onClick={()=> toggleExpandedDay(key)}>
                       {expanded ? 'Show less' : `+${items.length-3} more…`}
                     </button>
                   )}
@@ -579,35 +598,23 @@ function App(){
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
                   {(w.tasks||[]).map((t,ti)=> (
                     <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
-                      <button
-                        type="button"
-                        aria-label="Delete"
-                        className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
-                        onClick={()=> handleDeleteTask(wi,ti)}
-                      >✕</button>
+                      <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
+                              onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
                       <div className="flex items-start gap-3">
                         <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
                         <div className="flex-1">
                           <div className="font-medium">{t.title}</div>
                           <div className="mt-2 flex items-center gap-2 text-sm">
                             <span className="text-slate-600">Assigned:</span>
-                            {/* date change persists via setTaskDate (PATCH) */}
-                            <input
-                              type="date"
-                              className="input w-auto"
-                              value={t.scheduled_for||''}
-                              onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)}
-                            />
+                            <input type="date" className="input w-auto" value={t.scheduled_for||''}
+                                   onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
                           </div>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <button
-                  className="btn btn-outline mt-3"
-                  onClick={()=> handleAddTask(wi)}
-                >+ Add Task</button>
+                <button className="btn btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
               </div>
             );
           })}
@@ -617,9 +624,89 @@ function App(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+/* ---- ROOT: checks /me; shows AuthPanel or App ---- */
+function Root(){
+  const [me, setMe] = useState(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(()=>{
+    (async () => {
+      const user = await apiGetMe();
+      if (user) setMe(user);
+      setChecked(true);
+    })();
+  }, []);
+
+  if (!checked){
+    return <div className="max-w-2xl mx-auto card p-6">Loading…</div>;
+  }
+  if (!me){
+    return <AuthPanel onAuthed={async ()=> { const user = await apiGetMe(); setMe(user); }} />;
+  }
+  return <App me={me} onSignOut={async ()=> { await apiLogout(); setMe(null); }} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 </script>
+<script>
+(function(){
+  const API = window.location.origin;
+  const $ = (id) => document.getElementById(id);
 
+  async function doLocalLogin(e){
+    e.preventDefault();
+    const body = { username: $('li_user').value.trim(), password: $('li_pass').value };
+    try{
+      const r = await fetch(API + '/auth/local/login', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body)
+      });
+      if(!r.ok){ alert('Login failed'); return false; }
+      location.reload();
+    }catch(err){
+      alert('Login error'); 
+    }
+    return false;
+  }
+  async function doLocalRegister(e){
+    e.preventDefault();
+    const body = {
+      username: $('rg_user').value.trim(),
+      email: $('rg_email').value.trim(),
+      full_name: $('rg_name').value.trim(),
+      password: $('rg_pass').value
+    };
+    try{
+      const r = await fetch(API + '/auth/local/register', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body)
+      });
+      if(!r.ok){ alert('Registration failed (username taken?)'); return false; }
+      location.reload();
+    }catch(err){
+      alert('Registration error');
+    }
+    return false;
+  }
 
+  // Expose globally for inline onsubmit references (and keep them scoped)
+  window.doLocalLogin = doLocalLogin;
+  window.doLocalRegister = doLocalRegister;
+
+  // Toggle logic
+  const panel = $('lite-auth');
+  const toggle = $('lite-auth-toggle');
+  const closeBtn = $('lite-auth-close');
+  if(toggle && panel){
+    toggle.addEventListener('click', ()=> {
+      panel.classList.toggle('hidden');
+      // try to focus username
+      const u = $('li_user');
+      if(!panel.classList.contains('hidden') && u){ u.focus(); }
+    });
+  }
+  if(closeBtn && panel){
+    closeBtn.addEventListener('click', ()=> panel.classList.add('hidden'));
+  }
+})();
+</script>
 </body>
 </html>
