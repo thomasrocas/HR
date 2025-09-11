@@ -77,6 +77,7 @@ async function apiPatchTask(taskId, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`PATCH /tasks/${taskId} failed (${res.status})`);
   return res.json();
 }
@@ -100,6 +101,7 @@ async function apiDeleteTask(taskId) {
   const res = await fetch(`${DEFAULT_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
     method: 'DELETE'
   });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`DELETE /tasks/${taskId} failed (${res.status})`);
   return res.json();
 }
@@ -237,18 +239,30 @@ function App(){
     }
   }
 
-    function toggleTask(wi, ti){
-      setWeeks(prev => {
-        const clone = structuredClone(prev);
-        const t = clone[wi].tasks[ti];
-        const newValue = !t.completed;
-        t.completed = newValue;
-        apiPatchTask(t.task_id, { done: newValue }).catch(err => {
-          console.error('Failed to update task completion', err);
-        });
-        return clone;
+  function toggleTask(wi, ti){
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      const t = clone[wi].tasks[ti];
+      const newValue = !t.completed;
+      t.completed = newValue;
+      const revert = () => setWeeks(p => {
+        const c = structuredClone(p);
+        const tt = c[wi]?.tasks?.[ti];
+        if (tt) tt.completed = !newValue;
+        return c;
       });
-    }
+      apiPatchTask(t.task_id, { done: newValue }).then(row => {
+        if (!row) {
+          console.error('Failed to update task completion: not found');
+          revert();
+        }
+      }).catch(err => {
+        console.error('Failed to update task completion', err);
+        revert();
+      });
+      return clone;
+    });
+  }
 
   async function handleAddTask(wi){
     const label = prompt('Task title?');
@@ -285,7 +299,10 @@ function App(){
     if(!task) return;
     if(!confirm('Delete this task?')) return;
     try {
-      await apiDeleteTask(task.task_id);
+      const res = await apiDeleteTask(task.task_id);
+      if (res === null) {
+        console.warn('Task already missing on server');
+      }
       setWeeks(prev => {
         const clone = structuredClone(prev);
         clone[wi].tasks.splice(ti,1);

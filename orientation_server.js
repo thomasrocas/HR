@@ -34,60 +34,82 @@ app.get('/health', async (_req, res) => {
 /* Tip: Run the CREATE TABLE I gave earlier for public.orientation_tasks */
 
 app.get('/tasks', async (req, res) => {
-  const { trainee, start, end } = req.query;
-  const conds = [];
-  const vals = [];
-  if (trainee) { vals.push(trainee); conds.push(`trainee = $${vals.length}`); }
-  if (start)   { vals.push(start);   conds.push(`scheduled_for >= $${vals.length}`); }
-  if (end)     { vals.push(end);     conds.push(`scheduled_for <= $${vals.length}`); }
-  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-  const sql = `SELECT * FROM public.orientation_tasks ${where}
-               ORDER BY scheduled_for NULLS LAST, task_id`;
-  const { rows } = await pool.query(sql, vals);
-  res.json(rows);
+  try {
+    const { trainee, start, end } = req.query;
+    const conds = [];
+    const vals = [];
+    if (trainee) { vals.push(trainee); conds.push(`trainee = $${vals.length}`); }
+    if (start)   { vals.push(start);   conds.push(`scheduled_for >= $${vals.length}`); }
+    if (end)     { vals.push(end);     conds.push(`scheduled_for <= $${vals.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const sql = `SELECT * FROM public.orientation_tasks ${where}
+                 ORDER BY scheduled_for NULLS LAST, task_id`;
+    const { rows } = await pool.query(sql, vals);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /tasks error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.post('/tasks', async (req, res) => {
-  const {
-    trainee, label, scheduled_for = null,
-    done = false, program_id = null, week_number = null, notes = null
-  } = req.body;
+  try {
+    const {
+      trainee, label, scheduled_for = null,
+      done = false, program_id = null, week_number = null, notes = null
+    } = req.body;
 
-  const sql = `
-    INSERT INTO public.orientation_tasks
-      (trainee, label, scheduled_for, done, program_id, week_number, notes)
-    VALUES ($1,$2,$3,$4,$5,$6,$7)
-    RETURNING *;
-  `;
-  const vals = [trainee, label, scheduled_for, !!done, program_id, week_number, notes];
-  const { rows } = await pool.query(sql, vals);
-  res.status(201).json(rows[0]);
+    const sql = `
+      INSERT INTO public.orientation_tasks
+        (trainee, label, scheduled_for, done, program_id, week_number, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      RETURNING *;
+    `;
+    const vals = [trainee, label, scheduled_for, !!done, program_id, week_number, notes];
+    const { rows } = await pool.query(sql, vals);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /tasks error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.patch('/tasks/:id', async (req, res) => {
-  const { id } = req.params;
-  const fields = [];
-  const vals = [];
-  for (const key of ['trainee','label','scheduled_for','done','program_id','week_number','notes']) {
-    if (key in req.body) {
-      vals.push(key === 'done' ? !!req.body[key] : req.body[key]);
-      fields.push(`${key} = $${vals.length}`);
+  try {
+    const { id } = req.params;
+    const fields = [];
+    const vals = [];
+    for (const key of ['trainee','label','scheduled_for','done','program_id','week_number','notes']) {
+      if (key in req.body) {
+        vals.push(key === 'done' ? !!req.body[key] : req.body[key]);
+        fields.push(`${key} = $${vals.length}`);
+      }
     }
+    if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
+    vals.push(id);
+    const sql = `UPDATE public.orientation_tasks
+                 SET ${fields.join(', ')}
+                 WHERE task_id = $${vals.length}
+                 RETURNING *;`;
+    const { rows } = await pool.query(sql, vals);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PATCH /tasks/:id error', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
-  vals.push(id);
-  const sql = `UPDATE public.orientation_tasks
-               SET ${fields.join(', ')}
-               WHERE task_id = $${vals.length}
-               RETURNING *;`;
-  const { rows } = await pool.query(sql, vals);
-  res.json(rows[0]);
 });
 
 app.delete('/tasks/:id', async (req, res) => {
-  const { id } = req.params;
-  await pool.query('DELETE FROM public.orientation_tasks WHERE task_id = $1', [id]);
-  res.json({ deleted: true });
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM public.orientation_tasks WHERE task_id = $1', [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('DELETE /tasks/:id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 /* ==== 6) Start server on port 3002 ==== */
