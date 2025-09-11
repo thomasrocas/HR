@@ -16,6 +16,15 @@
   <!-- Day.js -->
   <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
   <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
+  <script>
+    if (!Array.prototype.flatMap) {
+      Array.prototype.flatMap = function (callback, thisArg) {
+        return this.reduce(function (acc, x, i, arr) {
+          return acc.concat(callback.call(thisArg, x, i, arr));
+        }, []);
+      };
+    }
+  </script>
   <style>
     .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
     .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
@@ -161,14 +170,14 @@ function App(){
 
   function setTaskDate(wi, ti, date){
     setWeeks(prev => {
-      const clone = structuredClone(prev);
+      const clone = JSON.parse(JSON.stringify(prev));
       clone[wi].tasks[ti].scheduled_for = date;
       return clone;
     });
   }
   function toggleTask(wi, ti){
     setWeeks(prev => {
-      const clone = structuredClone(prev);
+      const clone = JSON.parse(JSON.stringify(prev));
       const t = clone[wi].tasks[ti];
       t.completed = !t.completed;
       return clone;
