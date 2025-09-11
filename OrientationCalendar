@@ -46,14 +46,21 @@
 <div id="root" class="max-w-7xl mx-auto px-4 py-6"></div>
 
 <script type="text/babel">
+/**
+ * Persist task assignments to PostgreSQL by PATCH-ing /tasks/:id
+ * Client: orientation_index.html (React + Babel)
+ * Server: orientation_server.js (Express on same origin, e.g., http://localhost:3002)
+ */
 const { useEffect, useMemo, useState, useRef } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
-const DEFAULT_API_BASE = localStorage.getItem('anx_api_base') || 'http://10.200.200.159:3001';
+/* Use same origin the page is served from (works on 3002 and when deployed) */
+const DEFAULT_API_BASE = localStorage.getItem('anx_api_base') || window.location.origin;
 const DEFAULT_TRAINEE   = localStorage.getItem('anx_trainee') || 'Halle Angeles';
 const qs = new URLSearchParams(location.search);
 const QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
 
+/* Helpers */
 const fmt = (d) => dayjs(d).format('MMM D, YYYY');
 const inRange = (d, start, numWeeks) => {
   const s = dayjs(start);
@@ -62,6 +69,17 @@ const inRange = (d, start, numWeeks) => {
   return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day');
 };
 const uid = () => Math.random().toString(36).slice(2);
+
+/* --- API helper for PATCH /tasks/:id --- */
+async function apiPatchScheduledFor(taskId, scheduledFor) {
+  const res = await fetch(`${DEFAULT_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheduled_for: scheduledFor ?? null })
+  });
+  if (!res.ok) throw new Error(`PATCH /tasks/${taskId} failed (${res.status})`);
+  return res.json();
+}
 
 function seedWeeks(){
   return [
@@ -92,6 +110,7 @@ function seedWeeks(){
   ];
 }
 
+/* UI atoms */
 function Section({title, subtitle, children, right}){
   return (
     <section className="card p-4 md:p-6">
@@ -106,7 +125,6 @@ function Section({title, subtitle, children, right}){
     </section>
   );
 }
-
 function ProgressBar({value}){
   return (
     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -127,16 +145,30 @@ function Ring({value=0}){
 
 function App(){
   const [trainee, setTrainee] = useState(DEFAULT_TRAINEE);
-  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD')); // program start date
-  const [numWeeks, setNumWeeks] = useState(6); // NEW: dynamic # of weeks
+  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
   const [assignPicker, setAssignPicker] = useState(null); // {date}
-  const [dragBadge, setDragBadge] = useState(null); // {wi,ti}
-  const [expandedDays, setExpandedDays] = useState(new Set()); // tracks which calendar days are expanded
+  const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
+  const [expandedDays, setExpandedDays] = useState(new Set());
   const touchHover = useRef(null);
 
+  /* --- Add a persistent task_id to each task on mount --- */
   useEffect(()=>{
-    if(!weeks.length) setWeeks(seedWeeks().map(w=> ({...w, id: uid(), tasks: (w.tasks||[]).map(t=> ({...t, id: uid(), notes:'', completed:false, scheduled_for:null})) })));
+    if(!weeks.length) {
+      setWeeks(
+        seedWeeks().map(w => ({
+          ...w,
+          id: uid(),
+          tasks: (w.tasks||[]).map(t => ({
+            ...t,
+            id: uid(),             // local UI id
+            task_id: uid(),        // NEW: unique identifier to use with PATCH
+            notes:'', completed:false, scheduled_for:null
+          }))
+        }))
+      );
+    }
   }, []);
 
   const totals = useMemo(()=>{
@@ -146,32 +178,48 @@ function App(){
     return {done, total, pct: Math.round(100*done/total)};
   }, [weeks]);
 
-  // Calendar helpers
+  /* Calendar helpers */
   const calDays = useMemo(()=>{
-    const s = dayjs(startDate).startOf('week'); // keep grid aligned to week start (Sun) for visual clarity
+    const s = dayjs(startDate).startOf('week'); // keep grid aligned to week start (Sun)
     const totalDays = Math.max(7, numWeeks * 7);
     return Array.from({length: totalDays}, (_,i)=> s.add(i,'day'));
   }, [startDate, numWeeks]);
 
+  /* Map of YYYY-MM-DD to scheduled items */
   const scheduledMap = useMemo(()=>{
     const map = {};
     weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
       if(t.scheduled_for){
         const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
         map[key] = map[key] || [];
-        map[key].push({ label:`W${w.wk}: ${t.title}`, done: t.completed, wi, ti });
+        map[key].push({ label:`W${w.wk}: ${t.title}`, done: t.completed, wi, ti, task_id: t.task_id });
       }
     }));
     return map;
   }, [weeks]);
 
-  function setTaskDate(wi, ti, date){
+  /* --- Make setTaskDate async + PATCH to server --- */
+  async function setTaskDate(wi, ti, date, taskIdOverride){
+    // 1) update local state immediately for snappy UI
     setWeeks(prev => {
       const clone = structuredClone(prev);
-      clone[wi].tasks[ti].scheduled_for = date;
+      if (clone[wi]?.tasks?.[ti]) clone[wi].tasks[ti].scheduled_for = date;
       return clone;
     });
+
+    // 2) persist to API
+    const taskId = taskIdOverride ?? weeks[wi]?.tasks?.[ti]?.task_id;
+    if (!taskId) { console.warn('No task_id found for PATCH'); return; }
+
+    try {
+      await apiPatchScheduledFor(taskId, date || null);
+    } catch (err) {
+      console.error('Failed to save scheduled_for', err);
+      // Optional: revert UI if needed
+      // setWeeks(prev => { const c=structuredClone(prev); c[wi].tasks[ti].scheduled_for = oldDate; return c; });
+    }
   }
+
   function toggleTask(wi, ti){
     setWeeks(prev => {
       const clone = structuredClone(prev);
@@ -190,12 +238,10 @@ function App(){
   }
 
   function handleDragStart(e){
-    const { wi, ti } = e.currentTarget.dataset;
-    setDragBadge({ wi: Number(wi), ti: Number(ti) });
+    const { wi, ti, taskid } = e.currentTarget.dataset;
+    setDragBadge({ wi: Number(wi), ti: Number(ti), task_id: taskid });
   }
-  function handleDragEnd(){
-    setDragBadge(null);
-  }
+  function handleDragEnd(){ setDragBadge(null); }
   function handleDragOver(e){
     e.preventDefault();
     e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
@@ -203,14 +249,17 @@ function App(){
   function handleDragLeave(e){
     e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
   }
+
+  /* --- Use async setTaskDate (PATCH) on drop --- */
   function handleDrop(e, date){
     e.preventDefault();
     handleDragLeave(e);
     if(dragBadge){
-      setTaskDate(dragBadge.wi, dragBadge.ti, date);
+      setTaskDate(dragBadge.wi, dragBadge.ti, date, dragBadge.task_id);
       setDragBadge(null);
     }
   }
+
   function handleTouchMove(e){
     const touch = e.touches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -238,25 +287,23 @@ function App(){
     }
   }
 
-  // Build week-grouped task matrix for Excel-like grid
+  /* Build week-grouped task matrix for Assign modal */
   const weekColumns = useMemo(()=> {
     const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
-    // Only surface tasks that have not been scheduled yet so the
-    // assignment modal shows remaining work.
     return sorted.map((w,wi)=> ({
       wk: w.wk,
       title: w.title,
       items: (w.tasks||[])
-        .map((t, ti) => (!t.scheduled_for ? { label: t.title, wi, ti } : null))
+        .map((t, ti) => (!t.scheduled_for ? { label: t.title, wi, ti, task_id: t.task_id } : null))
         .filter(Boolean)
     }));
   }, [weeks]);
 
+  /* --- Assign uses async setTaskDate (PATCH) --- */
   function AssignModal({date, onClose}){
-    // Weeks with at least one unscheduled task
     const visible = weekColumns.filter(c => c.items.length);
     const handleAssign = (it) => {
-      setTaskDate(it.wi, it.ti, date);
+      setTaskDate(it.wi, it.ti, date, it.task_id);
       onClose();
     };
     return ReactDOM.createPortal(
@@ -301,7 +348,7 @@ function App(){
     );
   }
 
-  // Controls: Start Date + Weeks
+  /* Controls: Start Date + Weeks */
   const controlBar = (
     <div className="flex items-center gap-3">
       <label className="text-sm text-slate-600">Start</label>
@@ -343,7 +390,7 @@ function App(){
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
-          <p className="text-sm text-slate-500">{numWeeks}‑Week Program • Start {fmt(startDate)}</p>
+          <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
         </div>
         {controlBar}
       </header>
@@ -358,7 +405,7 @@ function App(){
 
       {/* Calendar */}
       <Section
-        title={`${numWeeks}‑Week Visual Calendar`}
+        title={`${numWeeks}-Week Visual Calendar`}
         subtitle="Assign tasks by date; click Assign on a day."
         right={controlBar}
       >
@@ -392,6 +439,7 @@ function App(){
                       draggable
                       data-wi={it.wi}
                       data-ti={it.ti}
+                      data-taskid={it.task_id}   /* carry id during drag */
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onTouchStart={handleDragStart}
@@ -404,7 +452,7 @@ function App(){
                         type="button"
                         aria-label="Remove"
                         className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
-                        onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null); }}
+                        onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
                       >
@@ -452,7 +500,13 @@ function App(){
                           <div className="font-medium">{t.title}</div>
                           <div className="mt-2 flex items-center gap-2 text-sm">
                             <span className="text-slate-600">Assigned:</span>
-                            <input type="date" className="input w-auto" value={t.scheduled_for||''} onChange={e=> setTaskDate(wi,ti, e.target.value||null)} />
+                            {/* date change persists via setTaskDate (PATCH) */}
+                            <input
+                              type="date"
+                              className="input w-auto"
+                              value={t.scheduled_for||''}
+                              onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)}
+                            />
                           </div>
                         </div>
                       </div>
@@ -470,5 +524,6 @@ function App(){
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
+
 </body>
 </html>
