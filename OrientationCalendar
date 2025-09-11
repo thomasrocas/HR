@@ -275,6 +275,7 @@ function App(){
                           key={i}
                           className="btn btn-outline justify-start truncate text-left"
                           title={it.label}
+                          aria-label={it.label}
                           onClick={()=> handleAssign(it)}
                         >
                           {it.label}
