@@ -71,11 +71,11 @@ const inRange = (d, start, numWeeks) => {
 const uid = () => Math.random().toString(36).slice(2);
 
 /* --- API helper for PATCH /tasks/:id --- */
-async function apiPatchScheduledFor(taskId, scheduledFor) {
+async function apiPatchTask(taskId, payload) {
   const res = await fetch(`${DEFAULT_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scheduled_for: scheduledFor ?? null })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error(`PATCH /tasks/${taskId} failed (${res.status})`);
   return res.json();
@@ -214,23 +214,27 @@ function App(){
     const taskId = taskIdOverride ?? weeks[wi]?.tasks?.[ti]?.task_id;
     if (!taskId) { console.warn('No task_id found for PATCH'); return; }
 
-    try {
-      await apiPatchScheduledFor(taskId, date || null);
-    } catch (err) {
-      console.error('Failed to save scheduled_for', err);
-      alert('Failed to save scheduled date');
-      // Optional: revert UI if needed
-    }
+      try {
+        await apiPatchTask(taskId, { scheduled_for: date || null });
+      } catch (err) {
+        console.error('Failed to save scheduled_for', err);
+        alert('Failed to save scheduled date');
+        // Optional: revert UI if needed
+      }
   }
 
-  function toggleTask(wi, ti){
-    setWeeks(prev => {
-      const clone = structuredClone(prev);
-      const t = clone[wi].tasks[ti];
-      t.completed = !t.completed;
-      return clone;
-    });
-  }
+    function toggleTask(wi, ti){
+      setWeeks(prev => {
+        const clone = structuredClone(prev);
+        const t = clone[wi].tasks[ti];
+        const newValue = !t.completed;
+        t.completed = newValue;
+        apiPatchTask(t.task_id, { done: newValue }).catch(err => {
+          console.error('Failed to update task completion', err);
+        });
+        return clone;
+      });
+    }
 
   async function handleAddTask(wi){
     const label = prompt('Task title?');
