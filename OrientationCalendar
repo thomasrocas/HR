@@ -227,6 +227,8 @@ function App(){
   // Build week-grouped task matrix for Excel-like grid
   const weekColumns = React.useMemo(()=> {
     const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
+    // Only surface tasks that have not been scheduled yet so the
+    // assignment modal shows remaining work.
     return sorted.map((w,wi)=> ({
       wk: w.wk,
       title: w.title,
@@ -237,7 +239,12 @@ function App(){
   }, [weeks]);
 
   function AssignModal({date, onClose}){
+    // Weeks with at least one unscheduled task
     const visible = weekColumns.filter(c => c.items.length);
+    const handleAssign = (it) => {
+      setTaskDate(it.wi, it.ti, date);
+      onClose();
+    };
     return ReactDOM.createPortal(
       <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
         <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
@@ -255,10 +262,12 @@ function App(){
                     </div>
                     <div className="p-2 grid gap-2">
                       {col.items.map((it, i)=> (
-                        <button key={i}
+                        <button
+                          key={i}
                           className="btn btn-outline justify-start truncate text-left"
                           title={it.label}
-                          onClick={()=> { setTaskDate(it.wi, it.ti, date); onClose(); }}>
+                          onClick={()=> handleAssign(it)}
+                        >
                           {it.label}
                         </button>
                       ))}
