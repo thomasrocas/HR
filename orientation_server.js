@@ -159,12 +159,10 @@ app.post('/auth/local/login', async (req, res) => {
 });
 
 // Logout (works for both)
-app.post('/auth/logout', (req, res, next) => {
-  if (!req.session) return res.json({ ok: true });
-  req.logout(err => {
-    if (err) return next(err);
-    req.session.destroy(() => res.json({ ok: true }));
-  });
+app.post('/auth/logout', (req, res) => {
+  req.logout?.(() => {});
+  req.session?.destroy(() => {});
+  res.json({ ok: true });
 });
 
 // Me + Preferences
