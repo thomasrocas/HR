@@ -81,6 +81,25 @@ async function apiPatchScheduledFor(taskId, scheduledFor) {
   return res.json();
 }
 
+/* --- API helpers for POST and DELETE /tasks --- */
+async function apiCreateTask(data) {
+  const res = await fetch(`${DEFAULT_API_BASE}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error(`POST /tasks failed (${res.status})`);
+  return res.json();
+}
+
+async function apiDeleteTask(taskId) {
+  const res = await fetch(`${DEFAULT_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error(`DELETE /tasks/${taskId} failed (${res.status})`);
+  return res.json();
+}
+
 
 /* UI atoms */
 function Section({title, subtitle, children, right}){
@@ -199,6 +218,7 @@ function App(){
       await apiPatchScheduledFor(taskId, date || null);
     } catch (err) {
       console.error('Failed to save scheduled_for', err);
+      alert('Failed to save scheduled date');
       // Optional: revert UI if needed
     }
   }
@@ -210,6 +230,53 @@ function App(){
       t.completed = !t.completed;
       return clone;
     });
+  }
+
+  async function handleAddTask(wi){
+    const label = prompt('Task title?');
+    if(!label) return;
+    try {
+      const created = await apiCreateTask({
+        trainee,
+        label,
+        week_number: weeks[wi].wk,
+        program_id: QS_PROGRAM_ID
+      });
+      setWeeks(prev => {
+        const clone = structuredClone(prev);
+        const task = {
+          id: created.task_id,
+          task_id: created.task_id,
+          title: created.label,
+          notes: created.notes || '',
+          completed: created.done,
+          scheduled_for: created.scheduled_for
+        };
+        clone[wi].tasks = clone[wi].tasks || [];
+        clone[wi].tasks.push(task);
+        return clone;
+      });
+    } catch(err){
+      console.error('Failed to create task', err);
+      alert('Failed to create task');
+    }
+  }
+
+  async function handleDeleteTask(wi, ti){
+    const task = weeks[wi]?.tasks?.[ti];
+    if(!task) return;
+    if(!confirm('Delete this task?')) return;
+    try {
+      await apiDeleteTask(task.task_id);
+      setWeeks(prev => {
+        const clone = structuredClone(prev);
+        clone[wi].tasks.splice(ti,1);
+        return clone;
+      });
+    } catch(err){
+      console.error('Failed to delete task', err);
+      alert('Failed to delete task');
+    }
   }
 
   function toggleExpandedDay(key){
@@ -476,7 +543,13 @@ function App(){
                 </div>
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
                   {(w.tasks||[]).map((t,ti)=> (
-                    <div key={t.id} className={`card p-3 ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
+                    <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
+                      <button
+                        type="button"
+                        aria-label="Delete"
+                        className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
+                        onClick={()=> handleDeleteTask(wi,ti)}
+                      >✕</button>
                       <div className="flex items-start gap-3">
                         <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
                         <div className="flex-1">
@@ -496,6 +569,10 @@ function App(){
                     </div>
                   ))}
                 </div>
+                <button
+                  className="btn btn-outline mt-3"
+                  onClick={()=> handleAddTask(wi)}
+                >+ Add Task</button>
               </div>
             );
           })}
