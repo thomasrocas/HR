@@ -230,11 +230,14 @@ function App(){
     return sorted.map((w,wi)=> ({
       wk: w.wk,
       title: w.title,
-      items: (w.tasks||[]).map((t,ti)=> ({ label: t.title, wi, ti }))
+      items: (w.tasks||[])
+        .filter(t=>!t.scheduled_for)
+        .map((t,ti)=> ({ label: t.title, wi, ti }))
     }));
   }, [weeks]);
 
   function AssignModal({date, onClose}){
+    const visible = weekColumns.filter(c => c.items.length);
     return ReactDOM.createPortal(
       <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
         <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
@@ -243,25 +246,31 @@ function App(){
             <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
           </div>
           <div className="fm-modal-body">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-              {weekColumns.map((col, idx)=> (
-                <div key={idx} className="border rounded-xl overflow-hidden">
-                  <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">
-                    Week {col.wk}
+            {visible.length ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                {visible.map((col, idx)=> (
+                  <div key={idx} className="border rounded-xl overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">
+                      Week {col.wk}
+                    </div>
+                    <div className="p-2 grid gap-2">
+                      {col.items.map((it, i)=> (
+                        <button key={i}
+                          className="btn btn-outline justify-start truncate text-left"
+                          title={it.label}
+                          onClick={()=> { setTaskDate(it.wi, it.ti, date); onClose(); }}>
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="p-2 grid gap-2">
-                    {col.items.map((it, i)=> (
-                      <button key={i}
-                        className="btn btn-outline justify-start truncate text-left"
-                        title={it.label}
-                        onClick={()=> { setTaskDate(it.wi, it.ti, date); onClose(); }}>
-                        {it.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <div className="card p-6 text-center text-sm text-slate-500">All tasks are scheduled!</div>
+              </div>
+            )}
           </div>
         </div>
       </div>,
