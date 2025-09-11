@@ -25,6 +25,7 @@
     .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700; }
     .input{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
     .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+    .outline-dashed{ outline-style: dashed; }
 
     /* Web Viewer safe modal */
     .fm-modal-overlay{
@@ -45,7 +46,7 @@
 <div id="root" class="max-w-7xl mx-auto px-4 py-6"></div>
 
 <script type="text/babel">
-const { useEffect, useMemo, useState } = React;
+const { useEffect, useMemo, useState, useRef } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
 const DEFAULT_API_BASE = localStorage.getItem('anx_api_base') || 'http://10.200.200.159:3001';
@@ -127,6 +128,8 @@ function App(){
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [weeks, setWeeks] = useState([]);
   const [assignPicker, setAssignPicker] = useState(null); // {date}
+  const [dragBadge, setDragBadge] = useState(null); // {wi,ti}
+  const touchHover = useRef(null);
 
   useEffect(()=>{
     if(!weeks.length) setWeeks(seedWeeks().map(w=> ({...w, id: uid(), tasks: (w.tasks||[]).map(t=> ({...t, id: uid(), notes:'', completed:false, scheduled_for:null})) })));
@@ -170,6 +173,55 @@ function App(){
       t.completed = !t.completed;
       return clone;
     });
+  }
+
+  function handleDragStart(e){
+    const { wi, ti } = e.currentTarget.dataset;
+    setDragBadge({ wi: Number(wi), ti: Number(ti) });
+  }
+  function handleDragEnd(){
+    setDragBadge(null);
+  }
+  function handleDragOver(e){
+    e.preventDefault();
+    e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
+  }
+  function handleDragLeave(e){
+    e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
+  }
+  function handleDrop(e, date){
+    e.preventDefault();
+    handleDragLeave(e);
+    if(dragBadge){
+      setTaskDate(dragBadge.wi, dragBadge.ti, date);
+      setDragBadge(null);
+    }
+  }
+  function handleTouchMove(e){
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if(touchHover.current && touchHover.current !== el){
+      handleDragLeave({currentTarget: touchHover.current});
+      touchHover.current = null;
+    }
+    if(el && el.dataset && el.dataset.date){
+      handleDragOver({preventDefault: ()=>{}, currentTarget: el});
+      touchHover.current = el;
+    }
+    e.preventDefault();
+  }
+  function handleTouchEnd(e){
+    const touch = e.changedTouches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if(touchHover.current){
+      handleDragLeave({currentTarget: touchHover.current});
+      touchHover.current = null;
+    }
+    if(el && el.dataset && el.dataset.date){
+      handleDrop({preventDefault: ()=>{}, currentTarget: el}, el.dataset.date);
+    } else {
+      setDragBadge(null);
+    }
   }
 
   // Build week-grouped task matrix for Excel-like grid
@@ -245,13 +297,35 @@ function App(){
             const items = scheduledMap[key]||[];
             const out = !in6WeekRange(d, startDate);
             return (
-              <div key={idx} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}>
+              <div
+                key={idx}
+                data-date={key}
+                className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={(e)=>handleDrop(e,key)}
+              >
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-xs font-semibold">{d.format('D')}</div>
                   <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
                 </div>
                 <div className="space-y-1">
-                  {items.slice(0,3).map((it,i)=> <div key={i} className={`text-[11px] px-2 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}>{it.label}</div>)}
+                  {items.slice(0,3).map((it,i)=> (
+                    <div
+                      key={i}
+                      draggable
+                      data-wi={it.wi}
+                      data-ti={it.ti}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onTouchStart={handleDragStart}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onTouchCancel={handleTouchEnd}
+                    >
+                      <div className={`text-[11px] px-2 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}>{it.label}</div>
+                    </div>
+                  ))}
                   {items.length>3 && <div className="text-[11px] text-slate-500">+{items.length-3} more…</div>}
                 </div>
               </div>
