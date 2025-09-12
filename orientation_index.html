@@ -624,7 +624,13 @@ function App({ me, onSignOut }){
     if(!confirm('Delete this task?')) return;
     try {
       await apiDeleteTask(task.task_id);
-      await reloadTasks();
+      const weekNumber = weeks[wi].wk;
+      setWeeks(ws => {
+        const copy = ws.map(w => ({ ...w, tasks: [...(w.tasks||[])] }));
+        copy[wi].tasks.splice(ti,1);
+        return copy;
+      });
+      setDeletedTasks(dt => [...dt, { ...task, label: task.title, week_number: weekNumber }]);
     } catch(err){
       console.error('Failed to delete task', err);
       alert('Failed to delete task');
@@ -634,8 +640,27 @@ function App({ me, onSignOut }){
   async function handleRestoreTask(taskId){
     try {
       const res = await apiRestoreTask(taskId);
-      if (res === null) console.warn('Task missing on server');
-      await reloadTasks();
+      if (res === null) { console.warn('Task missing on server'); return; }
+      setDeletedTasks(dt => dt.filter(t => t.task_id !== taskId));
+      setWeeks(ws => {
+        const copy = ws.map(w => ({ ...w, tasks: [...(w.tasks||[])] }));
+        const wi = copy.findIndex(w => w.wk === res.week_number);
+        const newTask = {
+          id: res.task_id,
+          task_id: res.task_id,
+          title: res.label,
+          notes: res.notes || '',
+          completed: res.done,
+          scheduled_for: res.scheduled_for
+        };
+        if (wi !== -1) {
+          copy[wi].tasks.push(newTask);
+        } else {
+          copy.push({ id: uid(), wk: res.week_number, title:'', theme:'', result:'', purpose:'', actions:'', tasks:[newTask] });
+          copy.sort((a,b)=> a.wk - b.wk);
+        }
+        return copy;
+      });
     } catch(err){
       console.error('Failed to restore task', err);
       alert('Failed to restore task');
@@ -1098,7 +1123,7 @@ function App({ me, onSignOut }){
           {deletedTasks.length ? (
             deletedTasks.map(t => (
               <div key={t.task_id} className="flex items-center justify-between">
-                <span>{t.label}</span>
+                <span>{t.label || t.title}</span>
                 <button className="btn btn-ghost text-xs" onClick={() => handleRestoreTask(t.task_id)}>Restore</button>
               </div>
             ))
