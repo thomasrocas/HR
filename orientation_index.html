@@ -1028,8 +1028,22 @@ function App({ me, onSignOut }){
                     <div className="text-xs text-slate-500">Sort {t.sort_order}{t.notes?` • ${t.notes}`:''}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="btn btn-ghost text-xs" onClick={()=> startEdit(t)}>Edit</button>
-                    <button className="btn btn-ghost text-xs" onClick={()=> handleDelete(t.template_id)}>Delete</button>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => startEdit(t)}
+                      title="Edit"
+                    >
+                      <span aria-hidden="true">✏️</span>
+                      <span className="sr-only">Edit</span>
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => handleDelete(t.template_id)}
+                      title="Delete"
+                    >
+                      <span aria-hidden="true">🗑️</span>
+                      <span className="sr-only">Delete</span>
+                    </button>
                   </div>
                 </div>
               ))}
