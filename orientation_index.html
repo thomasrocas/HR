@@ -416,7 +416,7 @@ function App({ me, onSignOut }){
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useState(false);
- 
+  const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
   const panelLabel = panelOpen ? 'Close Panel' : 'Open Panel';
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
@@ -1067,13 +1067,12 @@ function App({ me, onSignOut }){
   return (
     <div className="flex">
       <div className="flex-1 space-y-6 py-6">
-
-        <header className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
-              <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
-
+          <header className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
+                <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               {controlBar}
@@ -1206,57 +1205,49 @@ function App({ me, onSignOut }){
         </div>
       </Section>
     </div>
-
-    {panelOpen && (
-      <div className="fixed inset-0 bg-black/50 md:hidden" onClick={() => setPanelOpen(false)}></div>
-    )}
-    {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
-    <aside
-      ref={panelRef}
-      className={`card relative bg-slate-50 w-64 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
-                  ${panelOpen ? 'translate-x-0' : 'translate-x-full'}`}
-    >
-        <button
-          className="btn btn-outline absolute top-4 left-0 -translate-x-full"
-          onClick={()=> setPanelOpen(o=>!o)}
-          aria-pressed={panelOpen}
+      <button
+        className="btn btn-outline md:hidden fixed bottom-4 right-4 rounded-xl shadow-lg"
+        onClick={togglePanel}
+        aria-pressed={panelOpen}
+      >
+        {panelLabel}
+      </button>
+        {panelOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
+            onClick={togglePanel}
+          ></div>
+        )}
+        {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
+        <div
+          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
+          style={{ right: panelWidth }}
+          onPointerDown={startResize}
+        ></div>
+        <aside
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="panel-heading"
+          className={`card bg-slate-50 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
+                     ${panelOpen ? 'translate-x-0' : 'translate-x-full'} md:static md:block md:translate-x-0`}
+          style={{ width: panelWidth }}
         >
-          {panelLabel}
-        </button>
-        <div>
-          <h3 className="text-sm font-semibold mb-2">Account</h3>
-          <form className="space-y-2" onSubmit={saveAccount}>
-            <div>
-              <label htmlFor="acct_fullname" className="text-sm block mb-1">Full name</label>
-              <input id="acct_fullname" className="input" value={acctName} onChange={e=> setAcctName(e.target.value)} />
-            </div>
-            <div>
-              <label htmlFor="acct_email" className="text-sm block mb-1">Email</label>
-              <input id="acct_email" className="input" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
-            </div>
-            <div>
-              <label htmlFor="acct_username" className="text-sm block mb-1">Username</label>
-              <input id="acct_username" className="input" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
-            </div>
-            {acctMsg && <div className="text-xs text-slate-500">{acctMsg}</div>}
-            <button className="btn btn-primary w-full mt-2" type="submit">Save</button>
-          </form>
-        </div>
-        <div className="pt-4 border-t border-slate-200">
-          <h3 className="text-sm font-semibold mb-2">Change Password</h3>
-          <form className="space-y-2" onSubmit={changePassword}>
-            <div>
-              <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
-              <input id="pw_current" type="password" className="input" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
-            </div>
-            <div>
-              <label htmlFor="pw_new" className="text-sm block mb-1">New Password</label>
-              <input id="pw_new" type="password" className="input" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
-            </div>
-            {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
-            <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
-          </form>
-
+        <h2 id="panel-heading" className="sr-only">Side Panel</h2>
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
+          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-semibold">
+            {(acctName||'').split(/\s+/).map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate">{acctName}</div>
+            <div className="text-sm text-slate-500 truncate">{acctEmail}</div>
+          </div>
+          <button
+            className="btn btn-ghost text-sm"
+            onClick={()=> setOpenSections(prev=> prev.includes('account')? prev : [...prev,'account'])}
+          >
+            Edit
+          </button>
         </div>
         <div className="pt-4 space-y-4">
           {/* Account */}
