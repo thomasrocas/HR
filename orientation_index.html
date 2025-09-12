@@ -72,7 +72,7 @@ const inRange = (d, start, numWeeks) => {
 };
 const uid = () => Math.random().toString(36).slice(2);
 
-function useFocusTrap(ref, active) {
+function useFocusTrap(active, ref) {
   useEffect(() => {
     if (!active) return;
     const node = ref.current;
@@ -102,7 +102,7 @@ function useFocusTrap(ref, active) {
     const focusable = getFocusable();
     focusable[0] && focusable[0].focus();
     return () => document.removeEventListener('keydown', handleKey);
-  }, [ref, active]);
+  }, [active, ref]);
 }
 
 function useLocalStorageState(key, initial) {
@@ -423,7 +423,7 @@ function App({ me, onSignOut }){
   const [needsInstantiate, setNeedsInstantiate] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
   const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
@@ -491,7 +491,7 @@ function App({ me, onSignOut }){
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [panelOpen]);
-  useFocusTrap(panelRef, panelOpen);
+  useFocusTrap(panelOpen, panelRef);
 
   function buildWeeks(rows){
     const byWeek = {};
