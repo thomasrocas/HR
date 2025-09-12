@@ -190,7 +190,8 @@ test('deleted task can be restored', async () => {
   res = await agent.get('/tasks').expect(200);
   expect(res.body.find(t => t.task_id === taskId)).toBeDefined();
 
-  const progRows = await pool.query('select 1 from public.programs where program_id=$1', [progId]);
-  expect(progRows.rowCount).toBe(1);
+  // program should still be returned by GET /programs
+  res = await agent.get('/programs').expect(200);
+  expect(res.body.find(p => p.program_id === progId)).toBeDefined();
 });
 });
