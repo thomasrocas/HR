@@ -11,18 +11,27 @@
 <div id="msg"></div>
 <script>
   const params = new URLSearchParams(location.search);
-  document.getElementById('token').value = params.get('token') || '';
-  document.getElementById('resetForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const password = document.getElementById('password').value;
-    const token = document.getElementById('token').value;
-    const res = await fetch('/auth/local/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, password })
+  const form = document.getElementById('resetForm');
+  const msgEl = document.getElementById('msg');
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const token = params.get('token');
+
+  if (!token) {
+    msgEl.innerText = 'Reset link is invalid or expired';
+    submitBtn.disabled = true;
+  } else {
+    document.getElementById('token').value = token;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const res = await fetch('/auth/local/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password })
+      });
+      msgEl.innerText = res.ok ? 'Password updated' : 'Reset failed';
     });
-    document.getElementById('msg').innerText = res.ok ? 'Password updated' : 'Reset failed';
-  });
+  }
 </script>
 </body>
 </html>
