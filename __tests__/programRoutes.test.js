@@ -50,11 +50,23 @@ describe('program routes', () => {
         notes text,
         sort_order int
       );
+      create table public.orientation_tasks (
+        task_id uuid primary key,
+        user_id uuid,
+        trainee text,
+        label text not null,
+        scheduled_for date,
+        done boolean,
+        program_id text,
+        week_number int,
+        notes text
+      );
     `);
   });
 
   afterEach(async () => {
     await pool.query('delete from public.program_task_templates');
+    await pool.query('delete from public.orientation_tasks');
     await pool.query('delete from public.programs');
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
@@ -145,5 +157,27 @@ test('delete removes template row', async () => {
 
   const { rowCount } = await pool.query('select 1 from public.program_task_templates where template_id=$1', [tmplId]);
   expect(rowCount).toBe(0);
+});
+
+test('delete task keeps parent program', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user5', hash, 'local']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user5', password: 'passpass' }).expect(200);
+
+  const progId = 'prog5';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+
+  const taskId = crypto.randomUUID();
+  await pool.query('insert into public.orientation_tasks(task_id, user_id, label, program_id) values ($1,$2,$3,$4)', [taskId, userId, 'task', progId]);
+
+  await agent.delete(`/tasks/${taskId}`).expect(200, { deleted: true });
+
+  const progRows = await pool.query('select 1 from public.programs where program_id=$1', [progId]);
+  expect(progRows.rowCount).toBe(1);
+  const taskRows = await pool.query('select 1 from public.orientation_tasks where task_id=$1', [taskId]);
+  expect(taskRows.rowCount).toBe(0);
 });
 });
