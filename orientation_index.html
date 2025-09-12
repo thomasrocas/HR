@@ -1383,16 +1383,25 @@ function App({ me, onSignOut }){
                     .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
                     .map(p => (
                     <div key={p.program_id} className="flex items-center gap-1">
-                      <span className="flex-1 truncate">{p.title}</span>
-                      <button className="btn btn-ghost" onClick={() => refreshPrograms(p.program_id)}>Open</button>
+                      <span className="flex-1 flex items-center gap-1 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => refreshPrograms(p.program_id)}
+                        title="Open"
+                      >
+                        <span aria-hidden="true">📂</span>
+                        <span className="sr-only">Open</span>
+                      </button>
                       <button
                         className="btn btn-ghost"
                         onClick={() => {
                           setTemplateProgramId(p.program_id);
                           setShowTemplates(true);
                         }}
+                        title="Templates"
                       >
-                        Templates
+                        <span aria-hidden="true">📝</span>
+                        <span className="sr-only">Templates</span>
                       </button>
                       <details className="relative">
                         <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
@@ -1401,13 +1410,15 @@ function App({ me, onSignOut }){
                             className="btn btn-ghost w-full justify-start"
                             onClick={() => setProgramModal({ show: true, program: p })}
                           >
-                            Edit
+                            <span aria-hidden="true">✏️</span>
+                            <span>Edit</span>
                           </button>
                           <button
                             className="btn btn-ghost w-full justify-start"
                             onClick={() => handleDeleteProgram(p.program_id)}
                           >
-                            Delete
+                            <span aria-hidden="true">🗑️</span>
+                            <span>Delete</span>
                           </button>
                         </div>
                       </details>
