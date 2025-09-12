@@ -64,6 +64,39 @@ const inRange = (d, start, numWeeks) => {
 };
 const uid = () => Math.random().toString(36).slice(2);
 
+function useFocusTrap(ref, active) {
+  useEffect(() => {
+    if (!active) return;
+    const node = ref.current;
+    if (!node) return;
+    const selector =
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => node.querySelectorAll(selector);
+    const handleKey = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    const focusable = getFocusable();
+    focusable[0] && focusable[0].focus();
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [ref, active]);
+}
+
 /* ---- AUTH PANEL (Local + Google) ---- */
 function AuthPanel({ onAuthed }){
   const [mode, setMode] = useState('login');
@@ -366,6 +399,19 @@ function App({ me, onSignOut }){
   const [templateProgramId, setTemplateProgramId] = useState(null);
   const touchHover = useRef(null);
   const panelRef = useRef(null);
+  const triggerRef = useRef(null);
+  const restoreFocus = () => {
+    triggerRef.current && triggerRef.current.focus();
+  };
+  const togglePanel = (e) => {
+    if (panelOpen) {
+      setPanelOpen(false);
+      restoreFocus();
+    } else {
+      triggerRef.current = e.currentTarget;
+      setPanelOpen(true);
+    }
+  };
 
   const [acctName, setAcctName] = useState(me?.name || '');
   const [acctEmail, setAcctEmail] = useState(me?.email || '');
@@ -379,38 +425,15 @@ function App({ me, onSignOut }){
     if (!panelOpen) return;
     const handleKey = (e) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         setPanelOpen(false);
-      } else if (e.key === 'Tab') {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const focusable = panel.querySelectorAll(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-        );
-        if (!focusable.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
+        restoreFocus();
       }
     };
-
     document.addEventListener('keydown', handleKey);
-    const panel = panelRef.current;
-    const focusable = panel?.querySelectorAll(
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-    );
-    focusable && focusable[0] && focusable[0].focus();
     return () => document.removeEventListener('keydown', handleKey);
   }, [panelOpen]);
+  useFocusTrap(panelRef, panelOpen);
 
   function buildWeeks(rows){
     const byWeek = {};
@@ -1001,24 +1024,24 @@ function App({ me, onSignOut }){
   return (
     <div className="flex">
       <div className="flex-1 space-y-6 py-6">
-        <header className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
-              <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
+          <header className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
+                <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {controlBar}
-            <button
-              className="btn btn-outline btn-sm hidden md:inline-flex"
-              onClick={()=> setPanelOpen(o=>!o)}
-              aria-pressed={panelOpen}
-            >
-              {panelLabel}
-            </button>
-          </div>
-        </header>
+            <div className="flex items-center gap-2">
+              {controlBar}
+              <button
+                className="btn btn-outline btn-sm hidden md:inline-flex"
+                onClick={togglePanel}
+                aria-pressed={panelOpen}
+              >
+                {panelLabel}
+              </button>
+            </div>
+          </header>
 
       {needsInstantiate && (
         <div className="card p-6">
@@ -1139,22 +1162,29 @@ function App({ me, onSignOut }){
         </div>
       </Section>
     </div>
-    <button
-      className="btn btn-outline md:hidden fixed bottom-4 right-4 rounded-xl shadow-lg"
-      onClick={()=> setPanelOpen(o=>!o)}
-      aria-pressed={panelOpen}
-    >
-      {panelLabel}
-    </button>
-    {panelOpen && (
-      <div className="fixed inset-0 bg-black/50 md:hidden" onClick={() => setPanelOpen(false)}></div>
-    )}
-    {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
-    <aside
-      ref={panelRef}
-      className={`card bg-slate-50 w-64 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
-                  ${panelOpen ? 'block translate-x-0' : 'hidden translate-x-full'} md:static md:block md:translate-x-0`}
-    >
+      <button
+        className="btn btn-outline md:hidden fixed bottom-4 right-4 rounded-xl shadow-lg"
+        onClick={togglePanel}
+        aria-pressed={panelOpen}
+      >
+        {panelLabel}
+      </button>
+      {panelOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
+          onClick={togglePanel}
+        ></div>
+      )}
+      {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
+      <aside
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="panel-heading"
+        className={`card bg-slate-50 w-64 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
+                    ${panelOpen ? 'translate-x-0' : 'translate-x-full'} md:static md:block md:translate-x-0`}
+      >
+          <h2 id="panel-heading" className="sr-only">Side Panel</h2>
         <div>
           <h3 className="text-sm font-semibold mb-2">Account</h3>
           <form className="space-y-2" onSubmit={saveAccount}>
