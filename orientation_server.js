@@ -259,7 +259,83 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
   res.json(rows[0]);
 });
 
-// ==== 7) API: tasks (per-user) ====
+// ==== 7) API: programs & templates ====
+
+app.get('/programs', ensureAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query('select * from public.programs order by created_at desc');
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /programs error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/programs', ensureAuth, async (req, res) => {
+  try {
+    const { program_id = crypto.randomUUID(), title, total_weeks = null, description = null } = req.body || {};
+    const sql = `
+      insert into public.programs (program_id, title, total_weeks, description, created_by)
+      values ($1,$2,$3,$4,$5)
+      returning *;`;
+    const { rows } = await pool.query(sql, [program_id, title, total_weeks, description, req.user.id]);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /programs error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/programs/:program_id/templates', ensureAuth, async (req, res) => {
+  try {
+    const { program_id } = req.params;
+    const { rows } = await pool.query(
+      'select * from public.program_task_templates where program_id=$1 order by week_number, sort_order, template_id',
+      [program_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /programs/:id/templates error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/programs/:program_id/templates', ensureAuth, async (req, res) => {
+  try {
+    const { program_id } = req.params;
+    const { week_number = null, label, notes = null, sort_order = null } = req.body || {};
+    const sql = `
+      insert into public.program_task_templates (program_id, week_number, label, notes, sort_order)
+      values ($1,$2,$3,$4,$5)
+      returning *;`;
+    const { rows } = await pool.query(sql, [program_id, week_number, label, notes, sort_order]);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /programs/:id/templates error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
+  try {
+    const { program_id } = req.params;
+    const trainee = req.user.full_name || '';
+    const sql = `
+      insert into public.orientation_tasks (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
+      select $1, $2, label, null, false, program_id, week_number, notes
+      from public.program_task_templates
+      where program_id=$3
+      order by week_number, sort_order
+      returning *;`;
+    const { rows } = await pool.query(sql, [req.user.id, trainee, program_id]);
+    res.json({ created: rows.length });
+  } catch (err) {
+    console.error('POST /programs/:id/instantiate error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==== 8) API: tasks (per-user) ====
 // Expect public.orientation_tasks to include: user_id uuid references users(id)
 // If you haven’t added user_id yet, run the migration described in comments below.
 
@@ -350,7 +426,7 @@ app.delete('/tasks/:id', ensureAuth, async (req, res) => {
   }
 });
 
-// ==== 8) Start server ====
+// ==== 9) Start server ====
 if (require.main === module) {
   const PORT = Number(process.env.PORT || 3002);
   app.listen(PORT, () => {
@@ -404,6 +480,25 @@ create table if not exists public.user_preferences (
   num_weeks  int,
   trainee    text,
   updated_at timestamptz default now()
+);
+
+-- Programs and task templates
+create table if not exists public.programs (
+  program_id   text primary key,
+  title        text not null,
+  total_weeks  int,
+  description  text,
+  created_by   uuid references public.users(id),
+  created_at   timestamptz default now()
+);
+
+create table if not exists public.program_task_templates (
+  template_id uuid primary key default gen_random_uuid(),
+  program_id  text references public.programs(program_id) on delete cascade,
+  week_number int,
+  label       text not null,
+  notes       text,
+  sort_order  int
 );
 
 -- Tasks: add user_id (owning user)
