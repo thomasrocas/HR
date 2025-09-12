@@ -368,6 +368,52 @@ app.post('/programs/:program_id/templates', ensureAuth, async (req, res) => {
   }
 });
 
+app.patch('/programs/:program_id/templates/:template_id', ensureAuth, async (req, res) => {
+  try {
+    const { program_id, template_id } = req.params;
+    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
+
+    const fields = [];
+    const vals = [];
+    for (const key of ['week_number', 'label', 'notes', 'sort_order']) {
+      if (key in req.body) {
+        vals.push(req.body[key]);
+        fields.push(`${key} = $${vals.length}`);
+      }
+    }
+    if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
+
+    vals.push(program_id);
+    vals.push(template_id);
+    const sql = `update public.program_task_templates
+                 set ${fields.join(', ')}
+                 where program_id = $${vals.length-1} and template_id = $${vals.length}
+                 returning *;`;
+    const { rows } = await pool.query(sql, vals);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PATCH /programs/:id/templates/:template_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/programs/:program_id/templates/:template_id', ensureAuth, async (req, res) => {
+  try {
+    const { program_id, template_id } = req.params;
+    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
+    const result = await pool.query(
+      'delete from public.program_task_templates where program_id=$1 and template_id=$2',
+      [program_id, template_id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('DELETE /programs/:id/templates/:template_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
   try {
     const { program_id } = req.params;
