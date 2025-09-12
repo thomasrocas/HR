@@ -1251,12 +1251,14 @@ function App({ me, onSignOut }){
         )}
       </button>
       {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
-      <div
-        className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
-        style={{ right: panelWidth }}
-        onPointerDown={startResize}
-        tabIndex={0}
-      ></div>
+      {panelOpen && (
+        <div
+          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
+          style={{ right: panelWidth }}
+          onPointerDown={startResize}
+          tabIndex={0}
+        ></div>
+      )}
       <aside
           id="side-panel"
           ref={panelRef}
@@ -1264,7 +1266,7 @@ function App({ me, onSignOut }){
           aria-modal="true"
           aria-labelledby="panel-heading"
           className={`card bg-slate-50 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
-                     ${panelOpen ? 'translate-x-0' : 'translate-x-full'} md:static md:block md:translate-x-0`}
+                     ${panelOpen ? 'translate-x-0' : 'translate-x-full'}`}
           style={{ width: panelWidth }}
         >
         <h2 id="panel-heading" className="sr-only">Side Panel</h2>
