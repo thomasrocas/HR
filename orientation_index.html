@@ -183,16 +183,28 @@ function AuthPanel({ onAuthed }){
           <label htmlFor="password" className="text-sm block mb-1">Password</label>
           <input id="password" className="input" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
         </div>
-        {err && <div className="text-sm text-red-600 mb-3">{err}</div>}
-        {mode === 'login' ? (
-          <button className="btn btn-primary w-full" onClick={doLogin}>Sign in</button>
-        ) : (
-          <button className="btn btn-primary w-full" onClick={doRegister}>Create account</button>
-        )}
-        <button className="btn btn-ghost w-full mt-2" onClick={()=> setMode(m => m==='login'?'register':'login')}>
-          {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
-        </button>
-        <a href="/reset.html" className="btn btn-ghost w-full mt-2">Reset Password</a>
+              <div className="flex flex-col items-center space-y-2 mt-2">
+  {mode === 'login' ? (
+    <button className="btn btn-primary w-full" onClick={doLogin}>Sign in</button>
+  ) : (
+    <button className="btn btn-primary w-full" onClick={doRegister}>Create account</button>
+  )}
+
+  <div className="flex justify-between w-full text-sm text-center">
+    <button
+      className="btn btn-ghost flex-1"
+      onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+    >
+      {mode === 'login'
+        ? 'Need an account? Register'
+        : 'Already have an account? Sign in'}
+    </button>
+
+    <a href="/reset.html" className="btn btn-ghost flex-1">
+      Reset Password
+    </a>
+  </div>
+</div>
         <div className="h-px bg-slate-200 my-4"></div>
         <button className="btn btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
       </div>
