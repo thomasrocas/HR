@@ -620,9 +620,17 @@ function App({ me, onSignOut }){
   async function handleDeleteProgram(programId){
     if(!confirm('Delete this program?')) return;
     try {
-      await apiDeleteProgram(programId);
+      const response = await apiDeleteProgram(programId);
+      if(!response || response.deleted !== true){
+        alert('You can only delete programs you created.');
+        return;
+      }
       await refreshPrograms();
     } catch(err){
+      if(err.message.includes('403') || err.message.includes('404')){
+        alert('You can only delete programs you created.');
+        return;
+      }
       console.error('Failed to delete program', err);
       alert('Failed to delete program');
     }
