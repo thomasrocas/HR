@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Reset Password</title></head>
+<body>
+<h1>Reset Password</h1>
+<form id="resetForm">
+  <input type="password" id="password" placeholder="New password" required>
+  <input type="hidden" id="token">
+  <button type="submit">Reset Password</button>
+</form>
+<div id="msg"></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  document.getElementById('token').value = params.get('token') || '';
+  document.getElementById('resetForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = document.getElementById('password').value;
+    const token = document.getElementById('token').value;
+    const res = await fetch('/auth/local/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    });
+    document.getElementById('msg').innerText = res.ok ? 'Password updated' : 'Reset failed';
+  });
+</script>
+</body>
+</html>

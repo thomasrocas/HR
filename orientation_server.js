@@ -12,6 +12,9 @@ const PgStore = require('connect-pg-simple')(session);
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+const transporter = nodemailer.createTransport(process.env.SMTP_URL || { jsonTransport: true });
 
 // ==== 1) Postgres config ====
 const pool = new Pool({
@@ -158,6 +161,65 @@ app.post('/auth/local/login', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server_error' }); }
 });
 
+// Request password reset
+app.post('/auth/local/forgot', async (req, res) => {
+  const { identifier } = req.body || {};
+  try {
+    if (identifier) {
+      const { rows } = await pool.query(
+        'select id, email from public.users where username=$1 or email=$1 limit 1',
+        [identifier]
+      );
+      const user = rows[0];
+      if (user && user.email) {
+        const token = crypto.randomBytes(32).toString('hex');
+        const hashed = crypto.createHash('sha256').update(token).digest('hex');
+        const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+        await pool.query(
+          'update public.users set password_reset_token=$1, password_reset_expires=$2, updated_at=now() where id=$3',
+          [hashed, expires, user.id]
+        );
+        const resetLink = `${process.env.PUBLIC_URL || 'http://localhost:3002'}/reset.html?token=${token}`;
+        await transporter.sendMail({
+          to: user.email,
+          subject: 'Password Reset',
+          text: `Reset your password: ${resetLink}`
+        });
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.json({ ok: true });
+  }
+});
+
+// Apply password reset
+app.post('/auth/local/reset', async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !validPassword(password)) {
+      return res.status(400).json({ error: 'invalid_request' });
+    }
+    const hashed = crypto.createHash('sha256').update(token).digest('hex');
+    const { rows } = await pool.query(
+      'select id, password_reset_expires from public.users where password_reset_token=$1',
+      [hashed]
+    );
+    const user = rows[0];
+    if (!user || !user.password_reset_expires || user.password_reset_expires < new Date()) {
+      return res.status(400).json({ error: 'invalid_or_expired' });
+    }
+    const newHash = await bcrypt.hash(password, SALT_ROUNDS);
+    await pool.query(
+      'update public.users set password_hash=$1, password_reset_token=null, password_reset_expires=null, updated_at=now() where id=$2',
+      [newHash, user.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // Logout (works for both)
 app.post('/auth/logout', (req, res, next) => {
   if (!req.session) return res.json({ ok: true });
@@ -289,10 +351,14 @@ app.delete('/tasks/:id', ensureAuth, async (req, res) => {
 });
 
 // ==== 8) Start server ====
-const PORT = Number(process.env.PORT || 3002);
-app.listen(PORT, () => {
-  console.log(`Orientation site + API running at http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  const PORT = Number(process.env.PORT || 3002);
+  app.listen(PORT, () => {
+    console.log(`Orientation site + API running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = { app, pool };
 
 /*
 ======================
@@ -314,6 +380,8 @@ create table if not exists public.users (
   full_name    text,
   picture_url  text,
   password_hash text,
+  password_reset_token text,
+  password_reset_expires timestamptz,
   provider     auth_provider default 'google',
   created_at   timestamptz default now(),
   updated_at   timestamptz default now(),
