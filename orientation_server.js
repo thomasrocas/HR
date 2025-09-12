@@ -172,6 +172,26 @@ app.post('/auth/local/login', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server_error' }); }
 });
 
+// Change password
+app.post('/auth/local/change-password', ensureAuth, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body || {};
+    if (!validPassword(current_password) || !validPassword(new_password)) {
+      return res.status(400).json({ error: 'invalid_credentials' });
+    }
+    const { rows } = await pool.query('select password_hash from public.users where id=$1', [req.user.id]);
+    const user = rows[0];
+    if (!user || !user.password_hash) return res.status(400).json({ error: 'no_password_set' });
+    const ok = await bcrypt.compare(current_password, user.password_hash);
+    if (!ok) return res.status(400).json({ error: 'bad_password' });
+    const hash = await bcrypt.hash(new_password, SALT_ROUNDS);
+    await pool.query('update public.users set password_hash=$1, updated_at=now() where id=$2', [hash, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // Request password reset
 app.post('/auth/local/forgot', async (req, res) => {
   const { identifier } = req.body || {};
@@ -247,7 +267,35 @@ function ensureAuth(req, res, next){
 }
 
 app.get('/me', ensureAuth, (req, res) => {
-  res.json({ id: req.user.id, name: req.user.full_name, email: req.user.email, picture: req.user.picture_url });
+  res.json({
+    id: req.user.id,
+    name: req.user.full_name,
+    email: req.user.email,
+    username: req.user.username,
+    picture: req.user.picture_url
+  });
+});
+
+app.patch('/me', ensureAuth, async (req, res) => {
+  const { full_name, email, username } = req.body || {};
+  if (username && !validUsername(username)) {
+    return res.status(400).json({ error: 'invalid_username' });
+  }
+  try {
+    const sql = `
+      update public.users
+      set username = coalesce($1, username),
+          email    = coalesce($2, email),
+          full_name= coalesce($3, full_name),
+          updated_at = now()
+      where id = $4
+      returning id, username, email, full_name;`;
+    const { rows } = await pool.query(sql, [username, email, full_name, req.user.id]);
+    res.json({ id: rows[0].id, username: rows[0].username, email: rows[0].email, name: rows[0].full_name });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'already_exists' });
+    res.status(500).json({ error: 'server_error' });
+  }
 });
 
 app.get('/prefs', ensureAuth, async (req, res) => {

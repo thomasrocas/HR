@@ -6,6 +6,12 @@ const { newDb } = require('pg-mem');
 // Mock pg to use pg-mem
 const db = newDb();
 const { Pool: MockPool } = db.adapters.createPg();
+db.public.registerFunction({
+  name: 'to_timestamp',
+  args: ['text'],
+  returns: 'timestamptz',
+  implementation: x => new Date(Number(x) * 1000)
+});
 jest.mock('pg', () => ({ Pool: MockPool }));
 
 // Require app after mocks
@@ -25,8 +31,8 @@ describe('program routes', () => {
       );
       create table public.session (
         sid text primary key,
-        sess jsonb not null,
-        expire timestamp(6) not null
+        sess text not null,
+        expire timestamptz not null
       );
       create table public.programs (
         program_id text primary key,
