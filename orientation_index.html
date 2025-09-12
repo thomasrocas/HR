@@ -1311,7 +1311,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-account"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="btn btn-ghost w-full justify-between text-sm font-semibold"
                 aria-expanded={openSections.includes('account')}
                 aria-controls="sec-account"
                 onClick={()=> toggleSection('account')}
@@ -1348,7 +1348,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-password"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="btn btn-ghost w-full justify-between text-sm font-semibold"
                 aria-expanded={openSections.includes('password')}
                 aria-controls="sec-password"
                 onClick={()=> toggleSection('password')}
@@ -1381,7 +1381,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-programs"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="btn btn-ghost w-full justify-between text-sm font-semibold"
                 aria-expanded={openSections.includes('programs')}
                 aria-controls="sec-programs"
                 onClick={()=> toggleSection('programs')}
@@ -1391,13 +1391,13 @@ function App({ me, onSignOut }){
               </button>
             </h3>
             {openSections.includes('programs') && (
-              <div id="sec-programs" className="mt-2 space-y-2" aria-labelledby="hdr-programs">
-                <div className="space-y-1">
+              <div id="sec-programs" className="mt-2 space-y-3" aria-labelledby="hdr-programs">
+                <div className="space-y-2">
                   {programs
                     .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
                     .map(p => (
-                    <div key={p.program_id} className="flex items-center gap-1">
-                      <span className="flex-1 flex items-center gap-1 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
+                    <div key={p.program_id} className="flex items-center gap-2">
+                      <span className="flex-1 flex items-center gap-2 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
                       <button
                         className="btn btn-ghost"
                         onClick={() => refreshPrograms(p.program_id)}
@@ -1457,7 +1457,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-utilities"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="btn btn-ghost w-full justify-between text-sm font-semibold"
                 aria-expanded={openSections.includes('utilities')}
                 aria-controls="sec-utilities"
                 onClick={()=> toggleSection('utilities')}
@@ -1467,7 +1467,7 @@ function App({ me, onSignOut }){
               </button>
             </h3>
             {openSections.includes('utilities') && (
-              <div id="sec-utilities" className="mt-2 space-y-2" aria-labelledby="hdr-utilities">
+              <div id="sec-utilities" className="mt-2 space-y-3" aria-labelledby="hdr-utilities">
                 <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
                   Refresh Programs
                 </button>
