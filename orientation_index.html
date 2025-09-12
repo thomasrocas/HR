@@ -361,6 +361,7 @@ function App({ me, onSignOut }){
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelLabel = panelOpen ? 'Close Panel' : 'Open Panel';
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
   const touchHover = useRef(null);
@@ -1002,7 +1003,6 @@ function App({ me, onSignOut }){
       <div className="flex-1 space-y-6 py-6">
         <header className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <button className="btn btn-ghost md:hidden" onClick={()=> setPanelOpen(o=>!o)} aria-label="Toggle panel">☰</button>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
               <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
@@ -1138,9 +1138,16 @@ function App({ me, onSignOut }){
     {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
     <aside
       ref={panelRef}
-      className={`card bg-slate-50 w-64 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
-                  ${panelOpen ? 'block translate-x-0' : 'hidden translate-x-full'} md:static md:block md:translate-x-0`}
+      className={`card relative bg-slate-50 w-64 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
+                  ${panelOpen ? 'translate-x-0' : 'translate-x-full'}`}
     >
+        <button
+          className="btn btn-outline absolute top-4 left-0 -translate-x-full"
+          onClick={()=> setPanelOpen(o=>!o)}
+          aria-pressed={panelOpen}
+        >
+          {panelLabel}
+        </button>
         <div>
           <h3 className="text-sm font-semibold mb-2">Account</h3>
           <form className="space-y-2" onSubmit={saveAccount}>
