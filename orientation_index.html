@@ -27,6 +27,14 @@
     .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
     .outline-dashed{ outline-style: dashed; }
 
+    button:focus,
+    [tabindex]:focus,
+    input:focus,
+    textarea:focus,
+    select:focus{
+      @apply outline-none ring-2 ring-anx-sky;
+    }
+
     /* Web Viewer safe modal */
     .fm-modal-overlay{
       position: fixed; inset: 0; background: rgba(0,0,0,.45);
@@ -823,7 +831,7 @@ function App({ me, onSignOut }){
     const visible = weekColumns.filter(c => c.items.length);
     const handleAssign = (it) => { setTaskDate(it.wi, it.ti, date, it.task_id); onClose(); };
     return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
         <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
           <div className="fm-modal-header">
             <div className="font-semibold">Assign Task to {fmt(date)}</div>
@@ -900,7 +908,7 @@ function App({ me, onSignOut }){
     }
 
     return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
         <div className="fm-modal max-w-lg" onClick={e=> e.stopPropagation()}>
           <div className="fm-modal-header">
             <div className="font-semibold">{program?.program_id ? 'Edit Program' : 'New Program'}</div>
@@ -1001,7 +1009,7 @@ function App({ me, onSignOut }){
     }
 
     return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
         <div className="fm-modal max-w-2xl" onClick={e=> e.stopPropagation()}>
           <div className="fm-modal-header">
             <div className="font-semibold">Manage Templates</div>
@@ -1220,12 +1228,15 @@ function App({ me, onSignOut }){
         <div
           className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
           onClick={togglePanel}
+          tabIndex={0}
         ></div>
       )}
       <button
+        id="side-panel-toggle"
         onClick={togglePanel}
         aria-label="Toggle side panel"
-        aria-pressed={panelOpen}
+        aria-expanded={panelOpen}
+        aria-controls="side-panel"
         className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white border rounded-l shadow"
         style={{ right: panelOpen ? panelWidth : 0 }}
       >
@@ -1244,8 +1255,10 @@ function App({ me, onSignOut }){
         className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
         style={{ right: panelWidth }}
         onPointerDown={startResize}
+        tabIndex={0}
       ></div>
       <aside
+          id="side-panel"
           ref={panelRef}
           role="dialog"
           aria-modal="true"
@@ -1280,6 +1293,7 @@ function App({ me, onSignOut }){
           <div>
             <h3>
               <button
+                id="hdr-account"
                 type="button"
                 className="flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('account')}
@@ -1291,7 +1305,7 @@ function App({ me, onSignOut }){
               </button>
             </h3>
             {openSections.includes('account') && (
-              <div id="sec-account" className="mt-2 space-y-2">
+              <div id="sec-account" className="mt-2 space-y-2" aria-labelledby="hdr-account">
                 <form className="space-y-2" onSubmit={saveAccount}>
                   <div>
                     <label htmlFor="acct_fullname" className="text-sm block mb-1">Full name</label>
@@ -1316,6 +1330,7 @@ function App({ me, onSignOut }){
           <div>
             <h3>
               <button
+                id="hdr-password"
                 type="button"
                 className="flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('password')}
@@ -1327,7 +1342,7 @@ function App({ me, onSignOut }){
               </button>
             </h3>
             {openSections.includes('password') && (
-              <div id="sec-password" className="mt-2 space-y-2">
+              <div id="sec-password" className="mt-2 space-y-2" aria-labelledby="hdr-password">
                 <form className="space-y-2" onSubmit={changePassword}>
                   <div>
                     <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
@@ -1348,6 +1363,7 @@ function App({ me, onSignOut }){
           <div>
             <h3>
               <button
+                id="hdr-programs"
                 type="button"
                 className="flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('programs')}
@@ -1359,7 +1375,7 @@ function App({ me, onSignOut }){
               </button>
             </h3>
             {openSections.includes('programs') && (
-              <div id="sec-programs" className="mt-2 space-y-2">
+              <div id="sec-programs" className="mt-2 space-y-2" aria-labelledby="hdr-programs">
                 <div className="space-y-1">
                   {programs
                     .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
@@ -1377,7 +1393,7 @@ function App({ me, onSignOut }){
                         Templates
                       </button>
                       <details className="relative">
-                        <summary className="btn btn-ghost px-2 -mr-2">⋯</summary>
+                        <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
                         <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
                           <button
                             className="btn btn-ghost w-full justify-start"
@@ -1412,6 +1428,7 @@ function App({ me, onSignOut }){
           <div>
             <h3>
               <button
+                id="hdr-utilities"
                 type="button"
                 className="flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('utilities')}
@@ -1423,7 +1440,7 @@ function App({ me, onSignOut }){
               </button>
             </h3>
             {openSections.includes('utilities') && (
-              <div id="sec-utilities" className="mt-2 space-y-2">
+              <div id="sec-utilities" className="mt-2 space-y-2" aria-labelledby="hdr-utilities">
                 <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
                   Refresh Programs
                 </button>
