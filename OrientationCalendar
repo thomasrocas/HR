@@ -43,38 +43,6 @@
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">
-<!-- Toggle for lightweight auth panel -->
-<div class="max-w-7xl mx-auto px-4 mt-4">
-  <button id="lite-auth-toggle" class="btn btn-outline text-sm" type="button">Open quick auth panel</button>
-</div>
-<!-- === Lightweight Auth Panel (non-React) === -->
-<div id="lite-auth" class="max-w-2xl mx-auto card p-4 mb-4 hidden">
-  <div class="flex items-center justify-between gap-2 mb-2">
-    <h2 class="text-lg font-semibold">Quick Sign-in / Register</h2>
-    <button id="lite-auth-close" class="btn btn-ghost text-sm" type="button" aria-label="Close">✕</button>
-  </div>
-  <p class="text-sm text-slate-600 mb-3">Use this minimal panel to log in or create a local account. Cookies are set with <code>SameSite=Lax</code> for Web Viewer safety.</p>
-  <div class="grid md:grid-cols-2 gap-4">
-    <form id="local-login" onsubmit="return doLocalLogin(event)" class="card p-3">
-      <div class="text-sm font-semibold mb-2">Sign in</div>
-      <input class="input mb-2" placeholder="Username" id="li_user" required />
-      <input class="input mb-3" type="password" placeholder="Password" id="li_pass" required />
-      <button class="btn btn-primary w-full" type="submit">Sign in</button>
-    </form>
-
-    <form id="local-register" onsubmit="return doLocalRegister(event)" class="card p-3">
-      <div class="text-sm font-semibold mb-2">Create account</div>
-      <input class="input mb-2" placeholder="Username" id="rg_user" required />
-      <input class="input mb-1" placeholder="Email (optional)" id="rg_email" />
-<div class="text-[11px] text-slate-500 mb-2">Tip: If this email is already used by a Google account, leave this blank or use another email.</div>
-      <input class="input mb-2" placeholder="Full name (optional)" id="rg_name" />
-      <input class="input mb-3" type="password" placeholder="Password (min 8)" id="rg_pass" required />
-      <button class="btn btn-outline w-full" type="submit">Create account</button>
-    </form>
-  </div>
-</div>
-<!-- /Lightweight Auth Panel -->
-
 <div id="root" class="max-w-7xl mx-auto px-4"></div>
 
 <script type="text/babel">
@@ -660,19 +628,6 @@ function Root(){
     })();
   }, []);
 
-  // Hide lightweight auth toggle/panel once user is authenticated
-  useEffect(() => {
-    const toggle = document.getElementById('lite-auth-toggle');
-    const panel = document.getElementById('lite-auth');
-    if (me) {
-      toggle?.classList.add('hidden');
-      panel?.classList.add('hidden');
-    } else {
-      toggle?.classList.remove('hidden');
-      panel?.classList.add('hidden');
-    }
-  }, [me]);
-
   if (!checked){
     return (
       <div className="min-h-screen flex items-center justify-center w-full">
@@ -691,66 +646,6 @@ function Root(){
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
-</script>
-<script>
-(function(){
-  const API = window.location.origin;
-  const $ = (id) => document.getElementById(id);
-
-  async function doLocalLogin(e){
-    e.preventDefault();
-    const body = { username: $('li_user').value.trim(), password: $('li_pass').value };
-    try{
-      const r = await fetch(API + '/auth/local/login', {
-        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body)
-      });
-      if(!r.ok){ alert('Login failed'); return false; }
-      location.reload();
-    }catch(err){
-      alert('Login error'); 
-    }
-    return false;
-  }
-  async function doLocalRegister(e){
-    e.preventDefault();
-    const body = {
-      username: $('rg_user').value.trim(),
-      email: $('rg_email').value.trim(),
-      full_name: $('rg_name').value.trim(),
-      password: $('rg_pass').value
-    };
-    try{
-      const r = await fetch(API + '/auth/local/register', {
-        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body)
-      });
-      if(!r.ok){ alert('Registration failed (username taken?)'); return false; }
-      location.reload();
-    }catch(err){
-      alert('Registration error');
-    }
-    return false;
-  }
-
-  // Expose globally for inline onsubmit references (and keep them scoped)
-  window.doLocalLogin = doLocalLogin;
-  window.doLocalRegister = doLocalRegister;
-
-  // Toggle logic
-  const panel = $('lite-auth');
-  const toggle = $('lite-auth-toggle');
-  const closeBtn = $('lite-auth-close');
-  if(toggle && panel){
-    toggle.addEventListener('click', ()=> {
-      panel.classList.toggle('hidden');
-      // try to focus username
-      const u = $('li_user');
-      if(!panel.classList.contains('hidden') && u){ u.focus(); }
-    });
-  }
-  if(closeBtn && panel){
-    closeBtn.addEventListener('click', ()=> panel.classList.add('hidden'));
-  }
-})();
 </script>
 </body>
 </html>
