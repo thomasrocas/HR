@@ -1010,7 +1010,6 @@ function App({ me, onSignOut }){
           </div>
           <div className="flex items-center gap-2">
             {controlBar}
-            <button className="btn btn-outline ml-2" onClick={onSignOut}>Sign out</button>
           </div>
         </header>
 
@@ -1209,6 +1208,9 @@ function App({ me, onSignOut }){
         <div className="space-y-2 pt-4 border-t border-slate-200">
           <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
             Refresh Programs
+          </button>
+          <button className="btn btn-outline w-full" onClick={onSignOut}>
+            Sign out
           </button>
         </div>
       </aside>
