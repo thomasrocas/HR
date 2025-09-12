@@ -297,6 +297,47 @@ app.post('/programs', ensureAuth, async (req, res) => {
   }
 });
 
+app.patch('/programs/:program_id', ensureAuth, async (req, res) => {
+  try {
+    const { program_id } = req.params;
+    const fields = [];
+    const vals = [];
+
+    for (const key of ['title', 'total_weeks', 'description']) {
+      if (key in req.body) {
+        vals.push(req.body[key]);
+        fields.push(`${key} = $${vals.length}`);
+      }
+    }
+    if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
+
+    vals.push(program_id); // for program_id
+    vals.push(req.user.id); // for created_by check
+    const sql = `update public.programs set ${fields.join(', ')}
+                 where program_id = $${vals.length-1} and created_by = $${vals.length}
+                 returning *;`;
+    const { rows } = await pool.query(sql, vals);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PATCH /programs/:program_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/programs/:program_id', ensureAuth, async (req, res) => {
+  try {
+    const { program_id } = req.params;
+    await pool.query('delete from public.program_task_templates where program_id=$1', [program_id]);
+    const result = await pool.query('delete from public.programs where program_id=$1 and created_by=$2', [program_id, req.user.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('DELETE /programs/:program_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/programs/:program_id/templates', ensureAuth, async (req, res) => {
   try {
     const { program_id } = req.params;
