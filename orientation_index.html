@@ -1071,6 +1071,7 @@ function App({ me, onSignOut }){
     {panelOpen && (
       <div className="fixed inset-0 bg-black/50 md:hidden" onClick={() => setPanelOpen(false)}></div>
     )}
+    {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
     <aside
       ref={panelRef}
       className={`card bg-slate-50 w-64 p-4 space-y-4 transform transition-transform duration-300 fixed inset-y-0 right-0 z-50
