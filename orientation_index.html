@@ -420,6 +420,8 @@ function App({ me, onSignOut }){
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
   const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchDebounce = useRef(null);
   const touchHover = useRef(null);
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
@@ -438,6 +440,12 @@ function App({ me, onSignOut }){
 
   const toggleSection = (key) => {
     setOpenSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => setSearchTerm(val), 150);
   };
 
   const resizeMove = useRafThrottle((e) => {
@@ -1252,6 +1260,11 @@ function App({ me, onSignOut }){
           </button>
         </div>
         <div className="pt-4 space-y-4">
+          <input
+            className="input w-full"
+            placeholder="Search…"
+            onChange={handleSearchChange}
+          />
           {/* Account */}
           <div>
             <h3>
@@ -1337,7 +1350,9 @@ function App({ me, onSignOut }){
             {openSections.includes('programs') && (
               <div id="sec-programs" className="mt-2 space-y-2">
                 <div className="space-y-1">
-                  {programs.map(p => (
+                  {programs
+                    .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
+                    .map(p => (
                     <div key={p.program_id} className="flex items-center gap-1">
                       <button
                         className="btn btn-ghost flex-1 justify-start truncate text-left"
