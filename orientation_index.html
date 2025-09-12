@@ -465,12 +465,12 @@ function App({ me, onSignOut }){
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
   const [deletedTasks, setDeletedTasks] = useState([]);
-  const [assignPicker, setAssignPicker] = useState(null); // {date}
+  const [assignPicker, setAssignPicker] = useState(null); // {date, trigger}
   const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
   const [expandedDays, setExpandedDays] = useState(new Set());
   const [needsInstantiate, setNeedsInstantiate] = useState(false);
   const [programs, setPrograms] = useState([]);
-  const [programModal, setProgramModal] = useState({ show:false, program:null });
+  const [programModal, setProgramModal] = useState({ show:false, program:null, trigger:null });
   const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
   const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -481,6 +481,7 @@ function App({ me, onSignOut }){
   const touchHover = useRef(null);
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
+  const templateTriggerRef = useRef(null);
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -539,7 +540,7 @@ function App({ me, onSignOut }){
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [panelOpen]);
-  useFocusTrap(panelOpen, panelRef);
+  useFocusTrap(panelOpen && !programModal.show && !assignPicker && !showTemplates, panelRef);
 
   function buildWeeks(rows){
     const byWeek = {};
@@ -878,8 +879,15 @@ function App({ me, onSignOut }){
   function AssignModal({date, onClose}){
     const visible = weekColumns.filter(c => c.items.length);
     const handleAssign = (it) => { setTaskDate(it.wi, it.ti, date, it.task_id); onClose(); };
+    const ref = useRef(null);
+    useFocusTrap(true, ref);
+    useEffect(() => {
+      const esc = (e) => { if (e.key === 'Escape') onClose(); };
+      document.addEventListener('keydown', esc);
+      return () => document.removeEventListener('keydown', esc);
+    }, [onClose]);
     return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} ref={ref}>
         <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
           <div className="fm-modal-header">
             <div className="font-semibold">Assign Task to {fmt(date)}</div>
@@ -918,6 +926,7 @@ function App({ me, onSignOut }){
     const [weeksCount, setWeeksCount] = useState(program?.total_weeks || 6);
     const [desc, setDesc] = useState(program?.description || '');
     const [showTemplates, setShowTemplates] = useState(false);
+    const templatesTriggerRef = useRef(null);
 
     useEffect(()=>{
       setTitle(program?.title || '');
@@ -942,21 +951,28 @@ function App({ me, onSignOut }){
       }
     }
 
-    async function handleDelete(){
-      if(!program?.program_id) return;
-      if(!confirm('Delete this program?')) return;
-      try {
-        await apiDeleteProgram(program.program_id);
-        await refreshPrograms();
-        onClose();
-      } catch(err){
-        console.error('Failed to delete program', err);
-        alert('Failed to delete program');
-      }
+  async function handleDelete(){
+    if(!program?.program_id) return;
+    if(!confirm('Delete this program?')) return;
+    try {
+      await apiDeleteProgram(program.program_id);
+      await refreshPrograms();
+      onClose();
+    } catch(err){
+      console.error('Failed to delete program', err);
+      alert('Failed to delete program');
     }
+  }
 
+  const ref = useRef(null);
+  useFocusTrap(!showTemplates, ref);
+  useEffect(() => {
+      const esc = (e) => { if (e.key === 'Escape') onClose(); };
+      document.addEventListener('keydown', esc);
+      return () => document.removeEventListener('keydown', esc);
+    }, [onClose]);
     return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} ref={ref}>
         <div className="fm-modal max-w-lg" onClick={e=> e.stopPropagation()}>
           <div className="fm-modal-header">
             <div className="font-semibold">{program?.program_id ? 'Edit Program' : 'New Program'}</div>
@@ -979,7 +995,7 @@ function App({ me, onSignOut }){
               {program?.program_id && (
                 <div className="flex items-center gap-2">
                   <button className="btn apple-focus apple-press btn-outline" onClick={handleDelete}>Delete</button>
-                  <button className="btn apple-focus apple-press btn-outline" onClick={()=> setShowTemplates(true)}>Templates</button>
+                  <button className="btn apple-focus apple-press btn-outline" onClick={(e)=> { templatesTriggerRef.current = e.currentTarget; setShowTemplates(true); }}>Templates</button>
                 </div>
               )}
               <div className="ml-auto flex items-center gap-2">
@@ -988,7 +1004,7 @@ function App({ me, onSignOut }){
               </div>
             </div>
           </div>
-          {showTemplates && program?.program_id && <TemplateModal programId={program.program_id} onClose={()=> setShowTemplates(false)} />}
+          {showTemplates && program?.program_id && <TemplateModal programId={program.program_id} onClose={()=> { setShowTemplates(false); templatesTriggerRef.current && templatesTriggerRef.current.focus(); }} />}
         </div>
       </div>,
       document.body
@@ -1056,8 +1072,15 @@ function App({ me, onSignOut }){
       }
     }
 
+    const ref = useRef(null);
+    useFocusTrap(true, ref);
+    useEffect(() => {
+      const esc = (e) => { if (e.key === 'Escape') onClose(); };
+      document.addEventListener('keydown', esc);
+      return () => document.removeEventListener('keydown', esc);
+    }, [onClose]);
     return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} ref={ref}>
         <div className="fm-modal max-w-2xl" onClick={e=> e.stopPropagation()}>
           <div className="fm-modal-header">
             <div className="font-semibold">Manage Templates</div>
@@ -1121,7 +1144,7 @@ function App({ me, onSignOut }){
         <option value="">Select program</option>
         {programs.map(p=> <option key={p.program_id} value={p.program_id}>{p.title}</option>)}
       </select>
-      <button className="btn apple-focus apple-press btn-outline" onClick={()=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
+      <button className="btn apple-focus apple-press btn-outline" onClick={(e)=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null, trigger:e.currentTarget })}>Manage</button>
       <div className="h-6 w-px bg-slate-200" />
       <label className="t-body text-slate-600 dark:text-slate-300">Start</label>
       <input type="date" className="input apple-focus w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
@@ -1184,7 +1207,7 @@ function App({ me, onSignOut }){
                    onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="t-caption font-semibold">{d.format('D')}</div>
-                  <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={()=> setAssignPicker({date:key})}>Assign</button>
+        <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={(e)=> setAssignPicker({date:key, trigger:e.currentTarget})}>Assign</button>
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
@@ -1213,8 +1236,8 @@ function App({ me, onSignOut }){
             );
           })}
         </div>
-        {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
-        {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
+        {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> { assignPicker.trigger && assignPicker.trigger.focus(); setAssignPicker(null); }} />}
+        {programModal.show && <ProgramModal program={programModal.program} onClose={()=> { programModal.trigger && programModal.trigger.focus(); setProgramModal({show:false, program:null, trigger:null}); }} />}
       </Section>
 
       {/* Weeks & Tasks */}
@@ -1273,9 +1296,10 @@ function App({ me, onSignOut }){
       </Section>
     </div>
       <div
-        className={`fixed inset-0 md:hidden overscroll-contain touch-none apple-backdrop apple-ease duration-300 transition-opacity ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 md:hidden overscroll-contain touch-none apple-backdrop apple-ease duration-300 transition-opacity ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'} apple-focus`}
         onClick={togglePanel}
         tabIndex={panelOpen ? 0 : -1}
+        aria-label="Close side panel"
       ></div>
       <button
         id="side-panel-toggle"
@@ -1283,7 +1307,7 @@ function App({ me, onSignOut }){
         aria-label="Toggle side panel"
         aria-expanded={panelOpen}
         aria-controls="side-panel"
-          className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-l shadow"
+        className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-l shadow apple-focus apple-press"
         style={{ right: panelOpen ? panelWidth : 0 }}
       >
         {panelOpen ? (
@@ -1299,10 +1323,11 @@ function App({ me, onSignOut }){
       {/* SidePanel: container uses apple styling classes; buttons use `btn`; fields use `input` for consistent styling */}
       {panelOpen && (
         <div
-          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
+          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize apple-focus"
           style={{ right: panelWidth }}
           onPointerDown={startResize}
           tabIndex={0}
+          aria-label="Resize panel"
         ></div>
       )}
       <aside
@@ -1433,7 +1458,8 @@ function App({ me, onSignOut }){
                       <button className="btn apple-focus apple-press btn-ghost" onClick={() => refreshPrograms(p.program_id)}>Open</button>
                       <button
                         className="btn apple-focus apple-press btn-ghost"
-                        onClick={() => {
+                        onClick={(e) => {
+                          templateTriggerRef.current = e.currentTarget;
                           setTemplateProgramId(p.program_id);
                           setShowTemplates(true);
                         }}
@@ -1441,11 +1467,11 @@ function App({ me, onSignOut }){
                         Templates
                       </button>
                       <details className="relative">
-                        <summary className="btn apple-focus apple-press btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
+                        <summary className="btn apple-focus apple-press btn-ghost px-2 -mr-2" tabIndex={0} aria-label="More options">⋯</summary>
                           <div className="absolute right-0 z-10 mt-1 w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow">
                           <button
                             className="btn apple-focus apple-press btn-ghost w-full justify-start"
-                            onClick={() => setProgramModal({ show: true, program: p })}
+                            onClick={(e) => setProgramModal({ show: true, program: p, trigger: e.currentTarget })}
                           >
                             Edit
                           </button>
@@ -1463,7 +1489,7 @@ function App({ me, onSignOut }){
                   <div className="sticky bottom-0 bg-white dark:bg-slate-800 pt-2">
                   <button
                     className="btn apple-focus apple-press btn-primary w-full"
-                    onClick={() => setProgramModal({ show: true, program: null })}
+                    onClick={(e) => setProgramModal({ show: true, program: null, trigger: e.currentTarget })}
                   >
                     + New Program
                   </button>
@@ -1506,7 +1532,10 @@ function App({ me, onSignOut }){
     {showTemplates && templateProgramId && (
       <TemplateModal
         programId={templateProgramId}
-        onClose={() => setShowTemplates(false)}
+        onClose={() => {
+          setShowTemplates(false);
+          templateTriggerRef.current && templateTriggerRef.current.focus();
+        }}
       />
     )}
   </div>
