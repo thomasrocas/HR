@@ -420,7 +420,6 @@ function App({ me, onSignOut }){
   const panelLabel = panelOpen ? 'Close Panel' : 'Open Panel';
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
-  const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
   const touchHover = useRef(null);
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
@@ -435,10 +434,6 @@ function App({ me, onSignOut }){
       triggerRef.current = e.currentTarget;
       setPanelOpen(true);
     }
-  };
-
-  const toggleSection = (key) => {
-    setOpenSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
 
   const resizeMove = useRafThrottle((e) => {
@@ -1233,163 +1228,78 @@ function App({ me, onSignOut }){
                      ${panelOpen ? 'translate-x-0' : 'translate-x-full'} md:static md:block md:translate-x-0`}
           style={{ width: panelWidth }}
         >
-        <h2 id="panel-heading" className="sr-only">Side Panel</h2>
-        <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-semibold">
-            {(acctName||'').split(/\s+/).map(n=>n[0]).join('').slice(0,2).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium truncate">{acctName}</div>
-            <div className="text-sm text-slate-500 truncate">{acctEmail}</div>
+          <h2 id="panel-heading" className="sr-only">Side Panel</h2>
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Account</h3>
+          <form className="space-y-2" onSubmit={saveAccount}>
+            <div>
+              <label htmlFor="acct_fullname" className="text-sm block mb-1">Full name</label>
+              <input id="acct_fullname" className="input" value={acctName} onChange={e=> setAcctName(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="acct_email" className="text-sm block mb-1">Email</label>
+              <input id="acct_email" className="input" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="acct_username" className="text-sm block mb-1">Username</label>
+              <input id="acct_username" className="input" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
+            </div>
+            {acctMsg && <div className="text-xs text-slate-500">{acctMsg}</div>}
+            <button className="btn btn-primary w-full mt-2" type="submit">Save</button>
+          </form>
+        </div>
+        <div className="pt-4 border-t border-slate-200">
+          <h3 className="text-sm font-semibold mb-2">Change Password</h3>
+          <form className="space-y-2" onSubmit={changePassword}>
+            <div>
+              <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
+              <input id="pw_current" type="password" className="input" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="pw_new" className="text-sm block mb-1">New Password</label>
+              <input id="pw_new" type="password" className="input" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
+            </div>
+            {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
+            <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
+          </form>
+        </div>
+        <div className="pt-4 border-t border-slate-200">
+          <h3 className="text-sm font-semibold mb-2">Settings</h3>
+          <div className="space-y-1">
+            {programs.map(p => (
+              <div key={p.program_id} className="flex items-center gap-1">
+                <button
+                  className="btn btn-ghost flex-1 justify-start truncate text-left"
+                  onClick={() => setProgramModal({ show: true, program: p })}
+                >
+                  {p.title}
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setTemplateProgramId(p.program_id);
+                    setShowTemplates(true);
+                  }}
+                >
+                  Templates
+                </button>
+              </div>
+            ))}
           </div>
           <button
-            className="btn btn-ghost text-sm"
-            onClick={()=> setOpenSections(prev=> prev.includes('account')? prev : [...prev,'account'])}
+            className="btn btn-outline w-full mt-2"
+            onClick={() => setProgramModal({ show: true, program: null })}
           >
-            Edit
+            + New Program
           </button>
         </div>
-        <div className="pt-4 space-y-4">
-          {/* Account */}
-          <div>
-            <h3>
-              <button
-                type="button"
-                className="flex items-center justify-between w-full"
-                aria-expanded={openSections.includes('account')}
-                aria-controls="sec-account"
-                onClick={()=> toggleSection('account')}
-              >
-                <span className="flex items-center gap-2"><span aria-hidden="true">👤</span>Account</span>
-                <span className={`transition-transform ${openSections.includes('account')? 'rotate-180':''}`}>⌄</span>
-              </button>
-            </h3>
-            {openSections.includes('account') && (
-              <div id="sec-account" className="mt-2 space-y-2">
-                <form className="space-y-2" onSubmit={saveAccount}>
-                  <div>
-                    <label htmlFor="acct_fullname" className="text-sm block mb-1">Full name</label>
-                    <input id="acct_fullname" className="input" value={acctName} onChange={e=> setAcctName(e.target.value)} />
-                  </div>
-                  <div>
-                    <label htmlFor="acct_email" className="text-sm block mb-1">Email</label>
-                    <input id="acct_email" className="input" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
-                  </div>
-                  <div>
-                    <label htmlFor="acct_username" className="text-sm block mb-1">Username</label>
-                    <input id="acct_username" className="input" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
-                  </div>
-                  {acctMsg && <div className="text-xs text-slate-500">{acctMsg}</div>}
-                  <button className="btn btn-primary w-full mt-2" type="submit">Save</button>
-                </form>
-              </div>
-            )}
-          </div>
-
-          {/* Password */}
-          <div>
-            <h3>
-              <button
-                type="button"
-                className="flex items-center justify-between w-full"
-                aria-expanded={openSections.includes('password')}
-                aria-controls="sec-password"
-                onClick={()=> toggleSection('password')}
-              >
-                <span className="flex items-center gap-2"><span aria-hidden="true">🔒</span>Password</span>
-                <span className={`transition-transform ${openSections.includes('password')? 'rotate-180':''}`}>⌄</span>
-              </button>
-            </h3>
-            {openSections.includes('password') && (
-              <div id="sec-password" className="mt-2 space-y-2">
-                <form className="space-y-2" onSubmit={changePassword}>
-                  <div>
-                    <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
-                    <input id="pw_current" type="password" className="input" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
-                  </div>
-                  <div>
-                    <label htmlFor="pw_new" className="text-sm block mb-1">New Password</label>
-                    <input id="pw_new" type="password" className="input" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
-                  </div>
-                  {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
-                  <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
-                </form>
-              </div>
-            )}
-          </div>
-
-          {/* Programs & Templates */}
-          <div>
-            <h3>
-              <button
-                type="button"
-                className="flex items-center justify-between w-full"
-                aria-expanded={openSections.includes('programs')}
-                aria-controls="sec-programs"
-                onClick={()=> toggleSection('programs')}
-              >
-                <span className="flex items-center gap-2"><span aria-hidden="true">📦</span>Programs & Templates</span>
-                <span className={`transition-transform ${openSections.includes('programs')? 'rotate-180':''}`}>⌄</span>
-              </button>
-            </h3>
-            {openSections.includes('programs') && (
-              <div id="sec-programs" className="mt-2 space-y-2">
-                <div className="space-y-1">
-                  {programs.map(p => (
-                    <div key={p.program_id} className="flex items-center gap-1">
-                      <button
-                        className="btn btn-ghost flex-1 justify-start truncate text-left"
-                        onClick={() => setProgramModal({ show: true, program: p })}
-                      >
-                        {p.title}
-                      </button>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => {
-                          setTemplateProgramId(p.program_id);
-                          setShowTemplates(true);
-                        }}
-                      >
-                        Templates
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  className="btn btn-outline w-full mt-2"
-                  onClick={() => setProgramModal({ show: true, program: null })}
-                >
-                  + New Program
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Utilities */}
-          <div>
-            <h3>
-              <button
-                type="button"
-                className="flex items-center justify-between w-full"
-                aria-expanded={openSections.includes('utilities')}
-                aria-controls="sec-utilities"
-                onClick={()=> toggleSection('utilities')}
-              >
-                <span className="flex items-center gap-2"><span aria-hidden="true">🛠️</span>Utilities</span>
-                <span className={`transition-transform ${openSections.includes('utilities')? 'rotate-180':''}`}>⌄</span>
-              </button>
-            </h3>
-            {openSections.includes('utilities') && (
-              <div id="sec-utilities" className="mt-2 space-y-2">
-                <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
-                  Refresh Programs
-                </button>
-                <button className="btn btn-outline w-full" onClick={onSignOut}>
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="space-y-2 pt-4 border-t border-slate-200">
+          <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
+            Refresh Programs
+          </button>
+          <button className="btn btn-outline w-full" onClick={onSignOut}>
+            Sign out
+          </button>
         </div>
       </aside>
     {showTemplates && templateProgramId && (
