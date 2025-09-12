@@ -471,7 +471,54 @@ function App({ me, onSignOut }){
   const [needsInstantiate, setNeedsInstantiate] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null, trigger:null });
+  const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
+  const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateProgramId, setTemplateProgramId] = useState(null);
+  const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchDebounce = useRef(null);
   const touchHover = useRef(null);
+  const panelRef = useRef(null);
+  const triggerRef = useRef(null);
+  const templateTriggerRef = useRef(null);
+  const restoreFocus = () => {
+    triggerRef.current && triggerRef.current.focus();
+  };
+  const togglePanel = (e) => {
+    if (panelOpen) {
+      setPanelOpen(false);
+      restoreFocus();
+    } else {
+      triggerRef.current = e.currentTarget;
+      setPanelOpen(true);
+    }
+  };
+
+  const toggleSection = (key) => {
+    setOpenSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => setSearchTerm(val), 150);
+  };
+
+  const resizeMove = useRafThrottle((e) => {
+    const width = Math.max(260, Math.min(400, window.innerWidth - e.clientX));
+    setPanelWidth(width);
+  });
+  const startResize = (e) => {
+    e.preventDefault();
+    const move = (ev) => resizeMove(ev);
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  };
 
   const [acctName, setAcctName] = useState(me?.name || '');
   const [acctEmail, setAcctEmail] = useState(me?.email || '');
@@ -481,6 +528,19 @@ function App({ me, onSignOut }){
   const [acctMsg, setAcctMsg] = useState('');
   const [pwMsg, setPwMsg] = useState('');
 
+  useEffect(() => {
+    if (!panelOpen) return;
+    const handleKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPanelOpen(false);
+        restoreFocus();
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [panelOpen]);
+  useFocusTrap(panelOpen && !programModal.show && !assignPicker && !showTemplates, panelRef);
 
   function buildWeeks(rows){
     const byWeek = {};
@@ -1261,14 +1321,251 @@ function App({ me, onSignOut }){
             <div className="t-body text-slate-500 dark:text-slate-400">No deleted tasks</div>
           )}
         </div>
-    </Section>
+      </Section>
     </div>
-    <aside id="right-panel" className="fixed inset-y-0 right-0 z-50 w-64 bg-white dark:bg-slate-800 shadow-lg transform translate-x-full transition-transform" aria-labelledby="right-panel-toggle">
-      <button id="right-panel-toggle" className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-l shadow" aria-label="Toggle panel">☰</button>
-      <div className="p-4 space-y-4">
-        <p className="t-body text-slate-700 dark:text-slate-300">Right panel</p>
-      </div>
-    </aside>
+      <div
+        className={`fixed inset-0 md:hidden overscroll-contain touch-none apple-backdrop apple-ease duration-300 transition-opacity ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'} apple-focus`}
+        onClick={togglePanel}
+        tabIndex={panelOpen ? 0 : -1}
+        aria-label="Close side panel"
+      ></div>
+      <button
+        id="side-panel-toggle"
+        onClick={togglePanel}
+        aria-label="Toggle side panel"
+        aria-expanded={panelOpen}
+        aria-controls="side-panel"
+        className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-l shadow apple-focus apple-press"
+        style={{ right: panelOpen ? panelWidth : 0 }}
+      >
+        {panelOpen ? (
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
+      </button>
+      {/* SidePanel: container uses apple styling classes; buttons use `btn`; fields use `input` for consistent styling */}
+      {panelOpen && (
+        <div
+          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize apple-focus"
+          style={{ right: panelWidth }}
+          onPointerDown={startResize}
+          tabIndex={0}
+          aria-label="Resize panel"
+        ></div>
+      )}
+      <aside
+          id="side-panel"
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="panel-heading"
+          className={`bg-white dark:bg-slate-800 apple-shadow apple-border p-4 space-y-4 fixed inset-y-0 right-0 z-50 overflow-hidden transform apple-ease transition-transform duration-300 md:transition-[width] md:duration-300 md:translate-x-0
+                     ${panelOpen ? 'translate-x-0' : 'translate-x-full md:w-0'}`}
+          style={{ width: panelOpen ? panelWidth : 0 }}
+        >
+        <h2 id="panel-heading" className="sr-only">Side Panel</h2>
+          <div className="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center t-body font-semibold">
+            {(acctName||'').split(/\s+/).map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate">{acctName}</div>
+            <div className="t-body text-slate-500 dark:text-slate-400 truncate">{acctEmail}</div>
+          </div>
+          <button
+            className="btn apple-focus apple-press btn-ghost"
+            onClick={()=> setOpenSections(prev=> prev.includes('account')? prev : [...prev,'account'])}
+          >
+            Edit
+          </button>
+        </div>
+        <div className="pt-4 space-y-4">
+          <input
+            className="input apple-focus w-full"
+            placeholder="Search…"
+            onChange={handleSearchChange}
+          />
+          {/* Account */}
+          <div>
+            <h3>
+              <button
+                id="hdr-account"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('account')}
+                aria-controls="sec-account"
+                onClick={()=> toggleSection('account')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">👤</span>Account</span>
+                <span className={`transition-transform ${openSections.includes('account')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('account') && (
+              <div id="sec-account" className="mt-2 space-y-2" aria-labelledby="hdr-account">
+                <form className="space-y-2" onSubmit={saveAccount}>
+                  <div>
+                    <label htmlFor="acct_fullname" className="t-body block mb-1">Full name</label>
+                    <input id="acct_fullname" className="input apple-focus" value={acctName} onChange={e=> setAcctName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="acct_email" className="t-body block mb-1">Email</label>
+                    <input id="acct_email" className="input apple-focus" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="acct_username" className="t-body block mb-1">Username</label>
+                    <input id="acct_username" className="input apple-focus" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
+                  </div>
+                  {acctMsg && <div className="t-caption text-slate-500 dark:text-slate-400">{acctMsg}</div>}
+                  <button className="btn apple-focus apple-press btn-primary w-full mt-2" type="submit">Save</button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Password */}
+          <div>
+            <h3>
+              <button
+                id="hdr-password"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('password')}
+                aria-controls="sec-password"
+                onClick={()=> toggleSection('password')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">🔒</span>Password</span>
+                <span className={`transition-transform ${openSections.includes('password')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('password') && (
+              <div id="sec-password" className="mt-2 space-y-2" aria-labelledby="hdr-password">
+                <form className="space-y-2" onSubmit={changePassword}>
+                  <div>
+                    <label htmlFor="pw_current" className="t-body block mb-1">Current Password</label>
+                    <input id="pw_current" type="password" className="input apple-focus" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="pw_new" className="t-body block mb-1">New Password</label>
+                    <input id="pw_new" type="password" className="input apple-focus" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
+                  </div>
+                  {pwMsg && <div className="t-caption text-slate-500 dark:text-slate-400">{pwMsg}</div>}
+                  <button className="btn apple-focus apple-press btn-primary w-full mt-2" type="submit">Change Password</button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Programs & Templates */}
+          <div>
+            <h3>
+              <button
+                id="hdr-programs"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('programs')}
+                aria-controls="sec-programs"
+                onClick={()=> toggleSection('programs')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">📦</span>Programs & Templates</span>
+                <span className={`transition-transform ${openSections.includes('programs')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('programs') && (
+              <div id="sec-programs" className="mt-2 space-y-2" aria-labelledby="hdr-programs">
+                <div className="space-y-1">
+                  {programs
+                    .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
+                    .map(p => (
+                    <div key={p.program_id} className="flex items-center gap-1">
+                      <span className="flex-1 truncate">{p.title}</span>
+                      <button className="btn apple-focus apple-press btn-ghost" onClick={() => refreshPrograms(p.program_id)}>Open</button>
+                      <button
+                        className="btn apple-focus apple-press btn-ghost"
+                        onClick={(e) => {
+                          templateTriggerRef.current = e.currentTarget;
+                          setTemplateProgramId(p.program_id);
+                          setShowTemplates(true);
+                        }}
+                      >
+                        Templates
+                      </button>
+                      <details className="relative">
+                        <summary className="btn apple-focus apple-press btn-ghost px-2 -mr-2" tabIndex={0} aria-label="More options">⋯</summary>
+                          <div className="absolute right-0 z-10 mt-1 w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow">
+                          <button
+                            className="btn apple-focus apple-press btn-ghost w-full justify-start"
+                            onClick={(e) => setProgramModal({ show: true, program: p, trigger: e.currentTarget })}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn apple-focus apple-press btn-ghost w-full justify-start"
+                            onClick={() => handleDeleteProgram(p.program_id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+                  <div className="sticky bottom-0 bg-white dark:bg-slate-800 pt-2">
+                  <button
+                    className="btn apple-focus apple-press btn-primary w-full"
+                    onClick={(e) => setProgramModal({ show: true, program: null, trigger: e.currentTarget })}
+                  >
+                    + New Program
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Utilities */}
+          <div>
+            <h3>
+              <button
+                id="hdr-utilities"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('utilities')}
+                aria-controls="sec-utilities"
+                onClick={()=> toggleSection('utilities')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">🛠️</span>Utilities</span>
+                <span className={`transition-transform ${openSections.includes('utilities')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('utilities') && (
+              <div id="sec-utilities" className="mt-2 space-y-2" aria-labelledby="hdr-utilities">
+                <button className="btn apple-focus apple-press btn-outline w-full" onClick={() => refreshPrograms()}>
+                  Refresh Programs
+                </button>
+                <button className="btn apple-focus apple-press btn-outline w-full" disabled>
+                  Clear Cache (coming soon)
+                </button>
+                <button className="btn apple-focus apple-press btn-outline w-full" onClick={onSignOut}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+    {showTemplates && templateProgramId && (
+      <TemplateModal
+        programId={templateProgramId}
+        onClose={() => {
+          setShowTemplates(false);
+          templateTriggerRef.current && templateTriggerRef.current.focus();
+        }}
+      />
+    )}
   </div>
   );
 }
@@ -1304,17 +1601,6 @@ function Root(){
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const panel = document.getElementById('right-panel');
-  const toggle = document.getElementById('right-panel-toggle');
-  if (panel && toggle) {
-    toggle.addEventListener('click', () => {
-      panel.classList.toggle('translate-x-full');
-    });
-  }
-});
 </script>
 </body>
 </html>
