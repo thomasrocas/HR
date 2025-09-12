@@ -29,7 +29,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password })
       });
-      msgEl.innerText = res.ok ? 'Password updated' : 'Reset failed';
+      const data = await res.json();
+      msgEl.innerText = res.ok ? 'Password updated' : (data.error || 'Reset failed');
     });
   }
 </script>
