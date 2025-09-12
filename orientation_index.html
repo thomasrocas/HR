@@ -57,16 +57,22 @@
   <!-- Day.js -->
   <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
   <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
-  <style>
-    .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
-    .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
-    .btn-ghost{ @apply border-transparent hover:bg-slate-50; }
-    .btn-outline{ @apply border-slate-300 hover:bg-slate-50; }
-    .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:brightness-95; }
-    .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700; }
-    .input{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
-    .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
-    .outline-dashed{ outline-style: dashed; }
+    <style>
+      body{ font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+      .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
+      .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
+      .btn-ghost{ @apply border-transparent hover:bg-slate-50; }
+      .btn-outline{ @apply border-slate-300 hover:bg-slate-50; }
+      .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:brightness-95; }
+      .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700; }
+      .input{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+      .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+      .t-display{ font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.025em; }
+      .t-title{ font-size: 1.5rem; line-height: 2rem; font-weight: 600; letter-spacing: -0.015em; }
+      .t-headline{ font-size: 1.25rem; line-height: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
+      .t-body{ font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; }
+      .t-caption{ font-size: 0.75rem; line-height: 1rem; font-weight: 400; }
+      .outline-dashed{ outline-style: dashed; }
 
     button:focus,
     [tabindex]:focus,
@@ -91,7 +97,7 @@
     html, body { height: 100%; }
   </style>
 </head>
-<body class="min-h-screen bg-slate-50 text-slate-900">
+  <body class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
 <div id="root" class="max-w-7xl mx-auto px-4"></div>
 
 <script type="text/babel">
@@ -202,29 +208,29 @@ function AuthPanel({ onAuthed }){
   return (
     <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
       <div className="card p-6">
-        <h2 className="text-xl font-semibold mb-4">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
-        <p className="text-sm text-slate-500 mb-4">Use a local account as an alternate to Google SSO.</p>
+        <h2 className="t-title mb-4">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
+        <p className="t-body text-slate-500 dark:text-slate-400 mb-4">Use a local account as an alternate to Google SSO.</p>
         {mode === 'register' && (
           <>
             <div className="mb-4">
-              <label htmlFor="fullName" className="text-sm block mb-1">Full name</label>
+              <label htmlFor="fullName" className="t-body block mb-1">Full name</label>
               <input id="fullName" className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" />
             </div>
             <div className="mb-4">
-              <label htmlFor="email" className="text-sm block mb-1">Email</label>
+              <label htmlFor="email" className="t-body block mb-1">Email</label>
               <input id="email" className="input" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@anx.com" />
             </div>
           </>
         )}
         <div className="mb-4">
-          <label htmlFor="username" className="text-sm block mb-1">Username</label>
+          <label htmlFor="username" className="t-body block mb-1">Username</label>
           <input id="username" className="input" value={u} onChange={e=>setU(e.target.value)} placeholder="e.g., halle" />
         </div>
         <div className="mb-4">
-          <label htmlFor="password" className="text-sm block mb-1">Password</label>
+          <label htmlFor="password" className="t-body block mb-1">Password</label>
           <input id="password" className="input" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
         </div>
-        {err && <div className="text-sm text-red-600 mb-3">{err}</div>}
+        {err && <div className="t-body text-red-600 mb-3">{err}</div>}
         {mode === 'login' ? (
           <button className="btn btn-primary w-full" onClick={doLogin}>Sign in</button>
         ) : (
@@ -238,11 +244,11 @@ function AuthPanel({ onAuthed }){
         <button className="btn btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
       </div>
       <div className="card p-6">
-        <h3 className="text-lg font-semibold mb-4">Welcome to ANX Orientation</h3>
-        <p className="text-sm text-slate-600 mb-4">
+        <h3 className="t-headline mb-4">Welcome to ANX Orientation</h3>
+        <p className="t-body text-slate-600 dark:text-slate-300 mb-4">
           Sign in to load your calendar, tasks, and preferences. Your session is stored securely and restores your last view.
         </p>
-        <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
+        <ul className="list-disc pl-5 t-body text-slate-600 dark:text-slate-300 space-y-1">
           <li>Use <strong>local username/password</strong> or <strong>Google SSO</strong>.</li>
           <li>Your tasks are tied to your account and won’t mix with others.</li>
           <li>Safe for FileMaker Web Viewer (cookies: SameSite=Lax).</li>
@@ -425,8 +431,8 @@ function Section({title, subtitle, children, right}){
     <section className="card p-4 md:p-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-semibold">{title}</h2>
-          {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+          <h2 className="t-title">{title}</h2>
+          {subtitle && <p className="t-body text-slate-500 dark:text-slate-400">{subtitle}</p>}
         </div>
         {right}
       </div>
@@ -883,7 +889,7 @@ function App({ me, onSignOut }){
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                 {visible.map((col, idx)=> (
                   <div key={idx} className="border rounded-xl overflow-hidden">
-                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">Week {col.wk}</div>
+                    <div className="px-3 py-2 bg-slate-50 t-body font-semibold border-b">Week {col.wk}</div>
                     <div className="p-2 grid gap-2">
                       {col.items.map((it, i)=> (
                         <button key={i} className="btn btn-outline justify-start truncate text-left" title={it.label} onClick={()=> handleAssign(it)}>
@@ -896,7 +902,7 @@ function App({ me, onSignOut }){
               </div>
             ) : (
               <div className="flex items-center justify-center py-8">
-                <div className="card p-6 text-center text-sm text-slate-500">All tasks are scheduled!</div>
+                <div className="card p-6 text-center t-body text-slate-500 dark:text-slate-400">All tasks are scheduled!</div>
               </div>
             )}
           </div>
@@ -957,15 +963,15 @@ function App({ me, onSignOut }){
           </div>
           <div className="fm-modal-body space-y-4">
             <div>
-              <label className="text-sm block mb-1">Title</label>
+              <label className="t-body block mb-1">Title</label>
               <input className="input" value={title} onChange={e=>setTitle(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm block mb-1">Total Weeks</label>
+              <label className="t-body block mb-1">Total Weeks</label>
               <input type="number" min="1" className="input" value={weeksCount} onChange={e=> setWeeksCount(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm block mb-1">Description</label>
+              <label className="t-body block mb-1">Description</label>
               <textarea className="textarea" value={desc} onChange={e=> setDesc(e.target.value)} />
             </div>
             <div className="flex items-center justify-between pt-2">
@@ -1066,11 +1072,11 @@ function App({ me, onSignOut }){
                 <div key={t.template_id} className="border rounded p-2 flex items-center justify-between">
                   <div>
                     <div className="font-medium">Week {t.week_number} • {t.label}</div>
-                    <div className="text-xs text-slate-500">Sort {t.sort_order}{t.notes?` • ${t.notes}`:''}</div>
+                    <div className="t-caption text-slate-500 dark:text-slate-400">Sort {t.sort_order}{t.notes?` • ${t.notes}`:''}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="btn btn-ghost text-xs" onClick={()=> startEdit(t)}>Edit</button>
-                    <button className="btn btn-ghost text-xs" onClick={()=> handleDelete(t.template_id)}>Delete</button>
+                    <button className="btn btn-ghost t-caption" onClick={()=> startEdit(t)}>Edit</button>
+                    <button className="btn btn-ghost t-caption" onClick={()=> handleDelete(t.template_id)}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -1079,20 +1085,20 @@ function App({ me, onSignOut }){
               <form onSubmit={handleSave} className="space-y-2 pt-2">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-sm block mb-1">Week #</label>
+                    <label className="t-body block mb-1">Week #</label>
                     <input type="number" className="input" value={wk} onChange={e=> setWk(e.target.value)} />
                   </div>
                   <div>
-                    <label className="text-sm block mb-1">Sort Order</label>
+                    <label className="t-body block mb-1">Sort Order</label>
                     <input type="number" className="input" value={sort} onChange={e=> setSort(e.target.value)} />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm block mb-1">Label</label>
+                  <label className="t-body block mb-1">Label</label>
                   <input className="input" value={label} onChange={e=> setLabel(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-sm block mb-1">Notes</label>
+                  <label className="t-body block mb-1">Notes</label>
                   <textarea className="textarea" value={notes} onChange={e=> setNotes(e.target.value)} />
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -1116,10 +1122,10 @@ function App({ me, onSignOut }){
       </select>
       <button className="btn btn-outline" onClick={()=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
       <div className="h-6 w-px bg-slate-200" />
-      <label className="text-sm text-slate-600">Start</label>
+      <label className="t-body text-slate-600 dark:text-slate-300">Start</label>
       <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
       <div className="h-6 w-px bg-slate-200" />
-      <label className="text-sm text-slate-600">Weeks</label>
+      <label className="t-body text-slate-600 dark:text-slate-300">Weeks</label>
       <div className="flex items-center gap-1">
         <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.max(1, w-1))} aria-label="Decrease weeks">−</button>
         <input type="number" min="1" max="24" step="1" className="input w-16 text-center" value={numWeeks}
@@ -1137,8 +1143,8 @@ function App({ me, onSignOut }){
           <header className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <div>
-                <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
-                <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
+                <h1 className="t-display">ANX Orientation • {trainee}</h1>
+                <p className="t-body text-slate-500 dark:text-slate-400">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1155,15 +1161,15 @@ function App({ me, onSignOut }){
 
       {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-4">
-        <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={progress.pct}/></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{progress.done}/{progress.total}</div></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">{numWeeks}</div></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Start</div><div className="text-2xl font-semibold mt-2">{fmt(startDate)}</div></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Overall Progress</div><Ring value={progress.pct}/></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Tasks Completed</div><div className="t-title mt-2">{progress.done}/{progress.total}</div></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Weeks</div><div className="t-title mt-2">{numWeeks}</div></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Start</div><div className="t-title mt-2">{fmt(startDate)}</div></div>
       </div>
 
       {/* Calendar */}
       <Section title={`${numWeeks}-Week Visual Calendar`} subtitle="Assign tasks by date; click Assign on a day.">
-        <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
+        <div className="grid grid-cols-7 gap-2 t-caption font-medium text-slate-500 dark:text-slate-400 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
         </div>
         <div className="grid grid-cols-7 gap-2">
@@ -1176,20 +1182,20 @@ function App({ me, onSignOut }){
               <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
                    onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
                 <div className="flex items-center justify-between mb-1">
-                  <div className="text-xs font-semibold">{d.format('D')}</div>
-                  <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
+                  <div className="t-caption font-semibold">{d.format('D')}</div>
+                  <button className="btn btn-ghost t-caption" onClick={()=> setAssignPicker({date:key})}>Assign</button>
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
                     <div key={i}
-                         className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
+                         className={`relative t-caption pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
                          draggable data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
                          onDragStart={handleDragStart} onDragEnd={handleDragEnd}
                          onTouchStart={handleDragStart} onTouchMove={handleTouchMove}
                          onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
                       {it.label}
                       <button type="button" aria-label="Remove"
-                              className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                              className="absolute -top-1 -right-1 t-caption leading-none text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                               onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
                               onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
                         ✕
@@ -1197,7 +1203,7 @@ function App({ me, onSignOut }){
                     </div>
                   ))}
                   {items.length>3 && (
-                    <button type="button" className="text-[11px] text-slate-500" onClick={()=> toggleExpandedDay(key)}>
+                    <button type="button" className="t-caption text-slate-500 dark:text-slate-400" onClick={()=> toggleExpandedDay(key)}>
                       {expanded ? 'Show less' : `+${items.length-3} more…`}
                     </button>
                   )}
@@ -1219,22 +1225,22 @@ function App({ me, onSignOut }){
               <div key={w.id} className="card p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-lg font-semibold">Week {w.wk}: {w.title}</div>
-                    <div className="text-sm text-slate-500">{w.theme}</div>
+                    <div className="t-headline">Week {w.wk}: {w.title}</div>
+                    <div className="t-body text-slate-500 dark:text-slate-400">{w.theme}</div>
                   </div>
-                  <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
+                  <div className="w-48"><ProgressBar value={pct}/><div className="t-caption text-right mt-1">{pct}%</div></div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
                   {(w.tasks||[]).map((t,ti)=> (
                     <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
-                      <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
+                      <button type="button" aria-label="Delete" className="absolute top-1 right-1 t-caption text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                               onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
                       <div className="flex items-start gap-3">
                         <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
                         <div className="flex-1">
                           <div className="font-medium">{t.title}</div>
-                          <div className="mt-2 flex items-center gap-2 text-sm">
-                            <span className="text-slate-600">Assigned:</span>
+                          <div className="mt-2 flex items-center gap-2 t-body">
+                            <span className="t-body text-slate-600 dark:text-slate-300">Assigned:</span>
                             <input type="date" className="input w-auto" value={t.scheduled_for||''}
                                    onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
                           </div>
@@ -1256,11 +1262,11 @@ function App({ me, onSignOut }){
             deletedTasks.map(t => (
               <div key={t.task_id} className="flex items-center justify-between">
                 <span>{t.label || t.title}</span>
-                <button className="btn btn-ghost text-xs" onClick={() => handleRestoreTask(t.task_id)}>Restore</button>
+                <button className="btn btn-ghost t-caption" onClick={() => handleRestoreTask(t.task_id)}>Restore</button>
               </div>
             ))
           ) : (
-            <div className="text-sm text-slate-500">No deleted tasks</div>
+            <div className="t-body text-slate-500 dark:text-slate-400">No deleted tasks</div>
           )}
         </div>
       </Section>
@@ -1312,15 +1318,15 @@ function App({ me, onSignOut }){
         >
         <h2 id="panel-heading" className="sr-only">Side Panel</h2>
         <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-semibold">
+          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center t-body font-semibold">
             {(acctName||'').split(/\s+/).map(n=>n[0]).join('').slice(0,2).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-medium truncate">{acctName}</div>
-            <div className="text-sm text-slate-500 truncate">{acctEmail}</div>
+            <div className="t-body text-slate-500 dark:text-slate-400 truncate">{acctEmail}</div>
           </div>
           <button
-            className="btn btn-ghost text-sm"
+            className="btn btn-ghost"
             onClick={()=> setOpenSections(prev=> prev.includes('account')? prev : [...prev,'account'])}
           >
             Edit
@@ -1338,7 +1344,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-account"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="t-headline flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('account')}
                 aria-controls="sec-account"
                 onClick={()=> toggleSection('account')}
@@ -1351,18 +1357,18 @@ function App({ me, onSignOut }){
               <div id="sec-account" className="mt-2 space-y-2" aria-labelledby="hdr-account">
                 <form className="space-y-2" onSubmit={saveAccount}>
                   <div>
-                    <label htmlFor="acct_fullname" className="text-sm block mb-1">Full name</label>
+                    <label htmlFor="acct_fullname" className="t-body block mb-1">Full name</label>
                     <input id="acct_fullname" className="input" value={acctName} onChange={e=> setAcctName(e.target.value)} />
                   </div>
                   <div>
-                    <label htmlFor="acct_email" className="text-sm block mb-1">Email</label>
+                    <label htmlFor="acct_email" className="t-body block mb-1">Email</label>
                     <input id="acct_email" className="input" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
                   </div>
                   <div>
-                    <label htmlFor="acct_username" className="text-sm block mb-1">Username</label>
+                    <label htmlFor="acct_username" className="t-body block mb-1">Username</label>
                     <input id="acct_username" className="input" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
                   </div>
-                  {acctMsg && <div className="text-xs text-slate-500">{acctMsg}</div>}
+                  {acctMsg && <div className="t-caption text-slate-500 dark:text-slate-400">{acctMsg}</div>}
                   <button className="btn btn-primary w-full mt-2" type="submit">Save</button>
                 </form>
               </div>
@@ -1375,7 +1381,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-password"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="t-headline flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('password')}
                 aria-controls="sec-password"
                 onClick={()=> toggleSection('password')}
@@ -1388,14 +1394,14 @@ function App({ me, onSignOut }){
               <div id="sec-password" className="mt-2 space-y-2" aria-labelledby="hdr-password">
                 <form className="space-y-2" onSubmit={changePassword}>
                   <div>
-                    <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
+                    <label htmlFor="pw_current" className="t-body block mb-1">Current Password</label>
                     <input id="pw_current" type="password" className="input" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
                   </div>
                   <div>
-                    <label htmlFor="pw_new" className="text-sm block mb-1">New Password</label>
+                    <label htmlFor="pw_new" className="t-body block mb-1">New Password</label>
                     <input id="pw_new" type="password" className="input" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
                   </div>
-                  {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
+                  {pwMsg && <div className="t-caption text-slate-500 dark:text-slate-400">{pwMsg}</div>}
                   <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
                 </form>
               </div>
@@ -1408,7 +1414,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-programs"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="t-headline flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('programs')}
                 aria-controls="sec-programs"
                 onClick={()=> toggleSection('programs')}
@@ -1473,7 +1479,7 @@ function App({ me, onSignOut }){
               <button
                 id="hdr-utilities"
                 type="button"
-                className="flex items-center justify-between w-full"
+                className="t-headline flex items-center justify-between w-full"
                 aria-expanded={openSections.includes('utilities')}
                 aria-controls="sec-utilities"
                 onClick={()=> toggleSection('utilities')}
