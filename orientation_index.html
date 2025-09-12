@@ -211,6 +211,14 @@ async function apiDeleteTask(taskId) {
   return res.json();
 }
 
+async function apiInstantiateProgram(programId) {
+  const res = await fetch(`${API}/programs/${encodeURIComponent(programId)}/instantiate`, {
+    method: 'POST', credentials:'include'
+  });
+  if (!res.ok) throw new Error('POST /programs/:id/instantiate failed');
+  return res.json();
+}
+
 /* ---- APP ---- */
 function Section({title, subtitle, children, right}){
   return (
@@ -252,7 +260,27 @@ function App({ me, onSignOut }){
   const [assignPicker, setAssignPicker] = useState(null); // {date}
   const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
   const [expandedDays, setExpandedDays] = useState(new Set());
+  const [needsInstantiate, setNeedsInstantiate] = useState(false);
   const touchHover = useRef(null);
+
+  function buildWeeks(rows){
+    const byWeek = {};
+    rows.forEach(r => {
+      const wk = r.week_number || 0;
+      if (!byWeek[wk]) {
+        byWeek[wk] = { id: uid(), wk, title:'', theme:'', result:'', purpose:'', actions:'', tasks: [] };
+      }
+      byWeek[wk].tasks.push({
+        id: r.task_id,
+        task_id: r.task_id,
+        title: r.label,
+        notes: r.notes || '',
+        completed: r.done,
+        scheduled_for: r.scheduled_for
+      });
+    });
+    return Object.values(byWeek).sort((a,b)=> a.wk - b.wk);
+  }
 
   /* Load tasks */
   useEffect(() => {
@@ -268,28 +296,27 @@ function App({ me, onSignOut }){
         }
         if (!QS_PROGRAM_ID) return;
         const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
-        const byWeek = {};
-        rows.forEach(r => {
-          const wk = r.week_number || 0;
-          if (!byWeek[wk]) {
-            byWeek[wk] = { id: uid(), wk, title:'', theme:'', result:'', purpose:'', actions:'', tasks: [] };
-          }
-          byWeek[wk].tasks.push({
-            id: r.task_id,
-            task_id: r.task_id,
-            title: r.label,
-            notes: r.notes || '',
-            completed: r.done,
-            scheduled_for: r.scheduled_for
-          });
-        });
-        setWeeks(Object.values(byWeek).sort((a,b)=> a.wk - b.wk));
+        if (!rows.length) { setNeedsInstantiate(true); setWeeks([]); return; }
+        setNeedsInstantiate(false);
+        setWeeks(buildWeeks(rows));
       } catch (err) {
         console.error('Failed to load tasks', err);
       }
     }
     load();
   }, []);
+
+  async function handleInstantiate(){
+    try {
+      await apiInstantiateProgram(QS_PROGRAM_ID);
+      const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
+      setWeeks(buildWeeks(rows));
+      setNeedsInstantiate(false);
+    } catch(err){
+      console.error('Failed to instantiate program', err);
+      alert('Failed to load program tasks');
+    }
+  }
 
   const progress = useMemo(()=>{
     const all = weeks.flatMap(w=> w.tasks||[]);
@@ -524,6 +551,13 @@ function App({ me, onSignOut }){
           <button className="btn btn-outline ml-2" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
+
+      {needsInstantiate && (
+        <div className="card p-6">
+          <p className="mb-4">This program has no tasks yet. Load preset tasks?</p>
+          <button className="btn btn-primary" onClick={handleInstantiate}>Load Program Tasks</button>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-4">
