@@ -129,6 +129,7 @@ function AuthPanel({ onAuthed }){
         <button className="btn btn-ghost w-full mt-2" onClick={()=> setMode(m => m==='login'?'register':'login')}>
           {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
         </button>
+        <a href="/reset.html" className="btn btn-ghost w-full mt-2">Reset Password</a>
         <div className="h-px bg-slate-200 my-4"></div>
         <button className="btn btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
       </div>
