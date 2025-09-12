@@ -1417,25 +1417,27 @@ function App({ me, onSignOut }){
                         <span aria-hidden="true">📝</span>
                         <span className="sr-only">Templates</span>
                       </button>
-                      <details className="relative">
-                        <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
-                        <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
-                          <button
-                            className="btn btn-ghost w-full justify-start"
-                            onClick={() => setProgramModal({ show: true, program: p })}
-                          >
-                            <span aria-hidden="true">✏️</span>
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            className="btn btn-ghost w-full justify-start"
-                            onClick={() => handleDeleteProgram(p.program_id)}
-                          >
-                            <span aria-hidden="true">🗑️</span>
-                            <span>Delete</span>
-                          </button>
-                        </div>
-                      </details>
+                      {p.created_by === me.id && (
+                        <details className="relative">
+                          <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
+                          <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
+                            <button
+                              className="btn btn-ghost w-full justify-start"
+                              onClick={() => setProgramModal({ show: true, program: p })}
+                            >
+                              <span aria-hidden="true">✏️</span>
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              className="btn btn-ghost w-full justify-start"
+                              onClick={() => handleDeleteProgram(p.program_id)}
+                            >
+                              <span aria-hidden="true">🗑️</span>
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </details>
+                      )}
                     </div>
                   ))}
                 </div>
