@@ -173,6 +173,26 @@ async function apiPatchPrefs(data){
   return r.json();
 }
 
+async function apiPatchMe(data){
+  const r = await fetch(`${API}/me`, {
+    method:'PATCH', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('PATCH /me failed');
+  return r.json();
+}
+
+async function apiChangePassword(data){
+  const r = await fetch(`${API}/auth/local/change-password`, {
+    method:'POST', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('POST /auth/local/change-password failed');
+  return r.json();
+}
+
 /* ---- Program & Template helpers ---- */
 async function apiListPrograms(){
   const r = await fetch(`${API}/programs`, { credentials:'include' });
@@ -462,14 +482,7 @@ function App({ me, onSignOut }){
     e.preventDefault();
     setAcctMsg('');
     try {
-      const r = await fetch(`${API}/me`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ full_name: acctName, email: acctEmail, username: acctUsername })
-      });
-      if (!r.ok) { setAcctMsg('Save failed'); return; }
-      const u = await r.json();
+      const u = await apiPatchMe({ full_name: acctName, email: acctEmail, username: acctUsername });
       setAcctName(u.name || '');
       setAcctEmail(u.email || '');
       setAcctUsername(u.username || '');
@@ -483,13 +496,7 @@ function App({ me, onSignOut }){
     e.preventDefault();
     setPwMsg('');
     try {
-      const r = await fetch(`${API}/auth/local/change-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ current_password: pwCurrent, new_password: pwNew })
-      });
-      if (!r.ok) { setPwMsg('Change failed'); return; }
+      await apiChangePassword({ current_password: pwCurrent, new_password: pwNew });
       setPwMsg('Password updated');
       setPwCurrent('');
       setPwNew('');
