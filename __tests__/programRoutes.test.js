@@ -5,8 +5,8 @@ const { newDb } = require('pg-mem');
 
 // Mock pg to use pg-mem
 const db = newDb();
-const { Pool } = db.adapters.createPg();
-jest.mock('pg', () => ({ Pool }));
+const { Pool: MockPool } = db.adapters.createPg();
+jest.mock('pg', () => ({ Pool: MockPool }));
 
 // Require app after mocks
 const { app, pool } = require('../orientation_server.js');
@@ -56,11 +56,11 @@ describe('program routes', () => {
 
   test('patch updates program fields', async () => {
     const userId = crypto.randomUUID();
-    const hash = await bcrypt.hash('pass', 1);
-    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'u1', hash, 'local']);
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user1', hash, 'local']);
 
     const agent = request.agent(app);
-    await agent.post('/auth/local/login').send({ username: 'u1', password: 'pass' }).expect(200);
+    await agent.post('/auth/local/login').send({ username: 'user1', password: 'passpass' }).expect(200);
 
     const progId = 'prog1';
     await pool.query('insert into public.programs(program_id, title, total_weeks, description, created_by) values ($1,$2,$3,$4,$5)', [progId, 'Old', 4, 'desc', userId]);
@@ -76,11 +76,11 @@ describe('program routes', () => {
 
   test('delete removes program and templates', async () => {
     const userId = crypto.randomUUID();
-    const hash = await bcrypt.hash('pass', 1);
-    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'u2', hash, 'local']);
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user2', hash, 'local']);
 
     const agent = request.agent(app);
-    await agent.post('/auth/local/login').send({ username: 'u2', password: 'pass' }).expect(200);
+    await agent.post('/auth/local/login').send({ username: 'user2', password: 'passpass' }).expect(200);
 
     const progId = 'prog2';
     await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'TBD', userId]);
@@ -97,11 +97,11 @@ describe('program routes', () => {
 
 test('patch updates template fields', async () => {
   const userId = crypto.randomUUID();
-  const hash = await bcrypt.hash('pass', 1);
-  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'u3', hash, 'local']);
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3', hash, 'local']);
 
   const agent = request.agent(app);
-  await agent.post('/auth/local/login').send({ username: 'u3', password: 'pass' }).expect(200);
+  await agent.post('/auth/local/login').send({ username: 'user3', password: 'passpass' }).expect(200);
 
   const progId = 'prog3';
   await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
@@ -124,11 +124,11 @@ test('patch updates template fields', async () => {
 
 test('delete removes template row', async () => {
   const userId = crypto.randomUUID();
-  const hash = await bcrypt.hash('pass', 1);
-  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'u4', hash, 'local']);
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user4', hash, 'local']);
 
   const agent = request.agent(app);
-  await agent.post('/auth/local/login').send({ username: 'u4', password: 'pass' }).expect(200);
+  await agent.post('/auth/local/login').send({ username: 'user4', password: 'passpass' }).expect(200);
 
   const progId = 'prog4';
   await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);

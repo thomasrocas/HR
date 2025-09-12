@@ -5,13 +5,13 @@ const { newDb } = require('pg-mem');
 
 // Mock pg to use pg-mem
 const db = newDb();
-const { Pool } = db.adapters.createPg();
-jest.mock('pg', () => ({ Pool }));
+const { Pool: MockPool } = db.adapters.createPg();
+jest.mock('pg', () => ({ Pool: MockPool }));
 
 // Mock nodemailer to avoid real email sending
-const sendMailMock = jest.fn().mockResolvedValue(true);
+const mockSendMail = jest.fn().mockResolvedValue(true);
 jest.mock('nodemailer', () => ({
-  createTransport: () => ({ sendMail: sendMailMock })
+  createTransport: () => ({ sendMail: mockSendMail })
 }));
 
 // Require app after mocks
@@ -35,7 +35,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await pool.query('delete from public.users');
-  sendMailMock.mockClear();
+  mockSendMail.mockClear();
 });
 
 test('forgot sets token and expiry', async () => {
@@ -49,7 +49,7 @@ test('forgot sets token and expiry', async () => {
   expect(rows[0].password_reset_token).toBeTruthy();
   expect(rows[0].password_reset_token.length).toBe(64);
   expect(new Date(rows[0].password_reset_expires) > new Date()).toBe(true);
-  expect(sendMailMock).toHaveBeenCalled();
+  expect(mockSendMail).toHaveBeenCalled();
 });
 
 test('reset rejects expired token', async () => {
