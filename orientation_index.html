@@ -453,7 +453,7 @@ function Ring({value=0}){
   return (
     <svg width="120" height="120" viewBox="0 0 120 120" className="mx-auto">
       <circle cx="60" cy="60" r={r} fill="none" stroke="#e5e7eb" strokeWidth="12" />
-      <circle cx="60" cy="60" r={r} fill="none" stroke="#0ea5e9" strokeWidth="12" strokeLinecap="round" style={{ strokeDasharray:c, strokeDashoffset:off, transform:'rotate(-90deg)', transformOrigin:'50% 50%'}}/>
+      <circle cx="60" cy="60" r={r} fill="none" stroke="#7dd3fc" strokeWidth="12" strokeLinecap="round" style={{ strokeDasharray:c, strokeDashoffset:off, transform:'rotate(-90deg)', transformOrigin:'50% 50%'}}/>
       <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" className="fill-slate-700 font-semibold">{value}%</text>
     </svg>
   );
@@ -1185,10 +1185,22 @@ function App({ me, onSignOut }){
 
       {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-4">
-        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Overall Progress</div><Ring value={progress.pct}/></div>
-        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Tasks Completed</div><div className="t-title mt-2">{progress.done}/{progress.total}</div></div>
-        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Weeks</div><div className="t-title mt-2">{numWeeks}</div></div>
-        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Start</div><div className="t-title mt-2">{fmt(startDate)}</div></div>
+        <div className="apple-card apple-border apple-shadow p-4">
+          <div className="t-body truncate" title="Overall Progress">Overall Progress</div>
+          <div className="mt-2 t-headline"><Ring value={progress.pct} /></div>
+        </div>
+        <div className="apple-card apple-border apple-shadow p-4">
+          <div className="t-body truncate" title="Tasks Completed">Tasks Completed</div>
+          <div className="t-headline mt-2 truncate" title={`${progress.done}/${progress.total}`}>{progress.done}/{progress.total}</div>
+        </div>
+        <div className="apple-card apple-border apple-shadow p-4">
+          <div className="t-body truncate" title="Weeks">Weeks</div>
+          <div className="t-headline mt-2 truncate" title={String(numWeeks)}>{numWeeks}</div>
+        </div>
+        <div className="apple-card apple-border apple-shadow p-4">
+          <div className="t-body truncate" title="Start">Start</div>
+          <div className="t-headline mt-2 truncate" title={fmt(startDate)}>{fmt(startDate)}</div>
+        </div>
       </div>
 
       {/* Calendar */}
@@ -1203,25 +1215,41 @@ function App({ me, onSignOut }){
             const out = !inRange(d, startDate, numWeeks);
             const expanded = expandedDays.has(key);
             return (
-                <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50 dark:bg-slate-700':''}`}
-                   onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
+                <div
+                  key={idx}
+                  data-date={key}
+                  className={`apple-card apple-border apple-shadow p-2 min-h-[96px] ${out?'opacity-60':''}`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e)=>handleDrop(e,key)}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="t-caption font-semibold">{d.format('D')}</div>
         <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={(e)=> setAssignPicker({date:key, trigger:e.currentTarget})}>Assign</button>
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
-                    <div key={i}
-                         className={`relative t-caption pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
-                         draggable data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
-                         onDragStart={handleDragStart} onDragEnd={handleDragEnd}
-                         onTouchStart={handleDragStart} onTouchMove={handleTouchMove}
-                         onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
-                      {it.label}
-                      <button type="button" aria-label="Remove"
-                              className="absolute -top-1 -right-1 t-caption leading-none text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                              onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
-                              onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                    <div
+                      key={i}
+                      className={`relative t-caption pl-2 pr-4 py-1 rounded-md apple-border apple-shadow ${it.done?'bg-anx-mint-muted border-anx-mint-muted':'bg-anx-sky-muted border-anx-sky-muted'}`}
+                      title={it.label}
+                      draggable
+                      data-wi={it.wi}
+                      data-ti={it.ti}
+                      data-taskid={it.task_id}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onTouchStart={handleDragStart}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onTouchCancel={handleTouchEnd}>
+                      <span className="truncate">{it.label}</span>
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        className="absolute -top-1 -right-1 t-caption leading-none text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}>
                         ✕
                       </button>
                     </div>
