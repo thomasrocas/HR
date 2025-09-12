@@ -361,6 +361,7 @@ function App({ me, onSignOut }){
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelLabel = panelOpen ? 'Close Panel' : 'Open Panel';
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
   const touchHover = useRef(null);
@@ -1002,7 +1003,6 @@ function App({ me, onSignOut }){
       <div className="flex-1 space-y-6 py-6">
         <header className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <button className="btn btn-ghost md:hidden" onClick={()=> setPanelOpen(o=>!o)} aria-label="Toggle panel">☰</button>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
               <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
@@ -1010,6 +1010,13 @@ function App({ me, onSignOut }){
           </div>
           <div className="flex items-center gap-2">
             {controlBar}
+            <button
+              className="btn btn-outline btn-sm hidden md:inline-flex"
+              onClick={()=> setPanelOpen(o=>!o)}
+              aria-pressed={panelOpen}
+            >
+              {panelLabel}
+            </button>
           </div>
         </header>
 
@@ -1132,6 +1139,13 @@ function App({ me, onSignOut }){
         </div>
       </Section>
     </div>
+    <button
+      className="btn btn-outline md:hidden fixed bottom-4 right-4 rounded-xl shadow-lg"
+      onClick={()=> setPanelOpen(o=>!o)}
+      aria-pressed={panelOpen}
+    >
+      {panelLabel}
+    </button>
     {panelOpen && (
       <div className="fixed inset-0 bg-black/50 md:hidden" onClick={() => setPanelOpen(false)}></div>
     )}
