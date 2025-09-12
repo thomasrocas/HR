@@ -1,0 +1,90 @@
+const request = require('supertest');
+const crypto = require('crypto');
+const { newDb } = require('pg-mem');
+
+// Setup pg-mem and mock pg
+const db = newDb();
+const { Pool: MockPool } = db.adapters.createPg();
+
+db.public.registerFunction({
+  name: 'to_timestamp',
+  args: ['text'],
+  returns: 'timestamptz',
+  implementation: x => new Date(Number(x) * 1000)
+});
+
+db.public.registerFunction({
+  name: 'gen_random_uuid',
+  returns: 'uuid',
+  implementation: () => crypto.randomUUID()
+});
+
+jest.mock('pg', () => ({ Pool: MockPool }));
+
+// Require app after pg mock
+const { app, pool } = require('../orientation_server.js');
+
+describe('local auth flow', () => {
+  beforeAll(async () => {
+    await pool.query(`
+      create table public.users (
+        id uuid primary key default gen_random_uuid(),
+        username text unique,
+        email text,
+        full_name text,
+        password_hash text,
+        provider text,
+        last_login_at timestamptz,
+        updated_at timestamptz
+      );
+      create table public.session (
+        sid text primary key,
+        sess text not null,
+        expire timestamptz not null
+      );
+    `);
+  });
+
+  afterEach(async () => {
+    await pool.query('delete from public.session');
+    await pool.query('delete from public.users');
+  });
+
+  test('register, update profile, change password, login with new password', async () => {
+    const agent = request.agent(app);
+
+    const reg = await agent
+      .post('/auth/local/register')
+      .send({
+        username: 'newuser',
+        password: 'passpass',
+        email: 'old@example.com',
+        full_name: 'Old Name'
+      })
+      .expect(200);
+
+    expect(reg.body.ok).toBe(true);
+    expect(reg.body.user.username).toBe('newuser');
+
+    const updated = await agent
+      .patch('/me')
+      .send({ full_name: 'New Name', email: 'new@example.com' })
+      .expect(200);
+
+    expect(updated.body.name).toBe('New Name');
+    expect(updated.body.email).toBe('new@example.com');
+    expect(updated.body.username).toBe('newuser');
+
+    await agent
+      .post('/auth/local/change-password')
+      .send({ current_password: 'passpass', new_password: 'betterpass' })
+      .expect(200);
+
+    await agent.post('/auth/logout').expect(200);
+
+    await request(app)
+      .post('/auth/local/login')
+      .send({ username: 'newuser', password: 'betterpass' })
+      .expect(200);
+  });
+});
