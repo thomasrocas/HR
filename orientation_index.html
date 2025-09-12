@@ -7,8 +7,49 @@
   <!-- Tailwind (Play CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = { theme: { extend: { colors: { anx: { sky: '#0ea5e9', mint:'#10b981', slate:'#1f2937' }}}}};
+    tailwind.config = {
+      theme: {
+        extend: {
+          spacing: {
+            13: '3.25rem',
+            15: '3.75rem',
+            18: '4.5rem',
+            22: '5.5rem',
+            26: '6.5rem'
+          },
+          borderRadius: {
+            apple: '1.25rem'
+          },
+          boxShadow: {
+            apple: '0 0 1px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.1)'
+          },
+          colors: {
+            anx: {
+              sky: { DEFAULT: '#0ea5e9', muted: '#7dd3fc' },
+              mint: { DEFAULT: '#10b981', muted: '#6ee7b7' },
+              slate: { DEFAULT: '#1f2937', muted: '#94a3b8' }
+            }
+          },
+          transitionTimingFunction: {
+            apple: 'cubic-bezier(0.215,0.61,0.355,1)',
+            'apple-in': 'cubic-bezier(0.55,0.055,0.675,0.19)',
+            'apple-out': 'cubic-bezier(0.215,0.61,0.355,1)'
+          }
+        }
+      }
+    };
   </script>
+  <style>
+    @layer utilities {
+      .apple-shadow{ @apply shadow-apple; }
+      .apple-border{ @apply border border-slate-200/80; }
+      .apple-card{ @apply bg-white rounded-apple border border-slate-200/80 shadow-apple; }
+      .apple-focus{ @apply focus:outline-none focus:ring-2 focus:ring-anx-sky focus:ring-offset-2; }
+      .apple-press{ @apply active:scale-95; }
+      .apple-ease{ @apply transition ease-apple; }
+      .apple-backdrop{ @apply backdrop-blur-sm bg-black/30; }
+    }
+  </style>
   <!-- React UMD + Babel (web-only JSX) -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
