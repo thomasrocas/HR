@@ -326,6 +326,8 @@ function App({ me, onSignOut }){
   const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
   const [expandedDays, setExpandedDays] = useState(new Set());
   const [needsInstantiate, setNeedsInstantiate] = useState(false);
+  const [programs, setPrograms] = useState([]);
+  const [programModal, setProgramModal] = useState({ show:false, program:null });
   const touchHover = useRef(null);
 
   function buildWeeks(rows){
@@ -371,6 +373,18 @@ function App({ me, onSignOut }){
     load();
   }, []);
 
+  /* Load programs */
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await apiListPrograms();
+        setPrograms(list);
+      } catch (err) {
+        console.error('Failed to load programs', err);
+      }
+    })();
+  }, []);
+
   async function handleInstantiate(){
     try {
       await apiInstantiateProgram(QS_PROGRAM_ID);
@@ -407,6 +421,31 @@ function App({ me, onSignOut }){
     }));
     return map;
   }, [weeks]);
+
+  async function refreshPrograms(newId){
+    try {
+      const list = await apiListPrograms();
+      setPrograms(list);
+      if(newId !== undefined){
+        QS_PROGRAM_ID = newId;
+      }
+      if(QS_PROGRAM_ID && !list.find(p=> p.program_id === QS_PROGRAM_ID)){
+        QS_PROGRAM_ID = list[0]?.program_id || null;
+      }
+      if(QS_PROGRAM_ID){
+        localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+        try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch(e){}
+        const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
+        if(!rows.length){ setNeedsInstantiate(true); setWeeks([]); }
+        else { setNeedsInstantiate(false); setWeeks(buildWeeks(rows)); }
+      } else {
+        localStorage.removeItem('anx_program_id');
+        setWeeks([]); setNeedsInstantiate(false);
+      }
+    } catch(err){
+      console.error('Failed to refresh programs', err);
+    }
+  }
 
   async function setTaskDate(wi, ti, date, taskId){
     const prevWeeks = structuredClone(weeks);
@@ -587,8 +626,89 @@ function App({ me, onSignOut }){
     );
   }
 
+  function ProgramModal({ program, onClose }){
+    const [title, setTitle] = useState(program?.title || '');
+    const [weeksCount, setWeeksCount] = useState(program?.total_weeks || 6);
+    const [desc, setDesc] = useState(program?.description || '');
+
+    useEffect(()=>{
+      setTitle(program?.title || '');
+      setWeeksCount(program?.total_weeks || 6);
+      setDesc(program?.description || '');
+    }, [program]);
+
+    async function handleSave(){
+      try {
+        const data = { title: title.trim(), total_weeks: Number(weeksCount), description: desc };
+        let saved;
+        if(program?.program_id){
+          saved = await apiPatchProgram(program.program_id, data);
+        } else {
+          saved = await apiCreateProgram(data);
+        }
+        await refreshPrograms(saved.program_id);
+        onClose();
+      } catch(err){
+        console.error('Failed to save program', err);
+        alert('Failed to save program');
+      }
+    }
+
+    async function handleDelete(){
+      if(!program?.program_id) return;
+      if(!confirm('Delete this program?')) return;
+      try {
+        await apiDeleteProgram(program.program_id);
+        await refreshPrograms();
+        onClose();
+      } catch(err){
+        console.error('Failed to delete program', err);
+        alert('Failed to delete program');
+      }
+    }
+
+    return ReactDOM.createPortal(
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+        <div className="fm-modal max-w-lg" onClick={e=> e.stopPropagation()}>
+          <div className="fm-modal-header">
+            <div className="font-semibold">{program?.program_id ? 'Edit Program' : 'New Program'}</div>
+            <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="fm-modal-body space-y-4">
+            <div>
+              <label className="text-sm block mb-1">Title</label>
+              <input className="input" value={title} onChange={e=>setTitle(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm block mb-1">Total Weeks</label>
+              <input type="number" min="1" className="input" value={weeksCount} onChange={e=> setWeeksCount(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm block mb-1">Description</label>
+              <textarea className="textarea" value={desc} onChange={e=> setDesc(e.target.value)} />
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              {program?.program_id && <button className="btn btn-outline" onClick={handleDelete}>Delete</button>}
+              <div className="ml-auto flex items-center gap-2">
+                <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSave}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
   const controlBar = (
     <div className="flex items-center gap-3">
+      <select className="input" value={QS_PROGRAM_ID||''} onChange={e=> refreshPrograms(e.target.value||null)}>
+        <option value="">Select program</option>
+        {programs.map(p=> <option key={p.program_id} value={p.program_id}>{p.title}</option>)}
+      </select>
+      <button className="btn btn-outline" onClick={()=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
+      <div className="h-6 w-px bg-slate-200" />
       <label className="text-sm text-slate-600">Start</label>
       <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
       <div className="h-6 w-px bg-slate-200" />
@@ -678,6 +798,7 @@ function App({ me, onSignOut }){
           })}
         </div>
         {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+        {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
       </Section>
 
       {/* Weeks & Tasks */}
