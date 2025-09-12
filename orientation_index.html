@@ -417,7 +417,6 @@ function App({ me, onSignOut }){
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
-  const panelLabel = panelOpen ? 'Close Panel' : 'Open Panel';
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
   const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
@@ -1076,13 +1075,6 @@ function App({ me, onSignOut }){
             </div>
             <div className="flex items-center gap-2">
               {controlBar}
-              <button
-                className="btn btn-outline btn-sm hidden md:inline-flex"
-                onClick={togglePanel}
-                aria-pressed={panelOpen}
-              >
-                {panelLabel}
-              </button>
             </div>
           </header>
 
@@ -1205,26 +1197,36 @@ function App({ me, onSignOut }){
         </div>
       </Section>
     </div>
-      <button
-        className="btn btn-outline md:hidden fixed bottom-4 right-4 rounded-xl shadow-lg"
-        onClick={togglePanel}
-        aria-pressed={panelOpen}
-      >
-        {panelLabel}
-      </button>
-        {panelOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
-            onClick={togglePanel}
-          ></div>
-        )}
-        {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
+      {panelOpen && (
         <div
-          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
-          style={{ right: panelWidth }}
-          onPointerDown={startResize}
+          className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
+          onClick={togglePanel}
         ></div>
-        <aside
+      )}
+      <button
+        onClick={togglePanel}
+        aria-label="Toggle side panel"
+        aria-pressed={panelOpen}
+        className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white border rounded-l shadow"
+        style={{ right: panelOpen ? panelWidth : 0 }}
+      >
+        {panelOpen ? (
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
+      </button>
+      {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
+      <div
+        className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
+        style={{ right: panelWidth }}
+        onPointerDown={startResize}
+      ></div>
+      <aside
           ref={panelRef}
           role="dialog"
           aria-modal="true"
