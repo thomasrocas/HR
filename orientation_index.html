@@ -1017,14 +1017,14 @@ function App({ me, onSignOut }){
           </div>
           <div className="fm-modal-body space-y-4">
             <div className="flex justify-between items-center">
-              <div className="font-semibold">Templates</div>
+              <div className="text-sm font-semibold">Templates</div>
               <button className="btn btn-outline" onClick={startNew}>+ New Row</button>
             </div>
             <div className="space-y-2">
               {templates.map(t=> (
-                <div key={t.template_id} className="border rounded p-2 flex items-center justify-between">
+                <div key={t.template_id} className="border rounded p-2 flex items-center justify-between text-sm">
                   <div>
-                    <div className="font-medium">Week {t.week_number} • {t.label}</div>
+                    <div className="text-sm font-medium">Week {t.week_number} • {t.label}</div>
                     <div className="text-xs text-slate-500">Sort {t.sort_order}{t.notes?` • ${t.notes}`:''}</div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1396,7 +1396,7 @@ function App({ me, onSignOut }){
                   {programs
                     .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
                     .map(p => (
-                    <div key={p.program_id} className="flex items-center gap-2">
+                    <div key={p.program_id} className="flex items-center gap-2 text-sm">
                       <span className="flex-1 flex items-center gap-2 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
                       <button
                         className="btn btn-ghost"
