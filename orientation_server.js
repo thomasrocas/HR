@@ -13,8 +13,19 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
-const transporter = nodemailer.createTransport(process.env.SMTP_URL || { jsonTransport: true });
+let transporter;
+try {
+  const nodemailer = require('nodemailer');
+  transporter = nodemailer.createTransport(process.env.SMTP_URL || { jsonTransport: true });
+} catch (err) {
+  console.warn('nodemailer not installed, using console transport');
+  transporter = {
+    sendMail: async opts => {
+      console.log('Mock sendMail', opts);
+      return Promise.resolve();
+    }
+  };
+}
 
 // ==== 1) Postgres config ====
 const pool = new Pool({
