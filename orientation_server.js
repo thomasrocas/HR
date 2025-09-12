@@ -103,6 +103,7 @@ passport.use(new GoogleStrategy({
 const SALT_ROUNDS = 12;
 const validUsername = u => /^[a-zA-Z0-9._-]{3,32}$/.test(u || '');
 const validPassword = p => typeof p === 'string' && p.length >= 8;
+const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || '');
 
 // If you haven’t run migrations yet, see SQL at bottom comment.
 
@@ -281,7 +282,18 @@ app.patch('/me', ensureAuth, async (req, res) => {
   if (username && !validUsername(username)) {
     return res.status(400).json({ error: 'invalid_username' });
   }
+  if (email && !validEmail(email)) {
+    return res.status(400).json({ error: 'invalid_email' });
+  }
   try {
+    if (username) {
+      const u = await pool.query('select 1 from public.users where username=$1 and id<>$2', [username, req.user.id]);
+      if (u.rowCount) return res.status(409).json({ error: 'already_exists' });
+    }
+    if (email) {
+      const e = await pool.query('select 1 from public.users where email=$1 and id<>$2', [email, req.user.id]);
+      if (e.rowCount) return res.status(409).json({ error: 'already_exists' });
+    }
     const sql = `
       update public.users
       set username = coalesce($1, username),
@@ -293,7 +305,6 @@ app.patch('/me', ensureAuth, async (req, res) => {
     const { rows } = await pool.query(sql, [username, email, full_name, req.user.id]);
     res.json({ id: rows[0].id, username: rows[0].username, email: rows[0].email, name: rows[0].full_name });
   } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ error: 'already_exists' });
     res.status(500).json({ error: 'server_error' });
   }
 });
