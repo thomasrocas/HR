@@ -268,7 +268,9 @@ async function apiInstantiateProgram(programId) {
 
 /* ---- TASK helpers ---- */
 async function apiGetTasks(params = {}){
-  const usp = new URLSearchParams(params);
+  const { include_deleted = false, ...rest } = params;
+  const usp = new URLSearchParams(rest);
+  if(include_deleted) usp.set('include_deleted','true');
   const r = await fetch(`${API}/tasks?${usp.toString()}`, { credentials:'include' });
   if(!r.ok) throw new Error('GET /tasks failed');
   return r.json();
@@ -301,6 +303,15 @@ async function apiDeleteTask(taskId) {
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`DELETE /tasks/${taskId} failed (${res.status})`);
+  return res.json();
+}
+
+async function apiRestoreTask(taskId){
+  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}/restore`, {
+    method: 'POST', credentials:'include'
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`POST /tasks/${taskId}/restore failed (${res.status})`);
   return res.json();
 }
 
@@ -342,6 +353,7 @@ function App({ me, onSignOut }){
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
+  const [deletedTasks, setDeletedTasks] = useState([]);
   const [assignPicker, setAssignPicker] = useState(null); // {date}
   const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
   const [expandedDays, setExpandedDays] = useState(new Set());
@@ -418,6 +430,15 @@ function App({ me, onSignOut }){
     return Object.values(byWeek).sort((a,b)=> a.wk - b.wk);
   }
 
+  async function reloadTasks(){
+    if(!QS_PROGRAM_ID) return 0;
+    const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID, include_deleted: true });
+    const active = rows.filter(r => !r.deleted);
+    setWeeks(buildWeeks(active));
+    setDeletedTasks(rows.filter(r => r.deleted));
+    return active.length;
+  }
+
   /* Load tasks */
   useEffect(() => {
     async function load() {
@@ -431,10 +452,9 @@ function App({ me, onSignOut }){
           try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch (e) {}
         }
         if (!QS_PROGRAM_ID) return;
-        const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
-        if (!rows.length) { setNeedsInstantiate(true); setWeeks([]); return; }
+        const count = await reloadTasks();
+        if (!count) { setNeedsInstantiate(true); return; }
         setNeedsInstantiate(false);
-        setWeeks(buildWeeks(rows));
       } catch (err) {
         console.error('Failed to load tasks', err);
       }
@@ -457,8 +477,7 @@ function App({ me, onSignOut }){
   async function handleInstantiate(){
     try {
       await apiInstantiateProgram(QS_PROGRAM_ID);
-      const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
-      setWeeks(buildWeeks(rows));
+      await reloadTasks();
       setNeedsInstantiate(false);
     } catch(err){
       console.error('Failed to instantiate program', err);
@@ -504,12 +523,12 @@ function App({ me, onSignOut }){
       if(QS_PROGRAM_ID){
         localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
         try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch(e){}
-        const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID });
-        if(!rows.length){ setNeedsInstantiate(true); setWeeks([]); }
-        else { setNeedsInstantiate(false); setWeeks(buildWeeks(rows)); }
+        const count = await reloadTasks();
+        if(!count){ setNeedsInstantiate(true); }
+        else { setNeedsInstantiate(false); }
       } else {
         localStorage.removeItem('anx_program_id');
-        setWeeks([]); setNeedsInstantiate(false);
+        setWeeks([]); setDeletedTasks([]); setNeedsInstantiate(false);
       }
     } catch(err){
       console.error('Failed to refresh programs', err);
@@ -604,16 +623,22 @@ function App({ me, onSignOut }){
     if(!task) return;
     if(!confirm('Delete this task?')) return;
     try {
-      const res = await apiDeleteTask(task.task_id);
-      if (res === null) console.warn('Task missing on server');
-      setWeeks(prev => {
-        const clone = structuredClone(prev);
-        clone[wi].tasks.splice(ti,1);
-        return clone;
-      });
+      await apiDeleteTask(task.task_id);
+      await reloadTasks();
     } catch(err){
       console.error('Failed to delete task', err);
       alert('Failed to delete task');
+    }
+  }
+
+  async function handleRestoreTask(taskId){
+    try {
+      const res = await apiRestoreTask(taskId);
+      if (res === null) console.warn('Task missing on server');
+      await reloadTasks();
+    } catch(err){
+      console.error('Failed to restore task', err);
+      alert('Failed to restore task');
     }
   }
 
@@ -1065,6 +1090,21 @@ function App({ me, onSignOut }){
               </div>
             );
           })}
+        </div>
+      </Section>
+
+      <Section title="Deleted Tasks">
+        <div className="space-y-2">
+          {deletedTasks.length ? (
+            deletedTasks.map(t => (
+              <div key={t.task_id} className="flex items-center justify-between">
+                <span>{t.label}</span>
+                <button className="btn btn-ghost text-xs" onClick={() => handleRestoreTask(t.task_id)}>Restore</button>
+              </div>
+            ))
+          ) : (
+            <div className="text-sm text-slate-500">No deleted tasks</div>
+          )}
         </div>
       </Section>
     </div>
