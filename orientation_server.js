@@ -498,9 +498,13 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
 
 app.get('/tasks', ensureAuth, async (req, res) => {
   try {
-    const { start, end, program_id } = req.query;
+    const { start, end, program_id, include_deleted } = req.query;
     const conds = ['user_id = $1'];
     const vals = [req.user.id];
+
+    if (!(include_deleted === 'true' || include_deleted === '1')) {
+      conds.push('deleted = false');
+    }
 
     if (start) { vals.push(start); conds.push(`scheduled_for >= $${vals.length}`); }
     if (end)   { vals.push(end);   conds.push(`scheduled_for <= $${vals.length}`); }
@@ -573,12 +577,25 @@ app.patch('/tasks/:id', ensureAuth, async (req, res) => {
 app.delete('/tasks/:id', ensureAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const q = `DELETE FROM public.orientation_tasks WHERE user_id = $1 AND task_id = $2`;
+    const q = `UPDATE public.orientation_tasks SET deleted=true WHERE user_id = $1 AND task_id = $2`;
     const result = await pool.query(q, [req.user.id, id]);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
     console.error('DELETE /tasks/:id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/tasks/:id/restore', ensureAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const q = `UPDATE public.orientation_tasks SET deleted=false WHERE user_id = $1 AND task_id = $2 RETURNING *`;
+    const { rows } = await pool.query(q, [req.user.id, id]);
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('POST /tasks/:id/restore error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -661,6 +678,10 @@ create table if not exists public.program_task_templates (
 -- Tasks: add user_id (owning user)
 alter table public.orientation_tasks
   add column if not exists user_id uuid references public.users(id);
+
+-- Soft delete flag for tasks
+alter table public.orientation_tasks
+  add column if not exists deleted boolean default false;
 
 -- Optional backfill for legacy rows (assign to first admin user)
 -- update public.orientation_tasks set user_id = (select id from public.users order by created_at limit 1) where user_id is null;

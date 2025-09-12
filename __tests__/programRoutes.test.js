@@ -59,7 +59,8 @@ describe('program routes', () => {
         done boolean,
         program_id text,
         week_number int,
-        notes text
+        notes text,
+        deleted boolean default false
       );
     `);
   });
@@ -159,7 +160,7 @@ test('delete removes template row', async () => {
   expect(rowCount).toBe(0);
 });
 
-test('delete task keeps parent program', async () => {
+test('deleted task can be restored', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
   await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user5', hash, 'local']);
@@ -175,9 +176,21 @@ test('delete task keeps parent program', async () => {
 
   await agent.delete(`/tasks/${taskId}`).expect(200, { deleted: true });
 
+  // after delete task not returned by GET /tasks
+  let res = await agent.get('/tasks').expect(200);
+  expect(res.body.find(t => t.task_id === taskId)).toBeUndefined();
+
+  // row still exists with deleted flag
+  const taskRows = await pool.query('select deleted from public.orientation_tasks where task_id=$1', [taskId]);
+  expect(taskRows.rows[0].deleted).toBe(true);
+
+  // restore
+  await agent.post(`/tasks/${taskId}/restore`).expect(200);
+
+  res = await agent.get('/tasks').expect(200);
+  expect(res.body.find(t => t.task_id === taskId)).toBeDefined();
+
   const progRows = await pool.query('select 1 from public.programs where program_id=$1', [progId]);
   expect(progRows.rowCount).toBe(1);
-  const taskRows = await pool.query('select 1 from public.orientation_tasks where task_id=$1', [taskId]);
-  expect(taskRows.rowCount).toBe(0);
 });
 });
