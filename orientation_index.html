@@ -8,6 +8,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'media',
       theme: {
         extend: {
           spacing: {
@@ -42,8 +43,8 @@
   <style>
     @layer utilities {
       .apple-shadow{ @apply shadow-apple; }
-      .apple-border{ @apply border border-slate-200/80; }
-      .apple-card{ @apply bg-white rounded-apple border border-slate-200/80 shadow-apple; }
+        .apple-border{ @apply border border-slate-200/80 dark:border-slate-700/60; }
+        .apple-card{ @apply bg-white dark:bg-slate-800 rounded-apple border border-slate-200/80 dark:border-slate-700 shadow-apple; }
       .apple-focus{ @apply focus:outline-none focus:ring-2 focus:ring-anx-sky focus:ring-offset-2; }
       .apple-press{ @apply active:scale-95; }
       .apple-ease{ @apply transition ease-apple; }
@@ -59,19 +60,19 @@
   <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
     <style>
       body{ font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-      .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
-      .btn{ @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl border text-sm apple-focus apple-press disabled:opacity-50 disabled:cursor-not-allowed; }
-      .btn-ghost{ @apply border-transparent text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:text-slate-400 dark:text-slate-200 dark:hover:bg-slate-800 dark:active:bg-slate-700 dark:disabled:text-slate-500; }
-      .btn-outline{ @apply border-slate-300 text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:text-slate-400 disabled:border-slate-200 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:active:bg-slate-700 dark:disabled:text-slate-500 dark:disabled:border-slate-700; }
-      .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:bg-anx-sky/90 active:bg-anx-sky/80 disabled:bg-anx-sky/50 disabled:border-anx-sky/50 disabled:text-white/70 dark:bg-anx-sky dark:hover:bg-anx-sky/90 dark:active:bg-anx-sky/80 dark:disabled:bg-anx-sky/50 dark:disabled:border-anx-sky/50; }
-      .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700; }
-      .input{ @apply w-full border rounded-2xl px-4 py-2.5 text-sm apple-focus bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 placeholder-slate-400 dark:placeholder-slate-500 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500; }
-      .textarea{ @apply w-full border rounded-2xl px-4 py-2.5 text-sm apple-focus bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 placeholder-slate-400 dark:placeholder-slate-500 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500; }
-      .t-display{ font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.025em; }
-      .t-title{ font-size: 1.5rem; line-height: 2rem; font-weight: 600; letter-spacing: -0.015em; }
-      .t-headline{ font-size: 1.25rem; line-height: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
-      .t-body{ font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; }
-      .t-caption{ font-size: 0.75rem; line-height: 1rem; font-weight: 400; }
+        .card{ @apply bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700; }
+        .btn{ @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 text-sm apple-focus apple-press disabled:opacity-50 disabled:cursor-not-allowed; }
+        .btn-ghost{ @apply border-transparent text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:text-slate-400 dark:text-slate-200 dark:hover:bg-slate-800 dark:active:bg-slate-700 dark:disabled:text-slate-500; }
+        .btn-outline{ @apply border-slate-300 text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:text-slate-400 disabled:border-slate-200 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:active:bg-slate-700 dark:disabled:text-slate-500 dark:disabled:border-slate-700; }
+        .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:bg-anx-sky/90 active:bg-anx-sky/80 disabled:bg-anx-sky/50 disabled:border-anx-sky/50 disabled:text-white/70 dark:bg-anx-sky dark:hover:bg-anx-sky/90 dark:active:bg-anx-sky/80 dark:disabled:bg-anx-sky/50 dark:disabled:border-anx-sky/50; }
+        .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700; }
+        .input{ @apply w-full border rounded-2xl px-4 py-2.5 text-sm apple-focus bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 placeholder-slate-400 dark:placeholder-slate-500 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500; }
+        .textarea{ @apply w-full border rounded-2xl px-4 py-2.5 text-sm apple-focus bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 placeholder-slate-400 dark:placeholder-slate-500 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500; }
+        .t-display{ @apply text-slate-900 dark:text-slate-100; font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.025em; }
+        .t-title{ @apply text-slate-900 dark:text-slate-100; font-size: 1.5rem; line-height: 2rem; font-weight: 600; letter-spacing: -0.015em; }
+        .t-headline{ @apply text-slate-900 dark:text-slate-100; font-size: 1.25rem; line-height: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
+        .t-body{ @apply text-slate-700 dark:text-slate-300; font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; }
+        .t-caption{ @apply text-slate-500 dark:text-slate-400; font-size: 0.75rem; line-height: 1rem; font-weight: 400; }
       .outline-dashed{ outline-style: dashed; }
 
     button:focus,
@@ -97,7 +98,7 @@
     html, body { height: 100%; }
   </style>
 </head>
-  <body class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+  <body class="min-h-screen bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
 <div id="root" class="max-w-7xl mx-auto px-4"></div>
 
 <script type="text/babel">
@@ -888,8 +889,8 @@ function App({ me, onSignOut }){
             {visible.length ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                 {visible.map((col, idx)=> (
-                  <div key={idx} className="border rounded-xl overflow-hidden">
-                    <div className="px-3 py-2 bg-slate-50 t-body font-semibold border-b">Week {col.wk}</div>
+                    <div key={idx} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-slate-50 dark:bg-slate-700 t-body font-semibold border-b border-slate-200 dark:border-slate-700">Week {col.wk}</div>
                     <div className="p-2 grid gap-2">
                       {col.items.map((it, i)=> (
                         <button key={i} className="btn apple-focus apple-press btn-outline justify-start truncate text-left" title={it.label} onClick={()=> handleAssign(it)}>
@@ -1179,7 +1180,7 @@ function App({ me, onSignOut }){
             const out = !inRange(d, startDate, numWeeks);
             const expanded = expandedDays.has(key);
             return (
-              <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
+                <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50 dark:bg-slate-700':''}`}
                    onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="t-caption font-semibold">{d.format('D')}</div>
@@ -1282,7 +1283,7 @@ function App({ me, onSignOut }){
         aria-label="Toggle side panel"
         aria-expanded={panelOpen}
         aria-controls="side-panel"
-        className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white border rounded-l shadow"
+          className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-l shadow"
         style={{ right: panelOpen ? panelWidth : 0 }}
       >
         {panelOpen ? (
@@ -1315,7 +1316,7 @@ function App({ me, onSignOut }){
           style={{ width: panelOpen ? panelWidth : 0 }}
         >
         <h2 id="panel-heading" className="sr-only">Side Panel</h2>
-        <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
+          <div className="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-slate-700">
           <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center t-body font-semibold">
             {(acctName||'').split(/\s+/).map(n=>n[0]).join('').slice(0,2).toUpperCase()}
           </div>
@@ -1441,7 +1442,7 @@ function App({ me, onSignOut }){
                       </button>
                       <details className="relative">
                         <summary className="btn apple-focus apple-press btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
-                        <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
+                          <div className="absolute right-0 z-10 mt-1 w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow">
                           <button
                             className="btn apple-focus apple-press btn-ghost w-full justify-start"
                             onClick={() => setProgramModal({ show: true, program: p })}
@@ -1459,7 +1460,7 @@ function App({ me, onSignOut }){
                     </div>
                   ))}
                 </div>
-                <div className="sticky bottom-0 bg-white pt-2">
+                  <div className="sticky bottom-0 bg-white dark:bg-slate-800 pt-2">
                   <button
                     className="btn apple-focus apple-press btn-primary w-full"
                     onClick={() => setProgramModal({ show: true, program: null })}
