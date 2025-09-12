@@ -102,16 +102,24 @@ function AuthPanel({ onAuthed }){
         <p className="text-sm text-slate-500 mb-4">Use a local account as an alternate to Google SSO.</p>
         {mode === 'register' && (
           <>
-            <label className="text-sm">Full name</label>
-            <input className="input mb-2" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" />
-            <label className="text-sm">Email</label>
-            <input className="input mb-2" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@anx.com" />
+            <div className="mb-4">
+              <label htmlFor="fullName" className="text-sm block mb-1">Full name</label>
+              <input id="fullName" className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" />
+            </div>
+            <div className="mb-4">
+              <label htmlFor="email" className="text-sm block mb-1">Email</label>
+              <input id="email" className="input" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@anx.com" />
+            </div>
           </>
         )}
-        <label className="text-sm">Username</label>
-        <input className="input mb-2" value={u} onChange={e=>setU(e.target.value)} placeholder="e.g., halle" />
-        <label className="text-sm">Password</label>
-        <input className="input mb-4" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
+        <div className="mb-4">
+          <label htmlFor="username" className="text-sm block mb-1">Username</label>
+          <input id="username" className="input" value={u} onChange={e=>setU(e.target.value)} placeholder="e.g., halle" />
+        </div>
+        <div className="mb-4">
+          <label htmlFor="password" className="text-sm block mb-1">Password</label>
+          <input id="password" className="input" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
+        </div>
         {err && <div className="text-sm text-red-600 mb-3">{err}</div>}
         {mode === 'login' ? (
           <button className="btn btn-primary w-full" onClick={doLogin}>Sign in</button>
