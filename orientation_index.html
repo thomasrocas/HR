@@ -64,6 +64,61 @@ const inRange = (d, start, numWeeks) => {
 };
 const uid = () => Math.random().toString(36).slice(2);
 
+function useFocusTrap(ref, active) {
+  useEffect(() => {
+    if (!active) return;
+    const node = ref.current;
+    if (!node) return;
+    const selector =
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => node.querySelectorAll(selector);
+    const handleKey = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    const focusable = getFocusable();
+    focusable[0] && focusable[0].focus();
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [ref, active]);
+}
+
+function useLocalStorageState(key, initial) {
+  const [value, setValue] = useState(() => {
+    const stored = localStorage.getItem(key);
+    return stored !== null ? JSON.parse(stored) : initial;
+  });
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+  return [value, setValue];
+}
+
+function useRafThrottle(fn) {
+  const frame = useRef(null);
+  return (...args) => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      fn(...args);
+      frame.current = null;
+    });
+  };
+}
+
 /* ---- AUTH PANEL (Local + Google) ---- */
 function AuthPanel({ onAuthed }){
   const [mode, setMode] = useState('login');
@@ -361,11 +416,45 @@ function App({ me, onSignOut }){
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useState(false);
+ 
   const panelLabel = panelOpen ? 'Close Panel' : 'Open Panel';
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateProgramId, setTemplateProgramId] = useState(null);
+  const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
   const touchHover = useRef(null);
   const panelRef = useRef(null);
+  const triggerRef = useRef(null);
+  const restoreFocus = () => {
+    triggerRef.current && triggerRef.current.focus();
+  };
+  const togglePanel = (e) => {
+    if (panelOpen) {
+      setPanelOpen(false);
+      restoreFocus();
+    } else {
+      triggerRef.current = e.currentTarget;
+      setPanelOpen(true);
+    }
+  };
+
+  const toggleSection = (key) => {
+    setOpenSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const resizeMove = useRafThrottle((e) => {
+    const width = Math.max(260, Math.min(400, window.innerWidth - e.clientX));
+    setPanelWidth(width);
+  });
+  const startResize = (e) => {
+    e.preventDefault();
+    const move = (ev) => resizeMove(ev);
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  };
 
   const [acctName, setAcctName] = useState(me?.name || '');
   const [acctEmail, setAcctEmail] = useState(me?.email || '');
@@ -379,38 +468,15 @@ function App({ me, onSignOut }){
     if (!panelOpen) return;
     const handleKey = (e) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         setPanelOpen(false);
-      } else if (e.key === 'Tab') {
-        const panel = panelRef.current;
-        if (!panel) return;
-        const focusable = panel.querySelectorAll(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-        );
-        if (!focusable.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
+        restoreFocus();
       }
     };
-
     document.addEventListener('keydown', handleKey);
-    const panel = panelRef.current;
-    const focusable = panel?.querySelectorAll(
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-    );
-    focusable && focusable[0] && focusable[0].focus();
     return () => document.removeEventListener('keydown', handleKey);
   }, [panelOpen]);
+  useFocusTrap(panelRef, panelOpen);
 
   function buildWeeks(rows){
     const byWeek = {};
@@ -1001,17 +1067,25 @@ function App({ me, onSignOut }){
   return (
     <div className="flex">
       <div className="flex-1 space-y-6 py-6">
+
         <header className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
               <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
+
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {controlBar}
-          </div>
-        </header>
+            <div className="flex items-center gap-2">
+              {controlBar}
+              <button
+                className="btn btn-outline btn-sm hidden md:inline-flex"
+                onClick={togglePanel}
+                aria-pressed={panelOpen}
+              >
+                {panelLabel}
+              </button>
+            </div>
+          </header>
 
       {needsInstantiate && (
         <div className="card p-6">
@@ -1132,6 +1206,7 @@ function App({ me, onSignOut }){
         </div>
       </Section>
     </div>
+
     {panelOpen && (
       <div className="fixed inset-0 bg-black/50 md:hidden" onClick={() => setPanelOpen(false)}></div>
     )}
@@ -1181,44 +1256,149 @@ function App({ me, onSignOut }){
             {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
             <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
           </form>
+
         </div>
-        <div className="pt-4 border-t border-slate-200">
-          <h3 className="text-sm font-semibold mb-2">Settings</h3>
-          <div className="space-y-1">
-            {programs.map(p => (
-              <div key={p.program_id} className="flex items-center gap-1">
+        <div className="pt-4 space-y-4">
+          {/* Account */}
+          <div>
+            <h3>
+              <button
+                type="button"
+                className="flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('account')}
+                aria-controls="sec-account"
+                onClick={()=> toggleSection('account')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">👤</span>Account</span>
+                <span className={`transition-transform ${openSections.includes('account')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('account') && (
+              <div id="sec-account" className="mt-2 space-y-2">
+                <form className="space-y-2" onSubmit={saveAccount}>
+                  <div>
+                    <label htmlFor="acct_fullname" className="text-sm block mb-1">Full name</label>
+                    <input id="acct_fullname" className="input" value={acctName} onChange={e=> setAcctName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="acct_email" className="text-sm block mb-1">Email</label>
+                    <input id="acct_email" className="input" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="acct_username" className="text-sm block mb-1">Username</label>
+                    <input id="acct_username" className="input" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
+                  </div>
+                  {acctMsg && <div className="text-xs text-slate-500">{acctMsg}</div>}
+                  <button className="btn btn-primary w-full mt-2" type="submit">Save</button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Password */}
+          <div>
+            <h3>
+              <button
+                type="button"
+                className="flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('password')}
+                aria-controls="sec-password"
+                onClick={()=> toggleSection('password')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">🔒</span>Password</span>
+                <span className={`transition-transform ${openSections.includes('password')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('password') && (
+              <div id="sec-password" className="mt-2 space-y-2">
+                <form className="space-y-2" onSubmit={changePassword}>
+                  <div>
+                    <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
+                    <input id="pw_current" type="password" className="input" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="pw_new" className="text-sm block mb-1">New Password</label>
+                    <input id="pw_new" type="password" className="input" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
+                  </div>
+                  {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
+                  <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Programs & Templates */}
+          <div>
+            <h3>
+              <button
+                type="button"
+                className="flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('programs')}
+                aria-controls="sec-programs"
+                onClick={()=> toggleSection('programs')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">📦</span>Programs & Templates</span>
+                <span className={`transition-transform ${openSections.includes('programs')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('programs') && (
+              <div id="sec-programs" className="mt-2 space-y-2">
+                <div className="space-y-1">
+                  {programs.map(p => (
+                    <div key={p.program_id} className="flex items-center gap-1">
+                      <button
+                        className="btn btn-ghost flex-1 justify-start truncate text-left"
+                        onClick={() => setProgramModal({ show: true, program: p })}
+                      >
+                        {p.title}
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => {
+                          setTemplateProgramId(p.program_id);
+                          setShowTemplates(true);
+                        }}
+                      >
+                        Templates
+                      </button>
+                    </div>
+                  ))}
+                </div>
                 <button
-                  className="btn btn-ghost flex-1 justify-start truncate text-left"
-                  onClick={() => setProgramModal({ show: true, program: p })}
+                  className="btn btn-outline w-full mt-2"
+                  onClick={() => setProgramModal({ show: true, program: null })}
                 >
-                  {p.title}
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => {
-                    setTemplateProgramId(p.program_id);
-                    setShowTemplates(true);
-                  }}
-                >
-                  Templates
+                  + New Program
                 </button>
               </div>
-            ))}
+            )}
           </div>
-          <button
-            className="btn btn-outline w-full mt-2"
-            onClick={() => setProgramModal({ show: true, program: null })}
-          >
-            + New Program
-          </button>
-        </div>
-        <div className="space-y-2 pt-4 border-t border-slate-200">
-          <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
-            Refresh Programs
-          </button>
-          <button className="btn btn-outline w-full" onClick={onSignOut}>
-            Sign out
-          </button>
+
+          {/* Utilities */}
+          <div>
+            <h3>
+              <button
+                type="button"
+                className="flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('utilities')}
+                aria-controls="sec-utilities"
+                onClick={()=> toggleSection('utilities')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">🛠️</span>Utilities</span>
+                <span className={`transition-transform ${openSections.includes('utilities')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('utilities') && (
+              <div id="sec-utilities" className="mt-2 space-y-2">
+                <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
+                  Refresh Programs
+                </button>
+                <button className="btn btn-outline w-full" onClick={onSignOut}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
     {showTemplates && templateProgramId && (
