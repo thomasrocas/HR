@@ -329,6 +329,8 @@ function App({ me, onSignOut }){
   const [programs, setPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateProgramId, setTemplateProgramId] = useState(null);
   const touchHover = useRef(null);
 
   function buildWeeks(rows){
@@ -974,7 +976,49 @@ function App({ me, onSignOut }){
       </Section>
     </div>
     {panelOpen && (
-      <aside className="card bg-slate-50 w-64 p-4">{/* Panel content */}</aside>
+      <aside className="card bg-slate-50 w-64 p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Settings</h3>
+          <div className="space-y-1">
+            {programs.map(p => (
+              <div key={p.program_id} className="flex items-center gap-1">
+                <button
+                  className="btn btn-ghost flex-1 justify-start truncate text-left"
+                  onClick={() => setProgramModal({ show: true, program: p })}
+                >
+                  {p.title}
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setTemplateProgramId(p.program_id);
+                    setShowTemplates(true);
+                  }}
+                >
+                  Templates
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            className="btn btn-outline w-full mt-2"
+            onClick={() => setProgramModal({ show: true, program: null })}
+          >
+            + New Program
+          </button>
+        </div>
+        <div className="space-y-2 pt-4 border-t border-slate-200">
+          <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
+            Refresh Programs
+          </button>
+        </div>
+      </aside>
+    )}
+    {showTemplates && templateProgramId && (
+      <TemplateModal
+        programId={templateProgramId}
+        onClose={() => setShowTemplates(false)}
+      />
     )}
   </div>
   );
