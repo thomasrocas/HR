@@ -233,7 +233,10 @@ async function apiGetMe(){
   return u;
 }
 async function apiLogout(){
-  await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
+  const r = await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
+  if(!r.ok) throw new Error('POST /auth/logout failed');
+  return true;
 }
 
 async function apiGetPrefs(){
@@ -247,6 +250,7 @@ async function apiPatchPrefs(data){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('PATCH /prefs failed');
   return r.json();
 }
@@ -257,6 +261,7 @@ async function apiPatchMe(data){
     headers:{ 'Content-Type':'application/json' },
     body: JSON.stringify(data)
   });
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('PATCH /me failed');
   return r.json();
 }
@@ -267,6 +272,7 @@ async function apiChangePassword(data){
     headers:{ 'Content-Type':'application/json' },
     body: JSON.stringify(data)
   });
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('POST /auth/local/change-password failed');
   return r.json();
 }
@@ -283,6 +289,7 @@ async function apiCreateProgram(data){
     headers:{ 'Content-Type':'application/json' },
     body: JSON.stringify(data)
   });
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('POST /programs failed');
   return r.json();
 }
@@ -293,6 +300,7 @@ async function apiPatchProgram(programId, data){
     body: JSON.stringify(data)
   });
   if(r.status === 404) return null;
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error(`PATCH /programs/${programId} failed (${r.status})`);
   return r.json();
 }
@@ -301,6 +309,7 @@ async function apiDeleteProgram(programId){
     method:'DELETE', credentials:'include'
   });
   if(r.status === 404) return null;
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error(`DELETE /programs/${programId} failed (${r.status})`);
   return r.json();
 }
@@ -315,6 +324,7 @@ async function apiCreateTemplate(programId, data){
     headers:{ 'Content-Type':'application/json' },
     body: JSON.stringify(data)
   });
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('POST /programs/:id/templates failed');
   return r.json();
 }
@@ -325,6 +335,7 @@ async function apiPatchTemplate(programId, templateId, data){
     body: JSON.stringify(data)
   });
   if(r.status === 404) return null;
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error(`PATCH /programs/${programId}/templates/${templateId} failed (${r.status})`);
   return r.json();
 }
@@ -333,6 +344,7 @@ async function apiDeleteTemplate(programId, templateId){
     method:'DELETE', credentials:'include'
   });
   if(r.status === 404) return null;
+  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error(`DELETE /programs/${programId}/templates/${templateId} failed (${r.status})`);
   return r.json();
 }
@@ -340,6 +352,7 @@ async function apiInstantiateProgram(programId) {
   const res = await fetch(`${API}/programs/${encodeURIComponent(programId)}/instantiate`, {
     method: 'POST', credentials:'include'
   });
+  if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error('POST /programs/:id/instantiate failed');
   return res.json();
 }
@@ -360,6 +373,7 @@ async function apiPatchTask(taskId, payload) {
     body: JSON.stringify(payload)
   });
   if (res.status === 404) return null;
+  if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error(`PATCH /tasks/${taskId} failed (${res.status})`);
   return res.json();
 }
@@ -372,6 +386,7 @@ async function apiCreateTask(data) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
+  if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error(`POST /tasks failed (${res.status})`);
   return res.json();
 }
@@ -380,6 +395,7 @@ async function apiDeleteTask(taskId) {
     method: 'DELETE', credentials:'include'
   });
   if (res.status === 404) return null;
+  if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error(`DELETE /tasks/${taskId} failed (${res.status})`);
   return res.json();
 }
@@ -389,6 +405,7 @@ async function apiRestoreTask(taskId){
     method: 'POST', credentials:'include'
   });
   if (res.status === 404) return null;
+  if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error(`POST /tasks/${taskId}/restore failed (${res.status})`);
   return res.json();
 }
@@ -576,7 +593,8 @@ function App({ me, onSignOut }){
 
   async function handleInstantiate(){
     try {
-      await apiInstantiateProgram(QS_PROGRAM_ID);
+      const res = await apiInstantiateProgram(QS_PROGRAM_ID);
+      if(!res) return;
       await reloadTasks();
       setNeedsInstantiate(false);
     } catch(err){
@@ -639,16 +657,9 @@ function App({ me, onSignOut }){
     if(!confirm('Delete this program?')) return;
     try {
       const response = await apiDeleteProgram(programId);
-      if(!response || response.deleted !== true){
-        alert('You can only delete programs you created.');
-        return;
-      }
+      if(!response || response.deleted !== true) return;
       await refreshPrograms();
     } catch(err){
-      if(err.message.includes('403') || err.message.includes('404')){
-        alert('You can only delete programs you created.');
-        return;
-      }
       console.error('Failed to delete program', err);
       alert('Failed to delete program');
     }
@@ -659,6 +670,7 @@ function App({ me, onSignOut }){
     setAcctMsg('');
     try {
       const u = await apiPatchMe({ full_name: acctName, email: acctEmail, username: acctUsername });
+      if(!u){ setAcctMsg('Save failed'); return; }
       setAcctName(u.name || '');
       setAcctEmail(u.email || '');
       setAcctUsername(u.username || '');
@@ -672,7 +684,8 @@ function App({ me, onSignOut }){
     e.preventDefault();
     setPwMsg('');
     try {
-      await apiChangePassword({ current_password: pwCurrent, new_password: pwNew });
+      const res = await apiChangePassword({ current_password: pwCurrent, new_password: pwNew });
+      if(!res){ setPwMsg('Change failed'); return; }
       setPwMsg('Password updated');
       setPwCurrent('');
       setPwNew('');
@@ -696,15 +709,33 @@ function App({ me, onSignOut }){
   }
 
   function toggleTask(wi, ti){
+    const task = weeks[wi]?.tasks?.[ti];
+    if(!task) return;
+    const prevValue = task.completed;
+    const taskId = task.task_id;
     setWeeks(prev => {
       const clone = structuredClone(prev);
-      const t = clone[wi].tasks[ti];
-      const newValue = !t.completed;
-      t.completed = newValue;
-      apiPatchTask(t.task_id, { done: newValue }).catch(err => {
-        console.error('Failed to update task completion', err);
-      });
+      const t = clone[wi]?.tasks?.[ti];
+      if(t) t.completed = !prevValue;
       return clone;
+    });
+    apiPatchTask(taskId, { done: !prevValue }).then(row => {
+      if(!row){
+        setWeeks(prev => {
+          const clone = structuredClone(prev);
+          const t = clone[wi]?.tasks?.[ti];
+          if(t) t.completed = prevValue;
+          return clone;
+        });
+      }
+    }).catch(err => {
+      console.error('Failed to update task completion', err);
+      setWeeks(prev => {
+        const clone = structuredClone(prev);
+        const t = clone[wi]?.tasks?.[ti];
+        if(t) t.completed = prevValue;
+        return clone;
+      });
     });
   }
 
@@ -717,6 +748,7 @@ function App({ me, onSignOut }){
         week_number: weeks[wi].wk,
         program_id: QS_PROGRAM_ID
       });
+      if(!created) return;
       setWeeks(prev => {
         const clone = structuredClone(prev);
         const task = {
@@ -742,7 +774,8 @@ function App({ me, onSignOut }){
     if(!task) return;
     if(!confirm('Delete this task?')) return;
     try {
-      await apiDeleteTask(task.task_id);
+      const res = await apiDeleteTask(task.task_id);
+      if(!res) return;
       const weekNumber = weeks[wi].wk;
       setWeeks(ws => {
         const copy = ws.map(w => ({ ...w, tasks: [...(w.tasks||[])] }));
@@ -759,7 +792,7 @@ function App({ me, onSignOut }){
   async function handleRestoreTask(taskId){
     try {
       const res = await apiRestoreTask(taskId);
-      if (res === null) { console.warn('Task missing on server'); return; }
+      if (!res) { console.warn('Task restore failed'); return; }
       setDeletedTasks(dt => dt.filter(t => t.task_id !== taskId));
       setWeeks(ws => {
         const copy = ws.map(w => ({ ...w, tasks: [...(w.tasks||[])] }));
@@ -912,6 +945,7 @@ function App({ me, onSignOut }){
         } else {
           saved = await apiCreateProgram(data);
         }
+        if(!saved) return;
         await refreshPrograms(saved.program_id);
         onClose();
       } catch(err){
@@ -924,7 +958,8 @@ function App({ me, onSignOut }){
       if(!program?.program_id) return;
       if(!confirm('Delete this program?')) return;
       try {
-        await apiDeleteProgram(program.program_id);
+        const res = await apiDeleteProgram(program.program_id);
+        if(!res) return;
         await refreshPrograms();
         onClose();
       } catch(err){
@@ -1012,11 +1047,13 @@ function App({ me, onSignOut }){
       e.preventDefault();
       try {
         const data = { week_number:Number(wk), label:label.trim(), notes, sort_order:Number(sort) };
+        let saved;
         if(editing?.template_id){
-          await apiPatchTemplate(programId, editing.template_id, data);
+          saved = await apiPatchTemplate(programId, editing.template_id, data);
         } else {
-          await apiCreateTemplate(programId, data);
+          saved = await apiCreateTemplate(programId, data);
         }
+        if(!saved) return;
         await refresh();
         setEditing(null);
         if(programId === QS_PROGRAM_ID) await refreshPrograms();
@@ -1029,7 +1066,8 @@ function App({ me, onSignOut }){
     async function handleDelete(id){
       if(!confirm('Delete this template?')) return;
       try {
-        await apiDeleteTemplate(programId, id);
+        const res = await apiDeleteTemplate(programId, id);
+        if(!res) return;
         await refresh();
         if(programId === QS_PROGRAM_ID) await refreshPrograms();
       } catch(err){
@@ -1583,7 +1621,7 @@ function Root(){
       </div>
     );
   }
-  return <App me={me} onSignOut={async () => { await apiLogout(); window.location.href = '/'; }} />;
+return <App me={me} onSignOut={async () => { const res = await apiLogout(); if(!res) return; window.location.href = '/'; }} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
