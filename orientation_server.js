@@ -86,7 +86,7 @@ app.use(async (req, _res, next) => {
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
         const { rows: permRows } = await pool.query(
-          'select distinct perm_key from role_permissions where role_id = any($1)',
+          'select distinct perm_key from role_permissions where role_id = any($1::int[])',
           [roleIds]
         );
         req.perms = new Set(permRows.map(p => p.perm_key));

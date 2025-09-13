@@ -37,14 +37,20 @@ describe('rbac admin routes', () => {
         sess text not null,
         expire timestamptz not null
       );
+      create table public.roles (
+        role_id serial primary key,
+        role_key text unique,
+        description text
+      );
       create table public.user_roles (
         user_id uuid,
-        role_key text
+        role_id int references public.roles(role_id)
       );
       create table public.role_permissions (
-        role_key text,
+        role_id int references public.roles(role_id),
         perm_key text
       );
+      insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
   });
 
@@ -61,7 +67,7 @@ describe('rbac admin routes', () => {
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [adminId, 'admin', 'Admin', hash, 'local']);
     await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [userId, 'user', 'User', hash, 'local']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [adminId, 'admin']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
 
     const adminAgent = request.agent(app);
     await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
@@ -70,7 +76,7 @@ describe('rbac admin routes', () => {
     expect(listRes.body.length).toBe(2);
 
     await adminAgent.patch(`/rbac/users/${userId}/roles`).send({ roles: ['manager'] }).expect(200);
-    const { rows } = await pool.query('select role_key from public.user_roles where user_id=$1', [userId]);
+    const { rows } = await pool.query('select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1', [userId]);
     expect(rows.map(r => r.role_key)).toEqual(['manager']);
 
     const userAgent = request.agent(app);

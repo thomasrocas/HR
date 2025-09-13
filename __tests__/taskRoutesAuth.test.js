@@ -38,6 +38,11 @@ describe('task routes authorization', () => {
         sess text not null,
         expire timestamptz not null
       );
+      create table public.roles (
+        role_id serial primary key,
+        role_key text unique,
+        description text
+      );
       create table public.orientation_tasks (
         task_id uuid primary key default gen_random_uuid(),
         user_id uuid,
@@ -52,10 +57,10 @@ describe('task routes authorization', () => {
       );
       create table public.user_roles (
         user_id uuid,
-        role_key text
+        role_id int references public.roles(role_id)
       );
       create table public.role_permissions (
-        role_key text,
+        role_id int references public.roles(role_id),
         perm_key text
       );
       create table public.program_memberships (
@@ -63,6 +68,7 @@ describe('task routes authorization', () => {
         program_id text,
         role text
       );
+      insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
   });
 
@@ -77,9 +83,12 @@ describe('task routes authorization', () => {
 
   test('manager can view tasks for managed program', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_key, perm_key) values
-      ('manager','task.create'),('manager','task.update'),('manager','task.delete'),
-      ('trainee','task.create'),('trainee','task.update'),('trainee','task.delete');
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
+        ('manager','task.create'),('manager','task.update'),('manager','task.delete'),
+        ('trainee','task.create'),('trainee','task.update'),('trainee','task.delete')
+      ) as rp(role_key, perm_key)
+      join public.roles r on r.role_key = rp.role_key;
     `);
 
     const managerId = crypto.randomUUID();
@@ -87,8 +96,8 @@ describe('task routes authorization', () => {
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [managerId,'mgr',hash,'local','Manager']);
     await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [traineeId,'trainee',hash,'local','Trainee']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [managerId,'manager']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [traineeId,'trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
     await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
     const task1 = crypto.randomUUID();
     const task2 = crypto.randomUUID();
@@ -110,16 +119,20 @@ describe('task routes authorization', () => {
 
   test('post tasks requires managing program when assigning to others', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_key, perm_key) values
-      ('manager','task.create'),('trainee','task.create');
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
+        ('manager','task.create'),
+        ('trainee','task.create')
+      ) as rp(role_key, perm_key)
+      join public.roles r on r.role_key = rp.role_key;
     `);
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass',1);
     await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [managerId,'mgr',hash,'local','Manager']);
     await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [traineeId,'trainee',hash,'local','Trainee']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [managerId,'manager']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [traineeId,'trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
     await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
 
     const traineeAgent = request.agent(app);
@@ -134,16 +147,19 @@ describe('task routes authorization', () => {
 
   test('patch tasks limits fields by role', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_key, perm_key) values
-      ('manager','task.update'),('trainee','task.update');
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
+        ('manager','task.update'),('trainee','task.update')
+      ) as rp(role_key, perm_key)
+      join public.roles r on r.role_key = rp.role_key;
     `);
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass',1);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [managerId,'mgr',hash,'local']);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [traineeId,'trainee',hash,'local']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [managerId,'manager']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [traineeId,'trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
     await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
     const taskId = crypto.randomUUID();
     await pool.query('insert into public.orientation_tasks(task_id, user_id, label, done, program_id) values ($1,$2,$3,$4,$5)', [taskId, traineeId,'task',false,'prog1']);
@@ -161,16 +177,19 @@ describe('task routes authorization', () => {
 
   test('delete tasks follows scope rules', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_key, perm_key) values
-      ('manager','task.delete'),('trainee','task.delete');
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
+        ('manager','task.delete'),('trainee','task.delete')
+      ) as rp(role_key, perm_key)
+      join public.roles r on r.role_key = rp.role_key;
     `);
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass',1);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [managerId,'mgr',hash,'local']);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [traineeId,'trainee',hash,'local']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [managerId,'manager']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [traineeId,'trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
     await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
 
     const taskTrainee = crypto.randomUUID();
