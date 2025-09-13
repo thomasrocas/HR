@@ -50,6 +50,14 @@ describe('program routes', () => {
         notes text,
         sort_order int
       );
+      create table public.user_roles (
+        user_id uuid,
+        role_key text
+      );
+      create table public.role_permissions (
+        role_key text,
+        perm_key text
+      );
       create table public.orientation_tasks (
         task_id uuid primary key,
         user_id uuid,
@@ -77,6 +85,7 @@ describe('program routes', () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user1', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [userId, 'admin']);
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username: 'user1', password: 'passpass' }).expect(200);
@@ -97,6 +106,7 @@ describe('program routes', () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user2', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [userId, 'admin']);
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username: 'user2', password: 'passpass' }).expect(200);
@@ -118,6 +128,7 @@ test('patch updates template fields', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
   await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [userId, 'admin']);
 
   const agent = request.agent(app);
   await agent.post('/auth/local/login').send({ username: 'user3', password: 'passpass' }).expect(200);
@@ -145,6 +156,7 @@ test('delete removes template row', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
   await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user4', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [userId, 'admin']);
 
   const agent = request.agent(app);
   await agent.post('/auth/local/login').send({ username: 'user4', password: 'passpass' }).expect(200);
@@ -164,6 +176,7 @@ test('deleted task can be restored', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
   await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user5', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [userId, 'admin']);
 
   const agent = request.agent(app);
   await agent.post('/auth/local/login').send({ username: 'user5', password: 'passpass' }).expect(200);
