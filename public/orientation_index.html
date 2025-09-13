@@ -227,7 +227,10 @@ function AuthPanel({ onAuthed }){
 async function apiGetMe(){
   const r = await fetch(`${API}/me`, { credentials:'include' });
   if(!r.ok) return null;
-  return r.json();
+  const u = await r.json();
+  u.perms = new Set(u.perms || []);
+  u.roles = u.roles || [];
+  return u;
 }
 async function apiLogout(){
   await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
@@ -445,6 +448,9 @@ function App({ me, onSignOut }){
   const touchHover = useRef(null);
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
+  const perms = me?.perms || new Set();
+  const hasPerm = (p) => perms.has(p);
+  const isTrainee = (me?.roles || []).includes('trainee');
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -950,8 +956,12 @@ function App({ me, onSignOut }){
             <div className="flex items-center justify-between pt-2">
               {program?.program_id && (
                 <div className="flex items-center gap-2">
-                  <button className="btn btn-outline" onClick={handleDelete}>Delete</button>
-                  <button className="btn btn-outline" onClick={()=> setShowTemplates(true)}>Templates</button>
+                  {hasPerm('program.delete') && !isTrainee && (
+                    <button className="btn btn-outline" onClick={handleDelete}>Delete</button>
+                  )}
+                  {hasPerm('template.read') && !isTrainee && (
+                    <button className="btn btn-outline" onClick={()=> setShowTemplates(true)}>Templates</button>
+                  )}
                 </div>
               )}
               <div className="ml-auto flex items-center gap-2">
@@ -960,7 +970,7 @@ function App({ me, onSignOut }){
               </div>
             </div>
           </div>
-          {showTemplates && program?.program_id && <TemplateModal programId={program.program_id} onClose={()=> setShowTemplates(false)} />}
+          {showTemplates && program?.program_id && hasPerm('template.read') && !isTrainee && <TemplateModal programId={program.program_id} onClose={()=> setShowTemplates(false)} />}
         </div>
       </div>,
       document.body
@@ -1101,7 +1111,7 @@ function App({ me, onSignOut }){
     );
   }
 
-  const controlBar = (
+  const controlBar = !isTrainee && (
     <div className="flex items-center gap-3">
       <select className="input" value={QS_PROGRAM_ID||''} onChange={e=> refreshPrograms(e.target.value||null)}>
         <option value="">Select program</option>
@@ -1139,7 +1149,7 @@ function App({ me, onSignOut }){
             </div>
           </header>
 
-      {needsInstantiate && (
+      {!isTrainee && needsInstantiate && (
         <div className="card p-6">
           <p className="mb-4">This program has no tasks yet. Load preset tasks?</p>
           <button className="btn btn-primary" onClick={handleInstantiate}>Load Program Tasks</button>
@@ -1147,14 +1157,17 @@ function App({ me, onSignOut }){
       )}
 
       {/* KPIs */}
-      <div className="grid md:grid-cols-4 gap-4">
-        <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={progress.pct}/></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{progress.done}/{progress.total}</div></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">{numWeeks}</div></div>
-        <div className="card p-4"><div className="text-sm text-slate-500">Start</div><div className="text-2xl font-semibold mt-2">{fmt(startDate)}</div></div>
-      </div>
+      {!isTrainee && (
+        <div className="grid md:grid-cols-4 gap-4">
+          <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={progress.pct}/></div>
+          <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{progress.done}/{progress.total}</div></div>
+          <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">{numWeeks}</div></div>
+          <div className="card p-4"><div className="text-sm text-slate-500">Start</div><div className="text-2xl font-semibold mt-2">{fmt(startDate)}</div></div>
+        </div>
+      )}
 
       {/* Calendar */}
+      {!isTrainee && (
       <Section title={`${numWeeks}-Week Visual Calendar`} subtitle="Assign tasks by date; click Assign on a day.">
         <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
@@ -1167,26 +1180,29 @@ function App({ me, onSignOut }){
             const expanded = expandedDays.has(key);
             return (
               <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
-                   onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
+                   onDragOver={hasPerm('task.assign') && !isTrainee ? handleDragOver : undefined} onDragLeave={hasPerm('task.assign') && !isTrainee ? handleDragLeave : undefined} onDrop={hasPerm('task.assign') && !isTrainee ? (e)=>handleDrop(e,key) : undefined}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-xs font-semibold">{d.format('D')}</div>
-                  <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
+                  {hasPerm('task.assign') && !isTrainee && <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>}
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
                     <div key={i}
                          className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
-                         draggable data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
-                         onDragStart={handleDragStart} onDragEnd={handleDragEnd}
-                         onTouchStart={handleDragStart} onTouchMove={handleTouchMove}
-                         onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
+                         draggable={hasPerm('task.assign') && !isTrainee}
+                         data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
+                         onDragStart={hasPerm('task.assign') && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && !isTrainee ? handleDragEnd : undefined}
+                         onTouchStart={hasPerm('task.assign') && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && !isTrainee ? handleTouchMove : undefined}
+                         onTouchEnd={hasPerm('task.assign') && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && !isTrainee ? handleTouchEnd : undefined}>
                       {it.label}
-                      <button type="button" aria-label="Remove"
-                              className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
-                              onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
-                              onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-                        ✕
-                      </button>
+                      {hasPerm('task.assign') && !isTrainee && (
+                        <button type="button" aria-label="Remove"
+                                className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                                onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
+                                onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                          ✕
+                        </button>
+                      )}
                     </div>
                   ))}
                   {items.length>3 && (
@@ -1199,9 +1215,10 @@ function App({ me, onSignOut }){
             );
           })}
         </div>
-        {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+        {assignPicker && hasPerm('task.assign') && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
         {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
       </Section>
+      )}
 
       {/* Weeks & Tasks */}
       <Section title="Weeks & Tasks">
@@ -1220,29 +1237,35 @@ function App({ me, onSignOut }){
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
                   {(w.tasks||[]).map((t,ti)=> (
                     <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
-                      <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
-                              onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
+                      {hasPerm('task.delete') && !isTrainee && (
+                        <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
+                                onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
+                      )}
                       <div className="flex items-start gap-3">
                         <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
                         <div className="flex-1">
                           <div className="font-medium">{t.title}</div>
-                          <div className="mt-2 flex items-center gap-2 text-sm">
-                            <span className="text-slate-600">Assigned:</span>
-                            <input type="date" className="input w-auto" value={t.scheduled_for||''}
-                                   onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
-                          </div>
+                          {hasPerm('task.assign') && !isTrainee && (
+                            <div className="mt-2 flex items-center gap-2 text-sm">
+                              <span className="text-slate-600">Assigned:</span>
+                              <input type="date" className="input w-auto" value={t.scheduled_for||''}
+                                     onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <button className="btn btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
+                {hasPerm('task.create') && !isTrainee && (
+                  <button className="btn btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
+                )}
               </div>
             );
           })}
         </div>
       </Section>
-
+      {!isTrainee && (
       <Section title="Deleted Tasks">
         <div className="space-y-2">
           {deletedTasks.length ? (
@@ -1257,14 +1280,16 @@ function App({ me, onSignOut }){
           )}
         </div>
       </Section>
+      )}
     </div>
-      {panelOpen && (
+      {!isTrainee && panelOpen && (
         <div
           className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
           onClick={togglePanel}
           tabIndex={0}
         ></div>
       )}
+      {!isTrainee && (
       <button
         id="side-panel-toggle"
         onClick={togglePanel}
@@ -1284,8 +1309,9 @@ function App({ me, onSignOut }){
           </svg>
         )}
       </button>
+      )}
       {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
-      {panelOpen && (
+      {!isTrainee && panelOpen && (
         <div
           className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
           style={{ right: panelWidth }}
@@ -1293,6 +1319,7 @@ function App({ me, onSignOut }){
           tabIndex={0}
         ></div>
       )}
+      {!isTrainee && (
       <aside
           id="side-panel"
           ref={panelRef}
@@ -1426,7 +1453,8 @@ function App({ me, onSignOut }){
                         <span aria-hidden="true">📂</span>
                         <span className="sr-only">Open</span>
                       </button>
-                      <button
+                      {hasPerm('template.read') && !isTrainee && (
+                        <button
                         className="btn btn-ghost"
                         onClick={() => {
                           setTemplateProgramId(p.program_id);
@@ -1437,6 +1465,7 @@ function App({ me, onSignOut }){
                         <span aria-hidden="true">📝</span>
                         <span className="sr-only">Templates</span>
                       </button>
+                      )}
                       {p.created_by === me.id && (
                         <details className="relative">
                           <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
@@ -1448,6 +1477,7 @@ function App({ me, onSignOut }){
                               <span aria-hidden="true">✏️</span>
                               <span>Edit</span>
                             </button>
+                            {hasPerm('program.delete') && (
                             <button
                               className="btn btn-ghost w-full justify-start"
                               onClick={() => handleDeleteProgram(p.program_id)}
@@ -1455,6 +1485,7 @@ function App({ me, onSignOut }){
                               <span aria-hidden="true">🗑️</span>
                               <span>Delete</span>
                             </button>
+                            )}
                           </div>
                         </details>
                       )}
@@ -1462,12 +1493,14 @@ function App({ me, onSignOut }){
                   ))}
                 </div>
                 <div className="sticky bottom-0 bg-white pt-2">
+                  {hasPerm('program.create') && !isTrainee && (
                   <button
                     className="btn btn-primary w-full"
                     onClick={() => setProgramModal({ show: true, program: null })}
                   >
                     + New Program
                   </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1504,7 +1537,8 @@ function App({ me, onSignOut }){
           </div>
         </div>
       </aside>
-    {showTemplates && templateProgramId && (
+      )}
+    {showTemplates && templateProgramId && hasPerm('template.read') && !isTrainee && (
       <TemplateModal
         programId={templateProgramId}
         onClose={() => setShowTemplates(false)}
