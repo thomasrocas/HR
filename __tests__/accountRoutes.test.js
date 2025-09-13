@@ -35,12 +35,38 @@ describe('account routes', () => {
         sess text not null,
         expire timestamptz not null
       );
+      create table public.user_roles (
+        user_id uuid,
+        role_key text
+      );
+      create table public.role_permissions (
+        role_key text,
+        perm_key text
+      );
     `);
   });
 
   afterEach(async () => {
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
+    await pool.query('delete from public.user_roles');
+    await pool.query('delete from public.role_permissions');
+  });
+
+  test('get /me returns roles and permissions', async () => {
+    const id = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, email, full_name, password_hash, provider) values ($1,$2,$3,$4,$5,$6)', [id, 'user1', 'u1@example.com', 'User One', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [id, 'manager']);
+    await pool.query('insert into public.role_permissions(role_key, perm_key) values ($1,$2)', ['manager', 'perm1']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'user1', password: 'passpass' }).expect(200);
+
+    const res = await agent.get('/me').expect(200);
+    expect(res.body.roles).toEqual(['manager']);
+    expect(res.body.perms).toEqual(['perm1']);
+    expect(res.body.id).toBe(id);
   });
 
   test('patch /me updates account fields', async () => {

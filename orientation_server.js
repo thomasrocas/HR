@@ -329,7 +329,9 @@ app.get('/me', ensureAuth, (req, res) => {
     name: req.user.full_name,
     email: req.user.email,
     username: req.user.username,
-    picture: req.user.picture_url
+    picture: req.user.picture_url,
+    roles: req.roles,
+    perms: Array.from(req.perms)
   });
 });
 
