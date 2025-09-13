@@ -828,18 +828,25 @@ function App({ me, onSignOut }){
   }
 
   function handleDragStart(e){
+    if (!hasPerm('task.assign')) return;
     const { wi, ti, taskid } = e.currentTarget.dataset;
     setDragBadge({ wi: Number(wi), ti: Number(ti), task_id: taskid });
   }
-  function handleDragEnd(){ setDragBadge(null); }
+  function handleDragEnd(){
+    if (!hasPerm('task.assign')) return;
+    setDragBadge(null);
+  }
   function handleDragOver(e){
+    if (!hasPerm('task.assign')) return;
     e.preventDefault();
     e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
   }
   function handleDragLeave(e){
+    if (!hasPerm('task.assign')) return;
     e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
   }
   function handleDrop(e, date){
+    if (!hasPerm('task.assign')) return;
     e.preventDefault();
     handleDragLeave(e);
     if(dragBadge){
@@ -847,8 +854,9 @@ function App({ me, onSignOut }){
       setDragBadge(null);
     }
   }
-  
+
   function handleTouchMove(e){
+    if (!hasPerm('task.assign')) return;
     const touch = e.touches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     if(touchHover.current && touchHover.current !== el){
@@ -862,6 +870,7 @@ function App({ me, onSignOut }){
     e.preventDefault();
   }
   function handleTouchEnd(e){
+    if (!hasPerm('task.assign')) return;
     const touch = e.changedTouches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     if(touchHover.current){
