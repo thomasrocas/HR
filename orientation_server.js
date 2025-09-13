@@ -73,28 +73,26 @@ app.use(passport.session());
 
 // Populate roles/permissions and set current_user for auditing
 app.use(async (req, _res, next) => {
+  let lastQuery;
   try {
     if (req.user?.id) {
-      const { rows: roleRows } = await pool.query(
-        `select r.role_key, r.role_id
+      lastQuery = `select r.role_key, r.role_id
          from user_roles ur
          join roles r on ur.role_id = r.role_id
-         where ur.user_id = $1`,
-        [req.user.id]
-      );
+         where ur.user_id = $1`;
+      const { rows: roleRows } = await pool.query(lastQuery, [req.user.id]);
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
-        const { rows: permRows } = await pool.query(
-          'select distinct perm_key from role_permissions where role_id = any($1::int[])',
-          [roleIds]
-        );
+        lastQuery = 'select distinct perm_key from role_permissions where role_id = any($1::int[])';
+        const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
         req.perms = new Set(permRows.map(p => p.perm_key));
       } else {
         req.perms = new Set();
       }
       try {
-        await pool.query('SET LOCAL app.current_user = $1', [req.user.id]);
+        lastQuery = 'SET LOCAL app.current_user = $1';
+        await pool.query(lastQuery, [req.user.id]);
       } catch (_e) {
         /* ignore */
       }
@@ -103,7 +101,12 @@ app.use(async (req, _res, next) => {
       req.perms = new Set();
     }
     next();
-  } catch (_err) {
+  } catch (err) {
+    console.error('Failed to load roles/permissions', {
+      userId: req.user?.id,
+      query: lastQuery,
+      error: err
+    });
     req.roles = [];
     req.perms = new Set();
     next();
