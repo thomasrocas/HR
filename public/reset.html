@@ -17,8 +17,9 @@
   const token = params.get('token');
 
   if (!token) {
-    msgEl.innerText = 'Reset link is invalid or expired';
+    msgEl.innerHTML = 'Reset link is invalid or expired. Redirecting to <a href="/forgot.html">request a new link</a>...';
     submitBtn.disabled = true;
+    setTimeout(() => { window.location.href = '/forgot.html'; }, 3000);
   } else {
     document.getElementById('token').value = token;
     form.addEventListener('submit', async (e) => {
