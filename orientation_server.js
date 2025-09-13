@@ -69,6 +69,37 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Populate roles/permissions and set current_user for auditing
+app.use(async (req, _res, next) => {
+  try {
+    if (req.user?.id) {
+      const { rows: roleRows } = await pool.query(
+        'select role_key from user_roles where user_id = $1',
+        [req.user.id]
+      );
+      req.roles = roleRows.map(r => r.role_key);
+      if (req.roles.length) {
+        const { rows: permRows } = await pool.query(
+          'select distinct perm_key from role_permissions where role_key = any($1)',
+          [req.roles]
+        );
+        req.perms = new Set(permRows.map(p => p.perm_key));
+      } else {
+        req.perms = new Set();
+      }
+      await pool.query('SET LOCAL app.current_user = $1', [req.user.id]);
+    } else {
+      req.roles = [];
+      req.perms = new Set();
+    }
+    next();
+  } catch (_err) {
+    req.roles = [];
+    req.perms = new Set();
+    next();
+  }
+});
+
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
@@ -265,6 +296,27 @@ app.post('/auth/logout', (req, res, next) => {
 function ensureAuth(req, res, next){
   if (req.isAuthenticated?.()) return next();
   res.status(401).json({ error: 'auth_required' });
+}
+
+function ensurePerm(...permKeys) {
+  return (req, res, next) => {
+    if (!req.isAuthenticated?.()) {
+      return res.status(401).json({ error: 'auth_required' });
+    }
+    if (req.roles?.includes('admin')) return next();
+    for (const key of permKeys) {
+      if (req.perms?.has(key)) return next();
+    }
+    res.status(403).json({ error: 'forbidden' });
+  };
+}
+
+async function userManagesProgram(userId, programId) {
+  const { rowCount } = await pool.query(
+    'select 1 from program_memberships where user_id = $1 and program_id = $2 and role = $3',
+    [userId, programId, 'manager']
+  );
+  return rowCount > 0;
 }
 
 app.get('/me', ensureAuth, (req, res) => {
@@ -608,7 +660,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, pool };
+module.exports = { app, pool, ensurePerm, userManagesProgram };
 
 /*
 ======================
