@@ -1117,7 +1117,9 @@ function App({ me, onSignOut }){
         <option value="">Select program</option>
         {programs.map(p=> <option key={p.program_id} value={p.program_id}>{p.title}</option>)}
       </select>
-      <button className="btn btn-outline" onClick={()=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
+      {(hasPerm('program.create') || hasPerm('program.update')) && (
+        <button className="btn btn-outline" onClick(()=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
+      )}
       <div className="h-6 w-px bg-slate-200" />
       <label className="text-sm text-slate-600">Start</label>
       <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
@@ -1466,7 +1468,7 @@ function App({ me, onSignOut }){
                         <span className="sr-only">Templates</span>
                       </button>
                       )}
-                      {p.created_by === me.id && !isTrainee && (
+                      {hasPerm('program.update') && !isTrainee && (
                         <details className="relative">
                           <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
                           <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
@@ -1493,7 +1495,7 @@ function App({ me, onSignOut }){
                   ))}
                 </div>
                 <div className="sticky bottom-0 bg-white pt-2">
-                  {hasPerm('program.create') && !isTrainee && (
+                  {(hasPerm('program.create') || hasPerm('program.update')) && !isTrainee && (
                   <button
                     className="btn btn-primary w-full"
                     onClick={() => setProgramModal({ show: true, program: null })}
