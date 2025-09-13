@@ -76,14 +76,18 @@ app.use(async (req, _res, next) => {
   try {
     if (req.user?.id) {
       const { rows: roleRows } = await pool.query(
-        'select role_key from user_roles where user_id = $1',
+        `select r.role_key, r.role_id
+         from user_roles ur
+         join roles r on ur.role_id = r.role_id
+         where ur.user_id = $1`,
         [req.user.id]
       );
       req.roles = roleRows.map(r => r.role_key);
-      if (req.roles.length) {
+      const roleIds = roleRows.map(r => r.role_id);
+      if (roleIds.length) {
         const { rows: permRows } = await pool.query(
-          'select distinct perm_key from role_permissions where role_key = any($1)',
-          [req.roles]
+          'select distinct perm_key from role_permissions where role_id = any($1)',
+          [roleIds]
         );
         req.perms = new Set(permRows.map(p => p.perm_key));
       } else {
@@ -396,9 +400,10 @@ app.get('/rbac/users', async (req, res) => {
     if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
     const sql = `
       select u.id, u.full_name, u.username,
-             coalesce(array_agg(ur.role_key) filter (where ur.role_key is not null), '{}') as roles
+             coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
       from public.users u
       left join public.user_roles ur on ur.user_id = u.id
+      left join roles r on r.role_id = ur.role_id
       group by u.id
       order by u.full_name`;
     const { rows } = await pool.query(sql);
@@ -417,7 +422,7 @@ app.patch('/rbac/users/:id/roles', async (req, res) => {
     if (!Array.isArray(roles)) return res.status(400).json({ error: 'invalid_roles' });
     await pool.query('delete from public.user_roles where user_id=$1', [id]);
     for (const r of roles) {
-      await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [id, r]);
+      await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from roles where role_key = $2', [id, r]);
     }
     res.json({ updated: true });
   } catch (err) {
