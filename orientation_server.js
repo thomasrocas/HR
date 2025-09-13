@@ -47,6 +47,8 @@ app.use(express.json());
 // ==== 3) Static website ====
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
+const SRC_DIR = path.join(__dirname, 'src');
+app.use('/src', express.static(SRC_DIR));
 app.get('/', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'orientation_index.html'));
 });
@@ -387,7 +389,44 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
   res.json(rows[0]);
 });
 
-// ==== 7) API: programs & templates ====
+// ==== 7) RBAC admin ====
+
+app.get('/rbac/users', async (req, res) => {
+  try {
+    if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
+    const sql = `
+      select u.id, u.full_name, u.username,
+             coalesce(array_agg(ur.role_key) filter (where ur.role_key is not null), '{}') as roles
+      from public.users u
+      left join public.user_roles ur on ur.user_id = u.id
+      group by u.id
+      order by u.full_name`;
+    const { rows } = await pool.query(sql);
+    res.json(rows.map(r => ({ ...r, roles: r.roles || [] })));
+  } catch (err) {
+    console.error('GET /rbac/users error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.patch('/rbac/users/:id/roles', async (req, res) => {
+  try {
+    if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
+    const { id } = req.params;
+    const { roles = [] } = req.body || {};
+    if (!Array.isArray(roles)) return res.status(400).json({ error: 'invalid_roles' });
+    await pool.query('delete from public.user_roles where user_id=$1', [id]);
+    for (const r of roles) {
+      await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [id, r]);
+    }
+    res.json({ updated: true });
+  } catch (err) {
+    console.error('PATCH /rbac/users/:id/roles error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==== 8) API: programs & templates ====
 
 app.get('/programs', ensurePerm('program.read'), async (_req, res) => {
   try {
