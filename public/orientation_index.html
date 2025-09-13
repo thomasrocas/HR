@@ -1118,7 +1118,7 @@ function App({ me, onSignOut }){
         {programs.map(p=> <option key={p.program_id} value={p.program_id}>{p.title}</option>)}
       </select>
       {(hasPerm('program.create') || hasPerm('program.update')) && (
-        <button className="btn btn-outline" onClick(()=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
+        <button className="btn btn-outline" onClick={()=> setProgramModal({ show: true, program: programs.find(p => p.program_id === QS_PROGRAM_ID) || null })}>Manage</button>
       )}
       <div className="h-6 w-px bg-slate-200" />
       <label className="text-sm text-slate-600">Start</label>
