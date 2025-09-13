@@ -87,7 +87,11 @@ app.use(async (req, _res, next) => {
       } else {
         req.perms = new Set();
       }
-      await pool.query('SET LOCAL app.current_user = $1', [req.user.id]);
+      try {
+        await pool.query('SET LOCAL app.current_user = $1', [req.user.id]);
+      } catch (_e) {
+        /* ignore */
+      }
     } else {
       req.roles = [];
       req.perms = new Set();
@@ -383,7 +387,7 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 
 // ==== 7) API: programs & templates ====
 
-app.get('/programs', ensureAuth, async (_req, res) => {
+app.get('/programs', ensurePerm('program.read'), async (_req, res) => {
   try {
     const { rows } = await pool.query('select * from public.programs order by created_at desc');
     res.json(rows);
@@ -393,7 +397,7 @@ app.get('/programs', ensureAuth, async (_req, res) => {
   }
 });
 
-app.post('/programs', ensureAuth, async (req, res) => {
+app.post('/programs', ensurePerm('program.create'), async (req, res) => {
   try {
     const { program_id = crypto.randomUUID(), title, total_weeks = null, description = null } = req.body || {};
     const sql = `
@@ -408,9 +412,13 @@ app.post('/programs', ensureAuth, async (req, res) => {
   }
 });
 
-app.patch('/programs/:program_id', ensureAuth, async (req, res) => {
+app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res) => {
   try {
     const { program_id } = req.params;
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
     const fields = [];
     const vals = [];
 
@@ -423,9 +431,8 @@ app.patch('/programs/:program_id', ensureAuth, async (req, res) => {
     if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
 
     vals.push(program_id); // for program_id
-    vals.push(req.user.id); // for created_by check
     const sql = `update public.programs set ${fields.join(', ')}
-                 where program_id = $${vals.length-1} and created_by = $${vals.length}
+                 where program_id = $${vals.length}
                  returning *;`;
     const { rows } = await pool.query(sql, vals);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
@@ -436,11 +443,15 @@ app.patch('/programs/:program_id', ensureAuth, async (req, res) => {
   }
 });
 
-app.delete('/programs/:program_id', ensureAuth, async (req, res) => {
+app.delete('/programs/:program_id', ensurePerm('program.delete'), async (req, res) => {
   try {
     const { program_id } = req.params;
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
     await pool.query('delete from public.program_task_templates where program_id=$1', [program_id]);
-    const result = await pool.query('delete from public.programs where program_id=$1 and created_by=$2', [program_id, req.user.id]);
+    const result = await pool.query('delete from public.programs where program_id=$1', [program_id]);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
@@ -449,7 +460,7 @@ app.delete('/programs/:program_id', ensureAuth, async (req, res) => {
   }
 });
 
-app.get('/programs/:program_id/templates', ensureAuth, async (req, res) => {
+app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (req, res) => {
   try {
     const { program_id } = req.params;
     const { rows } = await pool.query(
@@ -463,7 +474,7 @@ app.get('/programs/:program_id/templates', ensureAuth, async (req, res) => {
   }
 });
 
-app.post('/programs/:program_id/templates', ensureAuth, async (req, res) => {
+app.post('/programs/:program_id/templates', ensurePerm('template.create'), async (req, res) => {
   try {
     const { program_id } = req.params;
     const { week_number = null, label, notes = null, sort_order = null } = req.body || {};
@@ -479,11 +490,14 @@ app.post('/programs/:program_id/templates', ensureAuth, async (req, res) => {
   }
 });
 
-app.patch('/programs/:program_id/templates/:template_id', ensureAuth, async (req, res) => {
+app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.update'), async (req, res) => {
   try {
     const { program_id, template_id } = req.params;
     if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
-
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
     const fields = [];
     const vals = [];
     for (const key of ['week_number', 'label', 'notes', 'sort_order']) {
@@ -509,10 +523,14 @@ app.patch('/programs/:program_id/templates/:template_id', ensureAuth, async (req
   }
 });
 
-app.delete('/programs/:program_id/templates/:template_id', ensureAuth, async (req, res) => {
+app.delete('/programs/:program_id/templates/:template_id', ensurePerm('template.delete'), async (req, res) => {
   try {
     const { program_id, template_id } = req.params;
     if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
     const result = await pool.query(
       'delete from public.program_task_templates where program_id=$1 and template_id=$2',
       [program_id, template_id]
