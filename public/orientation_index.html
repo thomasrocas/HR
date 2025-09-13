@@ -1048,7 +1048,9 @@ function App({ me, onSignOut }){
           <div className="fm-modal-body space-y-4">
             <div className="flex justify-between items-center">
               <div className="text-sm font-semibold">Templates</div>
-              <button className="btn btn-outline" onClick={startNew}>+ New Row</button>
+              {(hasPerm('template.create') || hasPerm('template.update')) && (
+                <button className="btn btn-outline" onClick={startNew}>+ New Row</button>
+              )}
             </div>
             <div className="space-y-2">
               {templates.map(t=> (
@@ -1066,14 +1068,16 @@ function App({ me, onSignOut }){
                       <span aria-hidden="true">✏️</span>
                       <span className="sr-only">Edit</span>
                     </button>
-                    <button
-                      className="btn btn-ghost"
-                      onClick={() => handleDelete(t.template_id)}
-                      title="Delete"
-                    >
-                      <span aria-hidden="true">🗑️</span>
-                      <span className="sr-only">Delete</span>
-                    </button>
+                    {hasPerm('template.delete') && (
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => handleDelete(t.template_id)}
+                        title="Delete"
+                      >
+                        <span aria-hidden="true">🗑️</span>
+                        <span className="sr-only">Delete</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1100,7 +1104,9 @@ function App({ me, onSignOut }){
                 </div>
                 <div className="flex items-center justify-end gap-2">
                   <button type="button" className="btn btn-ghost" onClick={cancelEdit}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Save</button>
+                  {(hasPerm('template.create') || hasPerm('template.update')) && (
+                    <button type="submit" className="btn btn-primary">Save</button>
+                  )}
                 </div>
               </form>
             )}
