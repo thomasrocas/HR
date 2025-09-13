@@ -568,9 +568,9 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
 
 app.get('/tasks', ensureAuth, async (req, res) => {
   try {
-    const { start, end, program_id, include_deleted } = req.query;
-    const conds = ['user_id = $1'];
-    const vals = [req.user.id];
+    const { start, end, program_id, include_deleted, user_id } = req.query;
+    const conds = [];
+    const vals = [];
 
     if (!(include_deleted === 'true' || include_deleted === '1')) {
       conds.push('deleted = false');
@@ -580,7 +580,20 @@ app.get('/tasks', ensureAuth, async (req, res) => {
     if (end)   { vals.push(end);   conds.push(`scheduled_for <= $${vals.length}`); }
     if (program_id) { vals.push(program_id); conds.push(`program_id = $${vals.length}`); }
 
-    const where = `WHERE ${conds.join(' AND ')}`;
+    const isAdmin = req.roles?.includes('admin');
+    let isManager = false;
+    if (program_id) {
+      try { isManager = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
+    }
+
+    if (isAdmin || isManager) {
+      if (user_id) { vals.push(user_id); conds.push(`user_id = $${vals.length}`); }
+    } else {
+      vals.push(req.user.id);
+      conds.push(`user_id = $${vals.length}`);
+    }
+
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     const sql = `SELECT * FROM public.orientation_tasks ${where}
                  ORDER BY scheduled_for NULLS LAST, task_id`;
     const { rows } = await pool.query(sql, vals);
@@ -591,20 +604,39 @@ app.get('/tasks', ensureAuth, async (req, res) => {
   }
 });
 
-app.post('/tasks', ensureAuth, async (req, res) => {
+app.post('/tasks', ensurePerm('task.create'), async (req, res) => {
   try {
     const {
       label, scheduled_for = null,
-      done = false, program_id = null, week_number = null, notes = null
-    } = req.body;
+      done = false, program_id = null, week_number = null, notes = null,
+      user_id = req.user.id
+    } = req.body || {};
+
+    if (user_id !== req.user.id) {
+      const isAdmin = req.roles?.includes('admin');
+      let manages = false;
+      if (program_id) {
+        try { manages = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
+      }
+      if (!(isAdmin || manages)) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+    }
+
+    let trainee = req.user.full_name || '';
+    if (user_id !== req.user.id) {
+      try {
+        const { rows: t } = await pool.query('select full_name from public.users where id=$1', [user_id]);
+        trainee = t[0]?.full_name || '';
+      } catch (_e) { /* ignore */ }
+    }
 
     const sql = `
       INSERT INTO public.orientation_tasks
         (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING *;`;
-    const trainee = req.user.full_name || ''; // optional label for UI
-    const vals = [req.user.id, trainee, label, scheduled_for, !!done, program_id, week_number, notes];
+    const vals = [user_id, trainee, label, scheduled_for, !!done, program_id, week_number, notes];
     const { rows } = await pool.query(sql, vals);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -613,30 +645,59 @@ app.post('/tasks', ensureAuth, async (req, res) => {
   }
 });
 
-app.patch('/tasks/:id', ensureAuth, async (req, res) => {
+app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
   try {
     const { id } = req.params;
+    const { rows: existing } = await pool.query('select user_id, program_id from public.orientation_tasks where task_id=$1', [id]);
+    const task = existing[0];
+    if (!task) return res.status(404).json({ error: 'Not found' });
+
+    const allFields = ['label','scheduled_for','done','program_id','week_number','notes'];
+    const isAdmin = req.roles?.includes('admin');
+    const owns = task.user_id === req.user.id;
+    const isTrainee = req.roles?.includes('trainee');
+    let isManager = false;
+    try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+
+    let allowed = [];
+    if (isAdmin) allowed = allFields;
+    else if (isTrainee) {
+      if (!owns) return res.status(403).json({ error: 'forbidden' });
+      allowed = ['done'];
+    } else if (isManager) {
+      allowed = allFields;
+    } else if (owns) {
+      allowed = allFields;
+    } else {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    for (const k of Object.keys(req.body)) {
+      if (!allowed.includes(k)) return res.status(403).json({ error: 'forbidden' });
+    }
+
+    if ('program_id' in req.body && req.body.program_id !== task.program_id && !isAdmin) {
+      const managesNew = await userManagesProgram(req.user.id, req.body.program_id);
+      if (!managesNew) return res.status(403).json({ error: 'forbidden' });
+    }
+
     const fields = [];
     const vals = [];
-
-    for (const key of ['label','scheduled_for','done','program_id','week_number','notes']) {
+    for (const key of allowed) {
       if (key in req.body) {
         vals.push(key === 'done' ? !!req.body[key] : req.body[key]);
         fields.push(`${key} = $${vals.length}`);
       }
     }
+
     if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
 
-    // Restrict update to this user’s row
-    vals.push(req.user.id); // $N for user_id
-    vals.push(id);          // $N+1 for task_id
-
+    vals.push(id);
     const sql = `UPDATE public.orientation_tasks
                  SET ${fields.join(', ')}
-                 WHERE user_id = $${vals.length-1} AND task_id = $${vals.length}
+                 WHERE task_id = $${vals.length}
                  RETURNING *;`;
     const { rows } = await pool.query(sql, vals);
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (err) {
     console.error('PATCH /tasks/:id error', err);
@@ -644,12 +705,23 @@ app.patch('/tasks/:id', ensureAuth, async (req, res) => {
   }
 });
 
-app.delete('/tasks/:id', ensureAuth, async (req, res) => {
+app.delete('/tasks/:id', ensurePerm('task.delete'), async (req, res) => {
   try {
     const { id } = req.params;
-    const q = `UPDATE public.orientation_tasks SET deleted=true WHERE user_id = $1 AND task_id = $2`;
-    const result = await pool.query(q, [req.user.id, id]);
-    if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    const { rows } = await pool.query('select user_id, program_id from public.orientation_tasks where task_id=$1', [id]);
+    const task = rows[0];
+    if (!task) return res.status(404).json({ error: 'Not found' });
+
+    const isAdmin = req.roles?.includes('admin');
+    const owns = task.user_id === req.user.id;
+    let isManager = false;
+    try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+
+    if (!(isAdmin || isManager || owns)) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    await pool.query('UPDATE public.orientation_tasks SET deleted=true WHERE task_id = $1', [id]);
     res.json({ deleted: true });
   } catch (err) {
     console.error('DELETE /tasks/:id error', err);
