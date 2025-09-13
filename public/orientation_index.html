@@ -448,7 +448,7 @@ function App({ me, onSignOut }){
   const touchHover = useRef(null);
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
-  const perms = me?.perms || new Set();
+  const perms = useMemo(() => new Set(me?.perms || []), [me]);
   const hasPerm = (p) => perms.has(p);
   const isTrainee = (me?.roles || []).includes('trainee');
   const restoreFocus = () => {
@@ -1466,7 +1466,7 @@ function App({ me, onSignOut }){
                         <span className="sr-only">Templates</span>
                       </button>
                       )}
-                      {p.created_by === me.id && (
+                      {p.created_by === me.id && !isTrainee && (
                         <details className="relative">
                           <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
                           <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
@@ -1477,14 +1477,14 @@ function App({ me, onSignOut }){
                               <span aria-hidden="true">✏️</span>
                               <span>Edit</span>
                             </button>
-                            {hasPerm('program.delete') && (
-                            <button
-                              className="btn btn-ghost w-full justify-start"
-                              onClick={() => handleDeleteProgram(p.program_id)}
-                            >
-                              <span aria-hidden="true">🗑️</span>
-                              <span>Delete</span>
-                            </button>
+                            {hasPerm('program.delete') && !isTrainee && (
+                              <button
+                                className="btn btn-ghost w-full justify-start"
+                                onClick={() => handleDeleteProgram(p.program_id)}
+                              >
+                                <span aria-hidden="true">🗑️</span>
+                                <span>Delete</span>
+                              </button>
                             )}
                           </div>
                         </details>
