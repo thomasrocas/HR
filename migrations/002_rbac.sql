@@ -5,7 +5,8 @@
 
 -- Roles
 create table if not exists roles (
-  role_key text primary key,
+  role_id serial primary key,
+  role_key text unique,
   description text
 );
 
@@ -18,15 +19,15 @@ create table if not exists permissions (
 -- User roles (many-to-many users<->roles)
 create table if not exists user_roles (
   user_id uuid references public.users(id) on delete cascade,
-  role_key text references roles(role_key) on delete cascade,
-  primary key (user_id, role_key)
+  role_id int references roles(role_id) on delete cascade,
+  primary key (user_id, role_id)
 );
 
 -- Role permissions (many-to-many roles<->permissions)
 create table if not exists role_permissions (
-  role_key text references roles(role_key) on delete cascade,
+  role_id int references roles(role_id) on delete cascade,
   perm_key text references permissions(perm_key) on delete cascade,
-  primary key (role_key, perm_key)
+  primary key (role_id, perm_key)
 );
 
 -- Program memberships (who manages or views programs)
@@ -124,8 +125,8 @@ insert into permissions(perm_key, description) values
 on conflict do nothing;
 
 -- Role permissions mapping
-insert into role_permissions(role_key, perm_key)
-select r.role_key, p.perm_key from (
+insert into role_permissions(role_id, perm_key)
+select r.role_id, p.perm_key from (
   values
     ('admin',   'program.create'),
     ('admin',   'program.read'),

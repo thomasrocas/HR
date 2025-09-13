@@ -35,14 +35,20 @@ describe('account routes', () => {
         sess text not null,
         expire timestamptz not null
       );
+      create table public.roles (
+        role_id serial primary key,
+        role_key text unique,
+        description text
+      );
       create table public.user_roles (
         user_id uuid,
-        role_key text
+        role_id int references public.roles(role_id)
       );
       create table public.role_permissions (
-        role_key text,
+        role_id int references public.roles(role_id),
         perm_key text
       );
+      insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
   });
 
@@ -57,8 +63,11 @@ describe('account routes', () => {
     const id = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query('insert into public.users(id, username, email, full_name, password_hash, provider) values ($1,$2,$3,$4,$5,$6)', [id, 'user1', 'u1@example.com', 'User One', hash, 'local']);
-    await pool.query('insert into public.user_roles(user_id, role_key) values ($1,$2)', [id, 'manager']);
-    await pool.query('insert into public.role_permissions(role_key, perm_key) values ($1,$2)', ['manager', 'perm1']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [id, 'manager']);
+    await pool.query(`
+      insert into public.role_permissions(role_id, perm_key)
+      select role_id, $2 from public.roles where role_key=$1
+    `, ['manager', 'perm1']);
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username: 'user1', password: 'passpass' }).expect(200);
