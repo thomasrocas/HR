@@ -9,9 +9,10 @@ Escape key is pressed. On larger screens it remains visible.
 The panel container uses the shared `card` class, while its buttons and form fields use the
 common `btn` and `input` classes to keep styling consistent across the app.
 
-## Default Role
 
-New accounts created through the local registration endpoint are automatically assigned a role.
-Set the `DEFAULT_ROLE` variable in your `.env` to choose which role is used. If not specified,
-`trainee` is applied. This allows administrators to grant elevated access (for example, `admin`)
-during initial setup.
+## Migrations
+
+Run the SQL files in the `migrations/` directory in order. After applying `002_rbac.sql`, run `003_seed_admin.sql`
+to create a default local account (`admin` / `changeme`) and grant it the `admin` role. This ensures at least one
+user can manage roles for others after initial deployment.
+
