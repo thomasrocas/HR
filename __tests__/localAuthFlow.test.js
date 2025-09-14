@@ -42,12 +42,27 @@ describe('local auth flow', () => {
         sess text not null,
         expire timestamptz not null
       );
+      create table public.roles (
+        role_id serial primary key,
+        role_key text unique,
+        description text
+      );
+      create table public.user_roles (
+        user_id uuid,
+        role_id int references public.roles(role_id)
+      );
+      create table public.role_permissions (
+        role_id int references public.roles(role_id),
+        perm_key text
+      );
+      insert into public.roles(role_key) values ('trainee');
     `);
   });
 
   afterEach(async () => {
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
+    await pool.query('delete from public.user_roles');
   });
 
   test('register, update profile, change password, login with new password', async () => {
@@ -65,6 +80,12 @@ describe('local auth flow', () => {
 
     expect(reg.body.ok).toBe(true);
     expect(reg.body.user.username).toBe('newuser');
+
+    const { rows: roleRows } = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id = r.role_id where ur.user_id=$1',
+      [reg.body.user.id]
+    );
+    expect(roleRows.map(r => r.role_key)).toEqual(['trainee']);
 
     const updated = await agent
       .patch('/me')

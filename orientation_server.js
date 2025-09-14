@@ -189,6 +189,11 @@ app.post('/auth/local/register', async (req, res) => {
       values ($1,$2,$3,$4,'local') returning *;`,
       [username, email || '', full_name || '', hash]);
 
+    await pool.query(
+      'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+      [rows[0].id, process.env.DEFAULT_ROLE || 'trainee']
+    );
+
     req.login(rows[0], (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
       res.json({ ok: true, user: { id: rows[0].id, username: rows[0].username } });
