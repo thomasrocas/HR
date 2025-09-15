@@ -64,6 +64,7 @@ VALUES
   ('task.create','Create tasks'),
   ('task.read','View tasks'),
   ('task.update','Edit/move tasks'),
+  ('task.assign','Assign tasks to dates/users'),
   ('task.delete','Delete tasks'),
   ('membership.manage','Add/remove users to programs'),
   ('admin.users.manage','Manage users / roles'),
@@ -105,7 +106,7 @@ BEGIN
     JOIN public.permissions p ON p.perm_key IN (
       'program.create','program.read','program.update',
       'template.create','template.read','template.update',
-      'task.create','task.read','task.update',
+      'task.create','task.read','task.update','task.assign',
       'membership.manage'
     )
     WHERE r.role_key = 'manager'

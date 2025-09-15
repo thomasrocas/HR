@@ -121,6 +121,7 @@ insert into permissions(perm_key, description) values
   ('template.delete', 'Delete templates'),
   ('task.create',     'Create tasks'),
   ('task.update',     'Edit tasks'),
+  ('task.assign',     'Assign tasks to dates/users'),
   ('task.delete',     'Delete tasks')
 on conflict do nothing;
 
@@ -138,6 +139,7 @@ select r.role_id, p.perm_key from (
     ('admin',   'template.delete'),
     ('admin',   'task.create'),
     ('admin',   'task.update'),
+    ('admin',   'task.assign'),
     ('admin',   'task.delete'),
     ('manager', 'program.create'),
     ('manager', 'program.read'),
@@ -149,6 +151,7 @@ select r.role_id, p.perm_key from (
     ('manager', 'template.delete'),
     ('manager', 'task.create'),
     ('manager', 'task.update'),
+    ('manager', 'task.assign'),
     ('manager', 'task.delete'),
     ('viewer',  'program.read'),
     ('viewer',  'template.read'),
