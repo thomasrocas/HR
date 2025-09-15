@@ -429,11 +429,34 @@ app.patch('/me', ensureAuth, async (req, res) => {
 });
 
 app.get('/prefs', ensureAuth, async (req, res) => {
-  const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [req.user.id]);
+  const userId = req.query.user_id || req.user.id;
+  const { rows: roleRows } = await pool.query(
+    'select r.role_key from user_roles ur join roles r on ur.role_id=r.role_id where ur.user_id=$1',
+    [userId]
+  );
+  const targetRoles = roleRows.map(r => r.role_key);
+  if (targetRoles.includes('admin') && !req.roles.includes('admin')) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [userId]);
   res.json(rows[0] || {});
 });
 app.patch('/prefs', ensureAuth, async (req, res) => {
-  const { program_id, start_date, num_weeks, trainee } = req.body || {};
+  const {
+    user_id: userId = req.user.id,
+    program_id,
+    start_date,
+    num_weeks,
+    trainee
+  } = req.body || {};
+  const { rows: roleRows } = await pool.query(
+    'select r.role_key from user_roles ur join roles r on ur.role_id=r.role_id where ur.user_id=$1',
+    [userId]
+  );
+  const targetRoles = roleRows.map(r => r.role_key);
+  if (targetRoles.includes('admin') && !req.roles.includes('admin')) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
   const up = `
     insert into public.user_preferences (user_id, program_id, start_date, num_weeks, trainee, updated_at)
     values ($1,$2,$3,$4,$5, now())
@@ -444,7 +467,7 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
         trainee=excluded.trainee,
         updated_at=now()
     returning *;`;
-  const { rows } = await pool.query(up, [req.user.id, program_id, start_date, num_weeks, trainee]);
+  const { rows } = await pool.query(up, [userId, program_id, start_date, num_weeks, trainee]);
   res.json(rows[0]);
 });
 
