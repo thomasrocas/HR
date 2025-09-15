@@ -541,9 +541,15 @@ app.patch('/rbac/users/:id/roles', async (req, res) => {
 
 // ==== 8) API: programs & templates ====
 
-app.get('/programs', ensurePerm('program.read'), async (_req, res) => {
+app.get('/programs', ensurePerm('program.read'), async (req, res) => {
   try {
-    const { rows } = await pool.query('select * from public.programs order by created_at desc');
+    const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
+    const conds = [];
+    if (!includeDeleted) conds.push('deleted_at is null');
+    let sql = 'select * from public.programs';
+    if (conds.length) sql += ` where ${conds.join(' and ')}`;
+    sql += ' order by created_at desc';
+    const { rows } = await pool.query(sql);
     res.json(rows);
   } catch (err) {
     console.error('GET /programs error', err);
@@ -586,7 +592,7 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
 
     vals.push(program_id); // for program_id
     const sql = `update public.programs set ${fields.join(', ')}
-                 where program_id = $${vals.length}
+                 where program_id = $${vals.length} and deleted_at is null
                  returning *;`;
     const { rows } = await pool.query(sql, vals);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
@@ -604,12 +610,38 @@ app.delete('/programs/:program_id', ensurePerm('program.delete'), async (req, re
       const ok = await userManagesProgram(req.user.id, program_id);
       if (!ok) return res.status(403).json({ error: 'forbidden' });
     }
-    await pool.query('delete from public.program_task_templates where program_id=$1', [program_id]);
-    const result = await pool.query('delete from public.programs where program_id=$1', [program_id]);
+    const result = await pool.query(
+      `update public.programs
+         set deleted_at = now()
+       where program_id = $1 and deleted_at is null`,
+      [program_id]
+    );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
     console.error('DELETE /programs/:program_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/programs/:program_id/restore', ensurePerm('program.delete'), async (req, res) => {
+  try {
+    const { program_id } = req.params;
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
+    const result = await pool.query(
+      `update public.programs
+         set deleted_at = null
+       where program_id = $1 and deleted_at is not null
+       returning *;`,
+      [program_id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
+    res.json({ restored: true });
+  } catch (err) {
+    console.error('POST /programs/:program_id/restore error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1062,7 +1094,8 @@ create table if not exists public.programs (
   total_weeks  int,
   description  text,
   created_by   uuid references public.users(id),
-  created_at   timestamptz default now()
+  created_at   timestamptz default now(),
+  deleted_at   timestamp
 );
 
 create table if not exists public.program_task_templates (
