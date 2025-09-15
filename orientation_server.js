@@ -348,7 +348,8 @@ function ensurePerm(...permKeys) {
     if (!req.isAuthenticated?.()) {
       return res.status(401).json({ error: 'auth_required' });
     }
-    if (req.roles?.includes('admin')) return next();
+    // Admins and Managers are allowed through
+    if (req.roles?.includes('admin') || req.roles?.includes('manager')) return next();
     for (const key of permKeys) {
       if (req.perms?.has(key)) return next();
     }
@@ -432,7 +433,7 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 
 app.get('/rbac/users', async (req, res) => {
   try {
-    if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
+    if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
     const sql = `
       select u.id, u.full_name, u.username,
              coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
@@ -451,7 +452,7 @@ app.get('/rbac/users', async (req, res) => {
 
 app.patch('/rbac/users/:id/roles', async (req, res) => {
   try {
-    if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
+    if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
     const { id } = req.params;
     const { roles = [] } = req.body || {};
     if (!Array.isArray(roles)) return res.status(400).json({ error: 'invalid_roles' });
