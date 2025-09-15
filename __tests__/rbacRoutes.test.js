@@ -88,23 +88,63 @@ describe('rbac admin routes', () => {
     await userAgent.patch(`/rbac/users/${adminId}/roles`).send({ roles: [] }).expect(403);
   });
 
-  test('manager can only assign viewer or trainee roles', async () => {
+  test('manager can list users and only assign viewer or trainee roles', async () => {
     const mgrId = crypto.randomUUID();
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [mgrId, 'mgr', 'Mgr', hash, 'local']);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [userId, 'user', 'User', hash, 'local']);
-    await pool.query("insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'", [mgrId]);
+    await pool.query(
+      'insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)',
+      [mgrId, 'mgr', 'Mgr', hash, 'local']
+    );
+    await pool.query(
+      'insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)',
+      [userId, 'user', 'User', hash, 'local']
+    );
+    await pool.query(
+      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'",
+      [mgrId]
+    );
 
     const mgrAgent = request.agent(app);
-    await mgrAgent.post('/auth/local/login').send({ username: 'mgr', password: 'passpass' }).expect(200);
+    await mgrAgent
+      .post('/auth/local/login')
+      .send({ username: 'mgr', password: 'passpass' })
+      .expect(200);
 
-    // manager allowed to assign viewer
-    await mgrAgent.patch(`/rbac/users/${userId}/roles`).send({ roles: ['viewer'] }).expect(200);
+    const listRes = await mgrAgent.get('/rbac/users').expect(200);
+    expect(listRes.body.length).toBe(2);
+
+    // manager allowed to assign viewer and trainee
+    await mgrAgent
+      .patch(`/rbac/users/${userId}/roles`)
+      .send({ roles: ['viewer', 'trainee'] })
+      .expect(200);
+    let { rows } = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+      [userId]
+    );
+    expect(rows.map(r => r.role_key).sort()).toEqual(['trainee', 'viewer']);
+
+    // manager cannot assign admin role
+    await mgrAgent
+      .patch(`/rbac/users/${userId}/roles`)
+      .send({ roles: ['admin'] })
+      .expect(403);
+    ({ rows } = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+      [userId]
+    ));
+    expect(rows.map(r => r.role_key).sort()).toEqual(['trainee', 'viewer']);
 
     // manager cannot assign manager role
-    await mgrAgent.patch(`/rbac/users/${userId}/roles`).send({ roles: ['manager'] }).expect(403);
-    const { rows } = await pool.query('select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1', [userId]);
-    expect(rows.map(r => r.role_key)).toEqual(['viewer']);
+    await mgrAgent
+      .patch(`/rbac/users/${userId}/roles`)
+      .send({ roles: ['manager'] })
+      .expect(403);
+    ({ rows } = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+      [userId]
+    ));
+    expect(rows.map(r => r.role_key).sort()).toEqual(['trainee', 'viewer']);
   });
 });
