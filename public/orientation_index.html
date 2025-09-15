@@ -1211,9 +1211,15 @@ function App({ me, onSignOut }){
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {controlBar}
-            </div>
+              <div className="flex items-center gap-2">
+               {controlBar}
+               {isTrainee && (
+               <button className="btn btn-outline" onClick={onSignOut}>
+               Sign out
+               </button>
+                  )}
+              </div>
+
           </header>
 
       {!isTrainee && needsInstantiate && (
