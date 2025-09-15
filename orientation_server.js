@@ -494,10 +494,21 @@ app.get('/rbac/users', async (req, res) => {
 
 app.patch('/rbac/users/:id/roles', async (req, res) => {
   try {
-    if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
+    const isAdmin = req.roles.includes('admin');
+    const isManager = req.roles.includes('manager');
+    if (!(isAdmin || isManager)) return res.status(403).json({ error: 'forbidden' });
+
     const { id } = req.params;
     const { roles = [] } = req.body || {};
     if (!Array.isArray(roles)) return res.status(400).json({ error: 'invalid_roles' });
+
+    if (isManager && !isAdmin) {
+      // Managers are limited to non-privileged roles to prevent privilege escalation
+      const allowedRoles = ['viewer', 'trainee'];
+      const invalid = roles.filter(r => !allowedRoles.includes(r));
+      if (invalid.length) return res.status(403).json({ error: 'forbidden' });
+    }
+
     await pool.query('delete from public.user_roles where user_id=$1', [id]);
     for (const r of roles) {
       await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from roles where role_key = $2', [id, r]);
