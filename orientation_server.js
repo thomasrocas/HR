@@ -649,10 +649,11 @@ app.post('/programs/:program_id/restore', ensurePerm('program.delete'), async (r
 app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (req, res) => {
   try {
     const { program_id } = req.params;
-    const { rows } = await pool.query(
-      'select * from public.program_task_templates where program_id=$1 order by week_number, sort_order, template_id',
-      [program_id]
-    );
+    const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
+    const sql = `select * from public.program_task_templates
+                 where program_id = $1${includeDeleted ? '' : ' and deleted_at is null'}
+                 order by week_number, sort_order, template_id`;
+    const { rows } = await pool.query(sql, [program_id]);
     res.json(rows);
   } catch (err) {
     console.error('GET /programs/:id/templates error', err);
@@ -699,6 +700,7 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
     const sql = `update public.program_task_templates
                  set ${fields.join(', ')}
                  where program_id = $${vals.length-1} and template_id = $${vals.length}
+                   and deleted_at is null
                  returning *;`;
     const { rows } = await pool.query(sql, vals);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
@@ -718,13 +720,38 @@ app.delete('/programs/:program_id/templates/:template_id', ensurePerm('template.
       if (!ok) return res.status(403).json({ error: 'forbidden' });
     }
     const result = await pool.query(
-      'delete from public.program_task_templates where program_id=$1 and template_id=$2',
+      `update public.program_task_templates
+         set deleted_at = now()
+       where program_id = $1 and template_id = $2 and deleted_at is null`,
       [program_id, template_id]
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
     console.error('DELETE /programs/:id/templates/:template_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/programs/:program_id/templates/:template_id/restore', ensurePerm('template.delete'), async (req, res) => {
+  try {
+    const { program_id, template_id } = req.params;
+    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
+    const result = await pool.query(
+      `update public.program_task_templates
+         set deleted_at = null
+       where program_id = $1 and template_id = $2 and deleted_at is not null
+       returning *;`,
+      [program_id, template_id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
+    res.json({ restored: true });
+  } catch (err) {
+    console.error('POST /programs/:id/templates/:template_id/restore error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -739,15 +766,15 @@ const sql = `
     (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
   select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
   from public.program_task_templates t
+  left join public.orientation_tasks ot
+    on ot.user_id = $1
+   and ot.program_id = t.program_id
+   and ot.label = t.label
+   and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
+   and ot.deleted = false
   where t.program_id = $3
-    and not exists (
-      select 1 from public.orientation_tasks ot
-      where ot.user_id = $1
-        and ot.program_id = t.program_id
-        and ot.label = t.label
-        and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
-        and ot.deleted = false
-    )
+    and t.deleted_at is null
+    and ot.task_id is null
   order by t.week_number, t.sort_order
   returning *;`;
 
@@ -800,15 +827,15 @@ const copySql = `
     (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
   select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
   from public.program_task_templates t
+  left join public.orientation_tasks ot
+    on ot.user_id = $1
+   and ot.program_id = t.program_id
+   and ot.label = t.label
+   and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
+   and ot.deleted = false
   where t.program_id = $3
-    and not exists (
-      select 1 from public.orientation_tasks ot
-      where ot.user_id = $1
-        and ot.program_id = t.program_id
-        and ot.label = t.label
-        and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
-        and ot.deleted = false
-    )
+    and t.deleted_at is null
+    and ot.task_id is null
   order by t.week_number, t.sort_order
   returning task_id;`;
 
@@ -1104,7 +1131,8 @@ create table if not exists public.program_task_templates (
   week_number int,
   label       text not null,
   notes       text,
-  sort_order  int
+  sort_order  int,
+  deleted_at  timestamp
 );
 
 -- Tasks: add user_id (owning user)
