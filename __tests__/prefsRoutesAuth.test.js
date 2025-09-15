@@ -26,8 +26,9 @@ describe('preferences routes', () => {
   beforeAll(async () => {
     await pool.query(`
       create table public.users (
-        id uuid primary key,
+        id uuid primary key default gen_random_uuid(),
         username text unique,
+        email text,
         full_name text,
         password_hash text,
         provider text,
@@ -86,6 +87,42 @@ describe('preferences routes', () => {
 
     res = await agent.patch('/prefs').send({ program_id: 'prog2' }).expect(200);
     expect(res.body.program_id).toBe('prog2');
+  });
+
+  test('login seeds preferences trainee with user id instead of name', async () => {
+    const userId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+      [userId, 'prefuser', hash, 'local', 'Pref User']
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'prefuser', password: 'passpass' }).expect(200);
+
+    const { rows } = await pool.query('select trainee from public.user_preferences where user_id=$1', [userId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].trainee).toBe(userId);
+    expect(rows[0].trainee).not.toBe('Pref User');
+  });
+
+  test('registration seeds preferences trainee with user id', async () => {
+    const agent = request.agent(app);
+    const res = await agent
+      .post('/auth/local/register')
+      .send({
+        username: 'newuser',
+        email: 'newuser@example.com',
+        full_name: 'New User',
+        password: 'passpass'
+      })
+      .expect(200);
+
+    const newUserId = res.body.user.id;
+    const { rows } = await pool.query('select trainee from public.user_preferences where user_id=$1', [newUserId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].trainee).toBe(newUserId);
+    expect(rows[0].trainee).not.toBe('New User');
   });
 
   test("manager cannot read or modify admin user's preferences", async () => {

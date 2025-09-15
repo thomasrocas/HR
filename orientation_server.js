@@ -191,7 +191,7 @@ app.get('/auth/google/callback',
       insert into public.user_preferences (user_id, trainee)
       values ($1, $2)
       on conflict (user_id) do nothing;`,
-      [req.user.id, req.user.full_name || '']);
+      [req.user.id, req.user.id]);
     if (req.session && req.user?.id) {
       req.session.trainee = req.user.id;
     }
@@ -226,7 +226,7 @@ app.post('/auth/local/register', async (req, res) => {
         insert into public.user_preferences (user_id, trainee)
         values ($1, $2)
         on conflict (user_id) do nothing;
-      `, [rows[0].id, rows[0].full_name || '']);
+      `, [rows[0].id, rows[0].id]);
     } catch (_e) {
       // ignore if preferences table absent
     }
@@ -262,7 +262,7 @@ app.post('/auth/local/login', async (req, res) => {
         insert into public.user_preferences (user_id, trainee)
         values ($1, $2)
         on conflict (user_id) do nothing;
-      `, [user.id, user.full_name || '']);
+      `, [user.id, user.id]);
     } catch (_e) {
       // ignore if preferences table is absent in tests
     }
