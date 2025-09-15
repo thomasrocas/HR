@@ -42,13 +42,17 @@ describe('rbac admin routes', () => {
         role_key text unique,
         description text
       );
+      create table public.permissions (
+        perm_id serial primary key,
+        perm_key text unique
+      );
       create table public.user_roles (
         user_id uuid,
         role_id int references public.roles(role_id)
       );
       create table public.role_permissions (
         role_id int references public.roles(role_id),
-        perm_key text
+        perm_id int references public.permissions(perm_id)
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
@@ -59,6 +63,7 @@ describe('rbac admin routes', () => {
     await pool.query('delete from public.users');
     await pool.query('delete from public.user_roles');
     await pool.query('delete from public.role_permissions');
+    await pool.query('delete from public.permissions');
   });
 
   test('admin can list users and update roles; non-admin forbidden', async () => {
