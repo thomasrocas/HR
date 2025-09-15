@@ -868,7 +868,7 @@ app.post('/tasks', ensurePerm('task.create'), async (req, res) => {
   }
 });
 
-app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
+app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, res) => {
   try {
     const { id } = req.params;
     const { rows: existing } = await pool.query('select user_id, program_id from public.orientation_tasks where task_id=$1', [id]);
@@ -881,6 +881,11 @@ app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
     const hasManagerRole = roles.includes('manager');
     const owns = task.user_id === req.user.id;
     const isTrainee = roles.includes('trainee');
+    const permSet = req.perms instanceof Set
+      ? req.perms
+      : new Set(Array.isArray(req.perms) ? req.perms : []);
+    const hasTaskUpdatePerm = isAdmin || permSet.has('task.update');
+    const hasTaskAssignPerm = isAdmin || permSet.has('task.assign');
 
     let canManageTask = isAdmin || hasManagerRole;
     if (!canManageTask) {
@@ -889,7 +894,11 @@ app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
 
     let allowed;
     if (canManageTask) {
-      allowed = allFields;
+      if (!hasTaskUpdatePerm && hasTaskAssignPerm) {
+        allowed = ['scheduled_for'];
+      } else {
+        allowed = allFields;
+      }
     } else if (isTrainee && owns) {
       allowed = ['done'];
     } else {

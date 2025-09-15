@@ -182,6 +182,60 @@ describe('task routes authorization', () => {
     expect(res.body.error).toBe('forbidden');
   });
 
+  test('manager with only task.assign can reschedule tasks', async () => {
+    await pool.query(`
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, 'task.assign'
+      from public.roles r
+      where r.role_key = 'manager';
+    `);
+
+    const managerId = crypto.randomUUID();
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass',1);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [managerId,'mgr',hash,'local','Manager']);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [traineeId,'trainee',hash,'local','Trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
+    const taskId = crypto.randomUUID();
+    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, scheduled_for, program_id) values ($1,$2,$3,$4,$5)', [taskId, traineeId,'task','2024-01-01','prog1']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
+    const res = await agent
+      .patch(`/tasks/${taskId}`)
+      .send({ scheduled_for: '2024-02-02' })
+      .expect(200);
+    expect(new Date(res.body.scheduled_for).toISOString().startsWith('2024-02-02')).toBe(true);
+  });
+
+  test('manager with only task.assign cannot modify other fields', async () => {
+    await pool.query(`
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, 'task.assign'
+      from public.roles r
+      where r.role_key = 'manager';
+    `);
+
+    const managerId = crypto.randomUUID();
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass',1);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [managerId,'mgr',hash,'local','Manager']);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [traineeId,'trainee',hash,'local','Trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
+    const taskId = crypto.randomUUID();
+    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, program_id) values ($1,$2,$3,$4)', [taskId, traineeId,'task','prog1']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
+    const res = await agent
+      .patch(`/tasks/${taskId}`)
+      .send({ label: 'new title' })
+      .expect(403);
+    expect(res.body.error).toBe('forbidden');
+  });
+
   test('patch tasks limits fields by role', async () => {
     await pool.query(`
       insert into public.role_permissions(role_id, perm_key)
