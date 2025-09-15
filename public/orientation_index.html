@@ -918,25 +918,25 @@ useEffect(() => {
   }
 
   function handleDragStart(e){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     const { wi, ti, taskid } = e.currentTarget.dataset;
     setDragBadge({ wi: Number(wi), ti: Number(ti), task_id: taskid });
   }
   function handleDragEnd(){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     setDragBadge(null);
   }
   function handleDragOver(e){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     e.preventDefault();
     e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
   }
   function handleDragLeave(e){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
   }
   function handleDrop(e, date){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     e.preventDefault();
     handleDragLeave(e);
     if(dragBadge){
@@ -946,7 +946,7 @@ useEffect(() => {
   }
 
   function handleTouchMove(e){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     const touch = e.touches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     if(touchHover.current && touchHover.current !== el){
@@ -960,7 +960,7 @@ useEffect(() => {
     e.preventDefault();
   }
   function handleTouchEnd(e){
-    if (!hasPerm('task.assign')) return;
+    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     const touch = e.changedTouches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     if(touchHover.current){
@@ -1342,22 +1342,22 @@ useEffect(() => {
             const expanded = expandedDays.has(key);
             return (
               <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
-                   onDragOver={hasPerm('task.assign') && !isTrainee ? handleDragOver : undefined} onDragLeave={hasPerm('task.assign') && !isTrainee ? handleDragLeave : undefined} onDrop={hasPerm('task.assign') && !isTrainee ? (e)=>handleDrop(e,key) : undefined}>
+                   onDragOver={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragOver : undefined} onDragLeave={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragLeave : undefined} onDrop={hasPerm('task.assign') && isPrivileged && !isTrainee ? (e)=>handleDrop(e,key) : undefined}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-xs font-semibold">{d.format('D')}</div>
-                  {hasPerm('task.assign') && !isTrainee && <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>}
+                  {hasPerm('task.assign') && isPrivileged && !isTrainee && <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>}
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
                     <div key={i}
                          className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
-                         draggable={hasPerm('task.assign') && !isTrainee}
+                         draggable={hasPerm('task.assign') && isPrivileged && !isTrainee}
                          data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
-                         onDragStart={hasPerm('task.assign') && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && !isTrainee ? handleDragEnd : undefined}
-                         onTouchStart={hasPerm('task.assign') && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && !isTrainee ? handleTouchMove : undefined}
-                         onTouchEnd={hasPerm('task.assign') && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && !isTrainee ? handleTouchEnd : undefined}>
+                         onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
+                         onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
+                         onTouchEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined}>
                       {it.label}
-                      {hasPerm('task.assign') && !isTrainee && (
+                      {hasPerm('task.assign') && isPrivileged && !isTrainee && (
                         <button type="button" aria-label="Remove"
                                 className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
                                 onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
@@ -1377,7 +1377,7 @@ useEffect(() => {
             );
           })}
         </div>
-        {assignPicker && hasPerm('task.assign') && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+        {assignPicker && hasPerm('task.assign') && isPrivileged && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
         {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
       </Section>
       )}
@@ -1407,7 +1407,7 @@ useEffect(() => {
                         <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
                         <div className="flex-1">
                           <div className="font-medium">{t.title}</div>
-                          {hasPerm('task.assign') && !isTrainee && (
+                          {hasPerm('task.assign') && isPrivileged && !isTrainee && (
                             <div className="mt-2 flex items-center gap-2 text-sm">
                               <span className="text-slate-600">Assigned:</span>
                               <input type="date" className="input w-auto" value={t.scheduled_for||''}
