@@ -348,8 +348,8 @@ function ensurePerm(...permKeys) {
     if (!req.isAuthenticated?.()) {
       return res.status(401).json({ error: 'auth_required' });
     }
-    // Admins and Managers are allowed through
-    if (req.roles?.includes('admin') || req.roles?.includes('manager')) return next();
+    // Admins are allowed through automatically
+    if (req.roles?.includes('admin')) return next();
     for (const key of permKeys) {
       if (req.perms?.has(key)) return next();
     }
