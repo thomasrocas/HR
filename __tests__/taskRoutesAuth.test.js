@@ -63,14 +63,6 @@ describe('task routes authorization', () => {
         role_id int references public.roles(role_id),
         perm_key text
       );
-      create table public.user_preferences (
-        user_id uuid primary key,
-        program_id text,
-        start_date date,
-        num_weeks int,
-        trainee text,
-        updated_at timestamptz
-      );
       create table public.program_memberships (
         user_id uuid,
         program_id text,
@@ -85,7 +77,6 @@ describe('task routes authorization', () => {
     await pool.query('delete from public.program_memberships');
     await pool.query('delete from public.user_roles');
     await pool.query('delete from public.role_permissions');
-    await pool.query('delete from public.user_preferences');
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
   });
