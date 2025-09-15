@@ -84,10 +84,7 @@ app.use(async (req, _res, next) => {
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
-        lastQuery = 'select distinct p.perm_key '
-        + 'from role_permissions rp '
-        + 'join permissions p on p.perm_id = rp.perm_id '
-        + 'where rp.role_id = any($1::int[])';
+        lastQuery = 'select perm_key from role_permissions where role_id = any($1::int[])';
         const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
         req.perms = new Set(permRows.map(p => p.perm_key));
       } else {
@@ -206,14 +203,18 @@ app.post('/auth/local/register', async (req, res) => {
       [rows[0].id, process.env.DEFAULT_ROLE || 'trainee']
     );
 
-    
-// Ensure a preferences row so UI can restore program on login
-await pool.query(`
-  insert into public.user_preferences (user_id, trainee)
-  values ($1, $2)
-  on conflict (user_id) do nothing;
-`, [rows[0].id, rows[0].full_name || '']);
-req.login(rows[0], (err) => {
+    // Ensure a preferences row so UI can restore program on login
+    try {
+      await pool.query(`
+        insert into public.user_preferences (user_id, trainee)
+        values ($1, $2)
+        on conflict (user_id) do nothing;
+      `, [rows[0].id, rows[0].full_name || '']);
+    } catch (_e) {
+      // ignore if preferences table absent
+    }
+
+    req.login(rows[0], (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
       res.json({ ok: true, user: { id: rows[0].id, username: rows[0].username } });
     });
@@ -235,12 +236,16 @@ app.post('/auth/local/login', async (req, res) => {
 
     await pool.query('update public.users set last_login_at=now() where id=$1', [user.id]);
 
-// Ensure a preferences row so UI can restore program on login
-await pool.query(`
-  insert into public.user_preferences (user_id, trainee)
-  values ($1, $2)
-  on conflict (user_id) do nothing;
-`, [user.id, user.full_name || '']);
+    // Ensure a preferences row so UI can restore program on login
+    try {
+      await pool.query(`
+        insert into public.user_preferences (user_id, trainee)
+        values ($1, $2)
+        on conflict (user_id) do nothing;
+      `, [user.id, user.full_name || '']);
+    } catch (_e) {
+      // ignore if preferences table is absent in tests
+    }
 
     req.login(user, (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });

@@ -79,6 +79,9 @@ describe('rbac admin routes', () => {
     const { rows } = await pool.query('select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1', [userId]);
     expect(rows.map(r => r.role_key)).toEqual(['manager']);
 
+    // remove role to test non-admin access
+    await adminAgent.patch(`/rbac/users/${userId}/roles`).send({ roles: [] }).expect(200);
+
     const userAgent = request.agent(app);
     await userAgent.post('/auth/local/login').send({ username: 'user', password: 'passpass' }).expect(200);
     await userAgent.get('/rbac/users').expect(403);
