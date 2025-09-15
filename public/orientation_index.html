@@ -64,6 +64,35 @@ let QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id
 let CURRENT_USER_ID = null;
 let TARGET_USER_ID = null;
 let TARGET_USER_NAME = null;
+const TRAINEE_PREF_KEY = 'anx_selected_trainee';
+
+const sameId = (a, b) => String(a ?? '') === String(b ?? '');
+
+function readStoredTrainee(){
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(TRAINEE_PREF_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.id) return null;
+    return { id: String(parsed.id), name: parsed.name || '' };
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeStoredTrainee(id, name = ''){
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    if (!id) {
+      sessionStorage.removeItem(TRAINEE_PREF_KEY);
+    } else {
+      sessionStorage.setItem(TRAINEE_PREF_KEY, JSON.stringify({ id: String(id), name: name || '' }));
+    }
+  } catch (err) {
+    // Ignore storage errors (e.g., private browsing)
+  }
+}
 
 /* Helpers */
 const fmt = (d) => dayjs(d).format('MMM D, YYYY');
@@ -259,11 +288,14 @@ async function apiGetPrefs(){
   if(!r.ok) return {};
   return r.json();
 }
-async function apiPatchPrefs(data){
-  const r = await fetch(withUser(`${API}/prefs`), {
+async function apiPatchPrefs(data, opts = {}){
+  const { skipUser = false } = opts;
+  const url = skipUser ? `${API}/prefs` : withUser(`${API}/prefs`);
+  const bodyData = skipUser ? data : withUserBody(data);
+  const r = await fetch(url, {
     method:'PATCH', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(withUserBody(data))
+    body: JSON.stringify(bodyData)
   });
   if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('PATCH /prefs failed');
@@ -479,7 +511,11 @@ function Ring({value=0}){
 
 function App({ me, onSignOut }){
   const [targetUserId, setTargetUserId] = useState(TARGET_USER_ID);
-  const [targetUserName, setTargetUserName] = useState(TARGET_USER_NAME || me?.name || 'Halle Angeles');
+  const [targetUserName, setTargetUserName] = useState(() => {
+    if (TARGET_USER_NAME) return TARGET_USER_NAME;
+    if (TARGET_USER_ID && (!me?.id || !sameId(TARGET_USER_ID, me.id))) return '';
+    return me?.name || 'Halle Angeles';
+  });
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
@@ -526,8 +562,17 @@ function App({ me, onSignOut }){
   const handleUserChange = async (e) => {
     const uid = e.target.value; // keep UUID as string
     const sel = userList.find(u => String(u.id) === String(uid)) || {};
+    const selectedName = sel.full_name || '';
     setTargetUserId(uid);
-    setTargetUserName(sel.full_name || '');
+    setTargetUserName(selectedName);
+    TARGET_USER_ID = uid;
+    TARGET_USER_NAME = selectedName;
+    writeStoredTrainee(uid, selectedName);
+    try {
+      await apiPatchPrefs({ trainee: uid }, { skipUser: true });
+    } catch (err) {
+      console.error('Failed to save trainee preference', err);
+    }
     try {
       const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
       QS_PROGRAM_ID = prefs.program_id || null;
@@ -589,6 +634,15 @@ function App({ me, onSignOut }){
       }
     })();
   }, [isPrivileged]);
+
+  useEffect(() => {
+    if (!targetUserId) return;
+    const match = userList.find(u => String(u.id) === String(targetUserId));
+    if (match && match.full_name && match.full_name !== targetUserName) {
+      setTargetUserName(match.full_name);
+      writeStoredTrainee(targetUserId, match.full_name);
+    }
+  }, [targetUserId, targetUserName, userList]);
 
   useEffect(() => {
     if (!panelOpen) return;
@@ -1729,17 +1783,70 @@ function Root(){
   const [me, setMe] = useState(null);
   const [checked, setChecked] = useState(false);
 
-  useEffect(()=>{
-    (async () => {
+  async function loadUserAndPrefs(){
+    try {
       const user = await apiGetMe();
       if (user){
         setMe(user);
         CURRENT_USER_ID = user.id;
-        TARGET_USER_ID = user.id;
-        TARGET_USER_NAME = user.name;
+        let targetId = user.id;
+        let targetName = user.name;
+        TARGET_USER_ID = targetId;
+        TARGET_USER_NAME = targetName;
+        const stored = readStoredTrainee();
+        try {
+          const prefs = await apiGetPrefs();
+          const prefTrainee = prefs?.trainee ? String(prefs.trainee) : null;
+          if (prefTrainee) {
+            targetId = prefTrainee;
+            if (stored && sameId(stored.id, prefTrainee)) {
+              targetName = stored.name || '';
+            } else {
+              targetName = '';
+            }
+          } else if (stored?.id) {
+            targetId = stored.id;
+            targetName = stored.name || '';
+          }
+        } catch (err) {
+          console.error('Failed to load prefs', err);
+          if (stored?.id) {
+            targetId = stored.id;
+            targetName = stored.name || '';
+          }
+        }
+        if (!targetName) {
+          if (stored && sameId(stored.id, targetId) && stored.name) {
+            targetName = stored.name;
+          } else if (sameId(targetId, user.id)) {
+            targetName = user.name;
+          }
+        }
+        const normalizedId = targetId ? String(targetId) : targetId;
+        TARGET_USER_ID = normalizedId;
+        TARGET_USER_NAME = targetName;
+        writeStoredTrainee(normalizedId, targetName);
+      } else {
+        setMe(null);
+        CURRENT_USER_ID = null;
+        TARGET_USER_ID = null;
+        TARGET_USER_NAME = null;
+        writeStoredTrainee(null);
       }
+    } catch (err) {
+      console.error('Failed to initialize user session', err);
+      setMe(null);
+      CURRENT_USER_ID = null;
+      TARGET_USER_ID = null;
+      TARGET_USER_NAME = null;
+      writeStoredTrainee(null);
+    } finally {
       setChecked(true);
-    })();
+    }
+  }
+
+  useEffect(()=>{
+    loadUserAndPrefs();
   }, []);
 
   if (!checked){
@@ -1752,11 +1859,15 @@ function Root(){
   if (!me){
     return (
       <div className="min-h-screen flex items-center justify-center w-full">
-        <AuthPanel onAuthed={async ()=> { localStorage.removeItem('anx_program_id'); const user = await apiGetMe(); setMe(user); CURRENT_USER_ID = user.id; TARGET_USER_ID = user.id; TARGET_USER_NAME = user.name; }} />
+        <AuthPanel onAuthed={async ()=> {
+          localStorage.removeItem('anx_program_id');
+          setChecked(false);
+          await loadUserAndPrefs();
+        }} />
       </div>
     );
   }
-return <App me={me} onSignOut={async () => { const res = await apiLogout(); if(!res) return; window.location.href = '/'; }} />;
+return <App me={me} onSignOut={async () => { const res = await apiLogout(); if(!res) return; writeStoredTrainee(null); window.location.href = '/'; }} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
