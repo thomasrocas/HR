@@ -45,7 +45,8 @@ describe('program routes', () => {
         total_weeks int,
         description text,
         created_by uuid,
-        created_at timestamptz default now()
+        created_at timestamptz default now(),
+        deleted_at timestamp
       );
       create table public.program_task_templates (
         template_id uuid primary key,
@@ -153,7 +154,7 @@ describe('program routes', () => {
     expect(rows[0].total_weeks).toBe(8);
   });
 
-  test('delete removes program and templates', async () => {
+  test('program can be soft deleted and restored', async () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user2', hash, 'local']);
@@ -167,13 +168,32 @@ describe('program routes', () => {
     await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [crypto.randomUUID(), progId, 1, 't1']);
     await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [crypto.randomUUID(), progId, 2, 't2']);
 
-  await agent.delete(`/programs/${progId}`).expect(200, { deleted: true });
+    await agent.delete(`/programs/${progId}`).expect(200, { deleted: true });
 
-  const progRows = await pool.query('select 1 from public.programs where program_id=$1', [progId]);
-  expect(progRows.rowCount).toBe(0);
-  const tmplRows = await pool.query('select 1 from public.program_task_templates where program_id=$1', [progId]);
-  expect(tmplRows.rowCount).toBe(0);
-});
+    let progRows = await pool.query('select deleted_at from public.programs where program_id=$1', [progId]);
+    expect(progRows.rowCount).toBe(1);
+    expect(progRows.rows[0].deleted_at).not.toBeNull();
+    const tmplRows = await pool.query('select 1 from public.program_task_templates where program_id=$1', [progId]);
+    expect(tmplRows.rowCount).toBe(2);
+
+    let res = await agent.get('/programs').expect(200);
+    expect(res.body.find(p => p.program_id === progId)).toBeUndefined();
+
+    res = await agent.get('/programs').query({ include_deleted: 'true' }).expect(200);
+    const deletedProgram = res.body.find(p => p.program_id === progId);
+    expect(deletedProgram).toBeDefined();
+    expect(deletedProgram.deleted_at).toBeTruthy();
+
+    await agent.post(`/programs/${progId}/restore`).expect(200, { restored: true });
+
+    progRows = await pool.query('select deleted_at from public.programs where program_id=$1', [progId]);
+    expect(progRows.rows[0].deleted_at).toBeNull();
+
+    res = await agent.get('/programs').expect(200);
+    const restored = res.body.find(p => p.program_id === progId);
+    expect(restored).toBeDefined();
+    expect(restored.deleted_at).toBeNull();
+  });
 
 test('patch updates template fields', async () => {
   const userId = crypto.randomUUID();
