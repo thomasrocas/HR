@@ -117,6 +117,18 @@ describe('task routes authorization', () => {
     expect(res.body.every(t => t.user_id === traineeId)).toBe(true);
   });
 
+  test('manager without task.create permission cannot post tasks', async () => {
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [managerId,'mgr',hash,'local','Manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass' }).expect(200);
+    await agent.post('/tasks').send({ label:'t1', user_id: managerId, program_id:'prog1' }).expect(403);
+  });
+
   test('post tasks requires managing program when assigning to others', async () => {
     await pool.query(`
       insert into public.role_permissions(role_id, perm_key)
@@ -143,6 +155,23 @@ describe('task routes authorization', () => {
     await mgrAgent.post('/auth/local/login').send({ username:'mgr', password:'passpass' }).expect(200);
     const res = await mgrAgent.post('/tasks').send({ label:'m t', user_id: traineeId, program_id:'prog1' }).expect(201);
     expect(res.body.user_id).toBe(traineeId);
+  });
+
+  test('manager without task.update permission cannot patch tasks', async () => {
+    const managerId = crypto.randomUUID();
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass',1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [managerId,'mgr',hash,'local']);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [traineeId,'trainee',hash,'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
+    const taskId = crypto.randomUUID();
+    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, program_id) values ($1,$2,$3,$4)', [taskId, traineeId,'task','prog1']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
+    await agent.patch(`/tasks/${taskId}`).send({ label:'new' }).expect(403);
   });
 
   test('patch tasks limits fields by role', async () => {
@@ -173,6 +202,23 @@ describe('task routes authorization', () => {
     await mgrAgent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
     const res = await mgrAgent.patch(`/tasks/${taskId}`).send({ label:'mgr edit' }).expect(200);
     expect(res.body.label).toBe('mgr edit');
+  });
+
+  test('manager without task.delete permission cannot delete tasks', async () => {
+    const managerId = crypto.randomUUID();
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass',1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [managerId,'mgr',hash,'local']);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [traineeId,'trainee',hash,'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId,'prog1','manager']);
+    const taskId = crypto.randomUUID();
+    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, program_id) values ($1,$2,$3,$4)', [taskId, traineeId,'task','prog1']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
+    await agent.delete(`/tasks/${taskId}`).expect(403);
   });
 
   test('delete tasks follows scope rules', async () => {
