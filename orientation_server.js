@@ -84,9 +84,23 @@ app.use(async (req, _res, next) => {
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
-        lastQuery = 'select perm_key from role_permissions where role_id = any($1::int[])';
-        const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
-        req.perms = new Set(permRows.map(p => p.perm_key));
+
+        lastQuery = `select column_name from information_schema.columns
+                      where table_name='role_permissions' and column_name='perm_key'`;
+        const { rows: hasPermKey } = await pool.query(lastQuery);
+        if (hasPermKey.length) {
+          lastQuery = 'select perm_key from role_permissions where role_id = any($1::int[])';
+          const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
+          req.perms = new Set(permRows.map(p => p.perm_key));
+        } else {
+          lastQuery = `select p.perm_key
+                        from role_permissions rp
+                        join permissions p on rp.perm_id = p.perm_id
+                        where rp.role_id = any($1::int[])`;
+          const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
+          req.perms = new Set(permRows.map(p => p.perm_key));
+        }
+
       } else {
         req.perms = new Set();
       }
