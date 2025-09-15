@@ -104,8 +104,8 @@ BEGIN
     SELECT r.%I, p.perm_id
     FROM public.roles r
     JOIN public.permissions p ON p.perm_key IN (
-      'program.create','program.read','program.update',
-      'template.create','template.read','template.update',
+      'program.create','program.read','program.update','program.delete',
+      'template.create','template.read','template.update','template.delete',
       'task.create','task.read','task.update','task.assign',
       'membership.manage'
     )
