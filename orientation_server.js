@@ -84,6 +84,7 @@ app.use(async (req, _res, next) => {
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
+
         lastQuery = `select column_name from information_schema.columns
                       where table_name='role_permissions' and column_name='perm_key'`;
         const { rows: hasPermKey } = await pool.query(lastQuery);
@@ -99,6 +100,7 @@ app.use(async (req, _res, next) => {
           const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
           req.perms = new Set(permRows.map(p => p.perm_key));
         }
+
       } else {
         req.perms = new Set();
       }
