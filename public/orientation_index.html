@@ -357,6 +357,16 @@ async function apiInstantiateProgram(programId) {
   return res.json();
 }
 
+// Preload a program's templates into ANOTHER user's task list (admin/manager only)
+async function apiPreloadProgramForUser(userId, programId) {
+  const url = `${API}/rbac/users/${encodeURIComponent(userId)}/programs/${encodeURIComponent(programId)}/instantiate`;
+  const res = await fetch(url, { method: 'POST', credentials: 'include' });
+  if (res.status === 403) { alert('You do not have permission to perform this action.'); return null; }
+  if (!res.ok) throw new Error('POST /rbac/users/:id/programs/:program_id/instantiate failed');
+  return res.json(); // -> { ok: true, created: <n> }
+}
+
+
 /* ---- TASK helpers ---- */
 async function apiGetTasks(params = {}){
   const { include_deleted = false, ...rest } = params;
@@ -557,28 +567,42 @@ function App({ me, onSignOut }){
     return active.length;
   }
 
-  /* Load tasks */
-  useEffect(() => {
-    async function load() {
-      try {
-        if (!QS_PROGRAM_ID) {
-          const prefs = await apiGetPrefs();
-          QS_PROGRAM_ID = prefs.program_id || null;
-          if (QS_PROGRAM_ID) localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
-        } else {
-          localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
-          try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch (e) {}
-        }
-        if (!QS_PROGRAM_ID) return;
-        const count = await reloadTasks();
-        if (!count) { setNeedsInstantiate(true); return; }
-        setNeedsInstantiate(false);
-      } catch (err) {
-        console.error('Failed to load tasks', err);
+  
+/* Load tasks */
+useEffect(() => {
+  async function load() {
+    try {
+      // 1) Always ask the server first for the current user's preference
+      const prefs = await apiGetPrefs();
+      let pid = prefs.program_id || null;
+
+      // 2) If the server has no preference yet, fall back to URL/localStorage
+      if (!pid) {
+        pid = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
       }
+
+      if (pid) {
+        // 3) Persist + tell server so future logins restore correctly
+        QS_PROGRAM_ID = pid;
+        localStorage.setItem('anx_program_id', pid);
+        try { await apiPatchPrefs({ program_id: pid }); } catch (e) {}
+
+        // 4) Load tasks
+        const count = await reloadTasks();
+        setNeedsInstantiate(count === 0);
+      } else {
+        // No program selected yet: clear UI
+        localStorage.removeItem('anx_program_id');
+        setWeeks([]);
+        setDeletedTasks([]);
+        setNeedsInstantiate(false);
+      }
+    } catch (err) {
+      console.error('Failed to load tasks', err);
     }
-    load();
-  }, []);
+  }
+  load();
+}, []);
 
   /* Load programs */
   useEffect(() => {
@@ -1240,7 +1264,7 @@ function App({ me, onSignOut }){
       )}
 
       {/* Calendar */}
-      {!isTrainee && (
+      {(
       <Section title={`${numWeeks}-Week Visual Calendar`} subtitle="Assign tasks by date; click Assign on a day.">
         <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
@@ -1355,7 +1379,7 @@ function App({ me, onSignOut }){
       </Section>
       )}
     </div>
-      {!isTrainee && panelOpen && (
+      {panelOpen && (
         <div
           className="fixed inset-0 bg-black/50 md:hidden overscroll-contain touch-none"
           onClick={togglePanel}
@@ -1384,7 +1408,7 @@ function App({ me, onSignOut }){
       </button>
       )}
       {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
-      {!isTrainee && panelOpen && (
+      {panelOpen && (
         <div
           className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize"
           style={{ right: panelWidth }}
@@ -1392,7 +1416,6 @@ function App({ me, onSignOut }){
           tabIndex={0}
         ></div>
       )}
-      {!isTrainee && (
       <aside
           id="side-panel"
           ref={panelRef}
@@ -1616,7 +1639,6 @@ function App({ me, onSignOut }){
           </div>
         </div>
       </aside>
-      )}
     {showTemplates && templateProgramId && hasPerm('template.read') && !isTrainee && (
       <TemplateModal
         programId={templateProgramId}
@@ -1650,7 +1672,7 @@ function Root(){
   if (!me){
     return (
       <div className="min-h-screen flex items-center justify-center w-full">
-        <AuthPanel onAuthed={async ()=> { const user = await apiGetMe(); setMe(user); }} />
+        <AuthPanel onAuthed={async ()=> { localStorage.removeItem('anx_program_id'); const user = await apiGetMe(); setMe(user); }} />
       </div>
     );
   }
