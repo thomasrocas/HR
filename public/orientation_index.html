@@ -64,6 +64,8 @@ let QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id
 let CURRENT_USER_ID = null;
 let TARGET_USER_ID = null;
 let TARGET_USER_NAME = null;
+let CURRENT_USER_ROLES = [];
+let CURRENT_USER_PERMS = new Set();
 
 /* Helpers */
 const fmt = (d) => dayjs(d).format('MMM D, YYYY');
@@ -1739,6 +1741,8 @@ function Root(){
         CURRENT_USER_ID = user.id;
         TARGET_USER_ID = user.id;
         TARGET_USER_NAME = user.name;
+        CURRENT_USER_ROLES = user.roles;
+        CURRENT_USER_PERMS = new Set(user.perms);
       }
       setChecked(true);
     })();
@@ -1754,7 +1758,16 @@ function Root(){
   if (!me){
     return (
       <div className="min-h-screen flex items-center justify-center w-full">
-        <AuthPanel onAuthed={async ()=> { localStorage.removeItem('anx_program_id'); const user = await apiGetMe(); setMe(user); CURRENT_USER_ID = user.id; TARGET_USER_ID = user.id; TARGET_USER_NAME = user.name; }} />
+        <AuthPanel onAuthed={async ()=> {
+          localStorage.removeItem('anx_program_id');
+          const user = await apiGetMe();
+          setMe(user);
+          CURRENT_USER_ID = user.id;
+          TARGET_USER_ID = user.id;
+          TARGET_USER_NAME = user.name;
+          CURRENT_USER_ROLES = user.roles;
+          CURRENT_USER_PERMS = new Set(user.perms);
+        }} />
       </div>
     );
   }
