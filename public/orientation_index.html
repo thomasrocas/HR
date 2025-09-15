@@ -628,12 +628,26 @@ function App({ me, onSignOut }){
     (async () => {
       try {
         const list = await apiListUsers();
-        setUserList(list);
+        let normalized = Array.isArray(list) ? [...list] : [];
+        if (CURRENT_USER_ID) {
+          const hasCurrent = normalized.some(u => sameId(u.id, CURRENT_USER_ID));
+          if (!hasCurrent) {
+            const currentName = me?.name || me?.full_name || me?.username || 'Current user';
+            normalized = [
+              { id: CURRENT_USER_ID, full_name: currentName, name: currentName },
+              ...normalized,
+            ];
+          }
+        }
+        setUserList(normalized);
+        if (CURRENT_USER_ID) {
+          setTargetUserId(String(CURRENT_USER_ID));
+        }
       } catch (err) {
         console.error('Failed to load users', err);
       }
     })();
-  }, [isPrivileged]);
+  }, [isPrivileged, me]);
 
   useEffect(() => {
     if (!targetUserId) return;
