@@ -126,7 +126,11 @@ describe('task routes authorization', () => {
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass' }).expect(200);
-    await agent.post('/tasks').send({ label:'t1', user_id: managerId, program_id:'prog1' }).expect(403);
+    const res = await agent
+      .post('/tasks')
+      .send({ label: 't1', user_id: managerId, program_id: 'prog1' })
+      .expect(403);
+    expect(res.body.error).toBe('forbidden');
   });
 
   test('post tasks requires managing program when assigning to others', async () => {
@@ -171,7 +175,11 @@ describe('task routes authorization', () => {
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
-    await agent.patch(`/tasks/${taskId}`).send({ label:'new' }).expect(403);
+    const res = await agent
+      .patch(`/tasks/${taskId}`)
+      .send({ label: 'new' })
+      .expect(403);
+    expect(res.body.error).toBe('forbidden');
   });
 
   test('patch tasks limits fields by role', async () => {
@@ -218,7 +226,8 @@ describe('task routes authorization', () => {
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
-    await agent.delete(`/tasks/${taskId}`).expect(403);
+    const res = await agent.delete(`/tasks/${taskId}`).expect(403);
+    expect(res.body.error).toBe('forbidden');
   });
 
   test('delete tasks follows scope rules', async () => {
