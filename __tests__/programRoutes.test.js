@@ -63,6 +63,11 @@ describe('program routes', () => {
         role_id int references public.roles(role_id),
         perm_key text
       );
+      create table public.program_memberships (
+        user_id uuid,
+        program_id text,
+        role text
+      );
       create table public.orientation_tasks (
         task_id uuid primary key,
         user_id uuid,
@@ -82,11 +87,49 @@ describe('program routes', () => {
   afterEach(async () => {
     await pool.query('delete from public.program_task_templates');
     await pool.query('delete from public.orientation_tasks');
+    await pool.query('delete from public.program_memberships');
     await pool.query('delete from public.programs');
     await pool.query('delete from public.user_roles');
     await pool.query('delete from public.role_permissions');
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
+  });
+
+  test('manager without program permissions cannot create or update programs', async () => {
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [managerId, 'mgr', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'mgr', password: 'passpass' }).expect(200);
+
+    let res = await agent.post('/programs').send({ title: 'T1' }).expect(403);
+    expect(res.body.error).toBe('forbidden');
+
+    const progId = 'unauth_prog';
+    await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'old', managerId]);
+    res = await agent.patch(`/programs/${progId}`).send({ title: 'new' }).expect(403);
+    expect(res.body.error).toBe('forbidden');
+  });
+
+  test('manager with program.update permission can update managed program', async () => {
+    await pool.query("insert into public.role_permissions(role_id, perm_key) select role_id, 'program.update' from public.roles where role_key='manager'");
+
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [managerId, 'mgr2', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
+
+    const progId = 'managed_prog';
+    await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'Old', managerId]);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [managerId, progId, 'manager']);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'mgr2', password: 'passpass' }).expect(200);
+
+    const res = await agent.patch(`/programs/${progId}`).send({ title: 'New' }).expect(200);
+    expect(res.body.title).toBe('New');
   });
 
   test('patch updates program fields', async () => {
