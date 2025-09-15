@@ -212,6 +212,30 @@ describe('task routes authorization', () => {
     expect(res.body.label).toBe('mgr edit');
   });
 
+  test('task owner without admin or manager role cannot move task', async () => {
+    await pool.query(`
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
+        ('trainee','task.update')
+      ) as rp(role_key, perm_key)
+      join public.roles r on r.role_key = rp.role_key;
+    `);
+
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass',1);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [traineeId,'trainee',hash,'local','Trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [traineeId,'prog1','trainee']);
+
+    const taskId = crypto.randomUUID();
+    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, program_id) values ($1,$2,$3,$4)', [taskId, traineeId,'task','prog1']);
+
+    const traineeAgent = request.agent(app);
+    await traineeAgent.post('/auth/local/login').send({ username:'trainee', password:'passpass'}).expect(200);
+    const res = await traineeAgent.patch(`/tasks/${taskId}`).send({ program_id: 'prog2' }).expect(403);
+    expect(res.body.error).toBe('forbidden');
+  });
+
   test('manager without task.delete permission cannot delete tasks', async () => {
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
@@ -227,6 +251,30 @@ describe('task routes authorization', () => {
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
     const res = await agent.delete(`/tasks/${taskId}`).expect(403);
+    expect(res.body.error).toBe('forbidden');
+  });
+
+  test('task owner without admin or manager role cannot delete task', async () => {
+    await pool.query(`
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
+        ('trainee','task.delete')
+      ) as rp(role_key, perm_key)
+      join public.roles r on r.role_key = rp.role_key;
+    `);
+
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass',1);
+    await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [traineeId,'trainee',hash,'local','Trainee']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [traineeId,'prog1','trainee']);
+
+    const taskId = crypto.randomUUID();
+    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, program_id) values ($1,$2,$3,$4)', [taskId, traineeId,'task','prog1']);
+
+    const traineeAgent = request.agent(app);
+    await traineeAgent.post('/auth/local/login').send({ username:'trainee', password:'passpass'}).expect(200);
+    const res = await traineeAgent.delete(`/tasks/${taskId}`).expect(403);
     expect(res.body.error).toBe('forbidden');
   });
 
