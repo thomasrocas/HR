@@ -61,6 +61,9 @@ const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 const API = window.location.origin;
 const qs = new URLSearchParams(location.search);
 let QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
+let CURRENT_USER_ID = null;
+let TARGET_USER_ID = null;
+let TARGET_USER_NAME = null;
 
 /* Helpers */
 const fmt = (d) => dayjs(d).format('MMM D, YYYY');
@@ -71,6 +74,18 @@ const inRange = (d, start, numWeeks) => {
   return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day');
 };
 const uid = () => Math.random().toString(36).slice(2);
+const withUser = (url) => {
+  if (TARGET_USER_ID && CURRENT_USER_ID && TARGET_USER_ID !== CURRENT_USER_ID) {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}user_id=${encodeURIComponent(TARGET_USER_ID)}`;
+  }
+  return url;
+};
+const withUserBody = (data = {}) => (
+  (TARGET_USER_ID && CURRENT_USER_ID && TARGET_USER_ID !== CURRENT_USER_ID)
+    ? { ...data, user_id: TARGET_USER_ID }
+    : data
+);
 
 function useFocusTrap(active, ref) {
   useEffect(() => {
@@ -240,7 +255,7 @@ async function apiLogout(){
 }
 
 async function apiGetPrefs(){
-  const r = await fetch(`${API}/prefs`, { credentials:'include' });
+  const r = await fetch(withUser(`${API}/prefs`), { credentials:'include' });
   if(!r.ok) return {};
   return r.json();
 }
@@ -248,7 +263,7 @@ async function apiPatchPrefs(data){
   const r = await fetch(`${API}/prefs`, {
     method:'PATCH', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    body: JSON.stringify(withUserBody(data))
   });
   if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('PATCH /prefs failed');
@@ -274,6 +289,12 @@ async function apiChangePassword(data){
   });
   if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if(!r.ok) throw new Error('POST /auth/local/change-password failed');
+  return r.json();
+}
+
+async function apiListUsers(){
+  const r = await fetch(`${API}/rbac/users`, { credentials:'include' });
+  if(!r.ok) throw new Error('GET /rbac/users failed');
   return r.json();
 }
 
@@ -349,9 +370,12 @@ async function apiDeleteTemplate(programId, templateId){
   return r.json();
 }
 async function apiInstantiateProgram(programId) {
-  const res = await fetch(`${API}/programs/${encodeURIComponent(programId)}/instantiate`, {
-    method: 'POST', credentials:'include'
-  });
+  const opts = { method:'POST', credentials:'include' };
+  if (TARGET_USER_ID && CURRENT_USER_ID && TARGET_USER_ID !== CURRENT_USER_ID) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify({ user_id: TARGET_USER_ID });
+  }
+  const res = await fetch(`${API}/programs/${encodeURIComponent(programId)}/instantiate`, opts);
   if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error('POST /programs/:id/instantiate failed');
   return res.json();
@@ -370,17 +394,17 @@ async function apiPreloadProgramForUser(userId, programId) {
 /* ---- TASK helpers ---- */
 async function apiGetTasks(params = {}){
   const { include_deleted = false, ...rest } = params;
+  if(include_deleted) rest.include_deleted = 'true';
   const usp = new URLSearchParams(rest);
-  if(include_deleted) usp.set('include_deleted','true');
-  const r = await fetch(`${API}/tasks?${usp.toString()}`, { credentials:'include' });
+  const r = await fetch(withUser(`${API}/tasks?${usp.toString()}`), { credentials:'include' });
   if(!r.ok) throw new Error('GET /tasks failed');
   return r.json();
 }
 async function apiPatchTask(taskId, payload) {
-  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}`, {
+  const res = await fetch(withUser(`${API}/tasks/${encodeURIComponent(taskId)}`), {
     method: 'PATCH', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withUserBody(payload))
   });
   if (res.status === 404) return null;
   if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
@@ -394,14 +418,14 @@ async function apiCreateTask(data) {
   const res = await fetch(`${API}/tasks`, {
     method: 'POST', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    body: JSON.stringify(withUserBody(data))
   });
   if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
   if (!res.ok) throw new Error(`POST /tasks failed (${res.status})`);
   return res.json();
 }
 async function apiDeleteTask(taskId) {
-  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}`, {
+  const res = await fetch(withUser(`${API}/tasks/${encodeURIComponent(taskId)}`), {
     method: 'DELETE', credentials:'include'
   });
   if (res.status === 404) return null;
@@ -411,7 +435,7 @@ async function apiDeleteTask(taskId) {
 }
 
 async function apiRestoreTask(taskId){
-  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}/restore`, {
+  const res = await fetch(withUser(`${API}/tasks/${encodeURIComponent(taskId)}/restore`), {
     method: 'POST', credentials:'include'
   });
   if (res.status === 404) return null;
@@ -454,7 +478,8 @@ function Ring({value=0}){
 }
 
 function App({ me, onSignOut }){
-  const [trainee, setTrainee] = useState(me?.name || 'Halle Angeles');
+  const [targetUserId, setTargetUserId] = useState(TARGET_USER_ID);
+  const [targetUserName, setTargetUserName] = useState(TARGET_USER_NAME || me?.name || 'Halle Angeles');
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
@@ -471,6 +496,7 @@ function App({ me, onSignOut }){
   const [templateProgramId, setTemplateProgramId] = useState(null);
   const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
   const [searchTerm, setSearchTerm] = useState('');
+  const [userList, setUserList] = useState([]);
   const searchDebounce = useRef(null);
   const touchHover = useRef(null);
   const panelRef = useRef(null);
@@ -479,6 +505,7 @@ function App({ me, onSignOut }){
   const hasPerm = (p) => perms.has(p);
   const isTrainee = (me?.roles || []).includes('trainee');
   const isReadOnly = (me?.roles || []).some(r => r === 'viewer' || r === 'auditor');
+  const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -494,6 +521,27 @@ function App({ me, onSignOut }){
 
   const toggleSection = (key) => {
     setOpenSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const handleUserChange = async (e) => {
+    const uid = Number(e.target.value);
+    const sel = userList.find(u => u.id === uid) || {};
+    setTargetUserId(uid);
+    setTargetUserName(sel.full_name || '');
+    try {
+      const prefs = await apiGetPrefs();
+      QS_PROGRAM_ID = prefs.program_id || null;
+      if (QS_PROGRAM_ID) {
+        const count = await reloadTasks();
+        setNeedsInstantiate(count === 0);
+      } else {
+        setWeeks([]);
+        setDeletedTasks([]);
+        setNeedsInstantiate(false);
+      }
+    } catch (err) {
+      console.error('Failed to load tasks', err);
+    }
   };
 
   const handleSearchChange = (e) => {
@@ -524,6 +572,23 @@ function App({ me, onSignOut }){
   const [pwNew, setPwNew] = useState('');
   const [acctMsg, setAcctMsg] = useState('');
   const [pwMsg, setPwMsg] = useState('');
+
+  useEffect(() => {
+    TARGET_USER_ID = targetUserId;
+    TARGET_USER_NAME = targetUserName;
+  }, [targetUserId, targetUserName]);
+
+  useEffect(() => {
+    if (!isPrivileged) return;
+    (async () => {
+      try {
+        const list = await apiListUsers();
+        setUserList(list);
+      } catch (err) {
+        console.error('Failed to load users', err);
+      }
+    })();
+  }, [isPrivileged]);
 
   useEffect(() => {
     if (!panelOpen) return;
@@ -1226,7 +1291,7 @@ useEffect(() => {
           <header className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <div>
-                <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
+                <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {targetUserName}</h1>
                 <p className="text-sm text-slate-500">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
                 {me.roles?.length > 0 && (
                   <div className="text-xs text-slate-500">
@@ -1446,6 +1511,16 @@ useEffect(() => {
           </button>
         </div>
         <div className="pt-4 space-y-4">
+          {isPrivileged && (
+            <div>
+              <label htmlFor="target-user" className="text-sm block mb-1">Viewing tasks for</label>
+              <select id="target-user" className="input w-full" value={targetUserId} onChange={handleUserChange}>
+                {userList.map(u => (
+                  <option key={u.id} value={u.id}>{u.full_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <input
             className="input w-full"
             placeholder="Search…"
@@ -1657,7 +1732,12 @@ function Root(){
   useEffect(()=>{
     (async () => {
       const user = await apiGetMe();
-      if (user) setMe(user);
+      if (user){
+        setMe(user);
+        CURRENT_USER_ID = user.id;
+        TARGET_USER_ID = user.id;
+        TARGET_USER_NAME = user.name;
+      }
       setChecked(true);
     })();
   }, []);
@@ -1672,7 +1752,7 @@ function Root(){
   if (!me){
     return (
       <div className="min-h-screen flex items-center justify-center w-full">
-        <AuthPanel onAuthed={async ()=> { localStorage.removeItem('anx_program_id'); const user = await apiGetMe(); setMe(user); }} />
+        <AuthPanel onAuthed={async ()=> { localStorage.removeItem('anx_program_id'); const user = await apiGetMe(); setMe(user); CURRENT_USER_ID = user.id; TARGET_USER_ID = user.id; TARGET_USER_NAME = user.name; }} />
       </div>
     );
   }
