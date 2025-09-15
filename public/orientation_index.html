@@ -53,7 +53,7 @@
 <body class="min-h-screen bg-slate-50 text-slate-900">
 <div id="root" class="max-w-7xl mx-auto px-4"></div>
 
-<script type="text/babel">
+<script type="text/babel" data-presets="env,react">
 const { useEffect, useMemo, useState, useRef } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
@@ -524,12 +524,12 @@ function App({ me, onSignOut }){
   };
 
   const handleUserChange = async (e) => {
-    const uid = Number(e.target.value);
-    const sel = userList.find(u => u.id === uid) || {};
+    const uid = e.target.value; // keep UUID as string
+    const sel = userList.find(u => String(u.id) === String(uid)) || {};
     setTargetUserId(uid);
     setTargetUserName(sel.full_name || '');
     try {
-      const prefs = await apiGetPrefs();
+      const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
       QS_PROGRAM_ID = prefs.program_id || null;
       if (QS_PROGRAM_ID) {
         const count = await reloadTasks();
@@ -638,7 +638,7 @@ useEffect(() => {
   async function load() {
     try {
       // 1) Always ask the server first for the current user's preference
-      const prefs = await apiGetPrefs();
+      const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
       let pid = prefs.program_id || null;
 
       // 2) If the server has no preference yet, fall back to URL/localStorage
