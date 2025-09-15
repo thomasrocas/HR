@@ -404,7 +404,7 @@ async function apiPatchTask(taskId, payload) {
   const res = await fetch(withUser(`${API}/tasks/${encodeURIComponent(taskId)}`), {
     method: 'PATCH', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(withUserBody(payload))
+    body: JSON.stringify(payload)
   });
   if (res.status === 404) return null;
   if(res.status === 403){ alert('You do not have permission to perform this action.'); return null; }
