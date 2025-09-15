@@ -206,7 +206,14 @@ app.post('/auth/local/register', async (req, res) => {
       [rows[0].id, process.env.DEFAULT_ROLE || 'trainee']
     );
 
-    req.login(rows[0], (err) => {
+    
+// Ensure a preferences row so UI can restore program on login
+await pool.query(`
+  insert into public.user_preferences (user_id, trainee)
+  values ($1, $2)
+  on conflict (user_id) do nothing;
+`, [rows[0].id, rows[0].full_name || '']);
+req.login(rows[0], (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
       res.json({ ok: true, user: { id: rows[0].id, username: rows[0].username } });
     });
@@ -227,6 +234,14 @@ app.post('/auth/local/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'bad_username_or_password' });
 
     await pool.query('update public.users set last_login_at=now() where id=$1', [user.id]);
+
+// Ensure a preferences row so UI can restore program on login
+await pool.query(`
+  insert into public.user_preferences (user_id, trainee)
+  values ($1, $2)
+  on conflict (user_id) do nothing;
+`, [user.id, user.full_name || '']);
+
     req.login(user, (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
       res.json({ ok: true, user: { id: user.id, username: user.username } });
@@ -613,14 +628,34 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
   try {
     const { program_id } = req.params;
     const trainee = req.user.full_name || '';
-    const sql = `
-      insert into public.orientation_tasks (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-      select $1, $2, label, null, false, program_id, week_number, notes
-      from public.program_task_templates
-      where program_id=$3
-      order by week_number, sort_order
-      returning *;`;
+    
+const sql = `
+  insert into public.orientation_tasks
+    (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
+  select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
+  from public.program_task_templates t
+  where t.program_id = $3
+    and not exists (
+      select 1 from public.orientation_tasks ot
+      where ot.user_id = $1
+        and ot.program_id = t.program_id
+        and ot.label = t.label
+        and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
+        and ot.deleted = false
+    )
+  order by t.week_number, t.sort_order
+  returning *;`;
+
     const { rows } = await pool.query(sql, [req.user.id, trainee, program_id]);
+
+// Remember this program as the user's current preference
+await pool.query(`
+  insert into public.user_preferences (user_id, program_id, updated_at)
+  values ($1, $2, now())
+  on conflict (user_id) do update
+    set program_id = excluded.program_id, updated_at = now()
+`, [req.user.id, program_id]);
+
     res.json({ created: rows.length });
   } catch (err) {
     console.error('POST /programs/:id/instantiate error', err);
@@ -649,14 +684,24 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     const trainee = urows[0].full_name || '';
 
     // Copy program templates to target user's orientation_tasks
-    const copySql = `
-      insert into public.orientation_tasks
-        (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-      select $1, $2, label, null, false, program_id, week_number, notes
-      from public.program_task_templates
-      where program_id = $3
-      order by week_number, sort_order
-      returning task_id;`;
+    
+const copySql = `
+  insert into public.orientation_tasks
+    (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
+  select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
+  from public.program_task_templates t
+  where t.program_id = $3
+    and not exists (
+      select 1 from public.orientation_tasks ot
+      where ot.user_id = $1
+        and ot.program_id = t.program_id
+        and ot.label = t.label
+        and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
+        and ot.deleted = false
+    )
+  order by t.week_number, t.sort_order
+  returning task_id;`;
+
     const { rowCount } = await pool.query(copySql, [targetUserId, trainee, program_id]);
 
     // Make this program the target user's current program preference (so their UI opens on it)
