@@ -377,6 +377,7 @@ function ensurePerm(...permKeys) {
 }
 
 async function userManagesProgram(userId, programId) {
+  if (!userId || !programId) return false;
   const { rowCount } = await pool.query(
     'select 1 from program_memberships where user_id = $1 and program_id = $2 and role = $3',
     [userId, programId, 'manager']
@@ -723,10 +724,15 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     const { id: targetUserId, program_id } = req.params;
 
     // Permission: admin OR manager of this program
-    const isAdmin = req.roles?.includes('admin');
-    let manages = false;
-    try { manages = await userManagesProgram(req.user.id, program_id); } catch (_e) {}
-    if (!(isAdmin || manages)) return res.status(403).json({ error: 'forbidden' });
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const hasManagerRole = roles.includes('manager');
+
+    let canManage = isAdmin || hasManagerRole;
+    if (!canManage) {
+      try { canManage = await userManagesProgram(req.user.id, program_id); } catch (_e) {}
+    }
+    if (!canManage) return res.status(403).json({ error: 'forbidden' });
 
     // Get target user's display name for the "trainee" field
     const { rows: urows } = await pool.query(
@@ -791,13 +797,16 @@ app.get('/tasks', ensureAuth, async (req, res) => {
     if (end)   { vals.push(end);   conds.push(`scheduled_for <= $${vals.length}`); }
     if (program_id) { vals.push(program_id); conds.push(`program_id = $${vals.length}`); }
 
-    const isAdmin = req.roles?.includes('admin');
-    let isManager = false;
-    if (program_id) {
-      try { isManager = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const hasManagerRole = roles.includes('manager');
+
+    let canManage = isAdmin || hasManagerRole;
+    if (!canManage && program_id) {
+      try { canManage = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
     }
 
-    if (isAdmin || isManager) {
+    if (canManage) {
       if (user_id) { vals.push(user_id); conds.push(`user_id = $${vals.length}`); }
     } else {
       vals.push(req.user.id);
@@ -823,13 +832,16 @@ app.post('/tasks', ensurePerm('task.create'), async (req, res) => {
       user_id = req.user.id
     } = req.body || {};
 
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const hasManagerRole = roles.includes('manager');
+
     if (user_id !== req.user.id) {
-      const isAdmin = req.roles?.includes('admin');
-      let manages = false;
-      if (program_id) {
-        try { manages = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
+      let canManage = isAdmin || hasManagerRole;
+      if (!canManage && program_id) {
+        try { canManage = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
       }
-      if (!(isAdmin || manages)) {
+      if (!canManage) {
         return res.status(403).json({ error: 'forbidden' });
       }
     }
@@ -864,14 +876,19 @@ app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
     if (!task) return res.status(404).json({ error: 'Not found' });
 
     const allFields = ['label','scheduled_for','done','program_id','week_number','notes'];
-    const isAdmin = req.roles?.includes('admin');
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const hasManagerRole = roles.includes('manager');
     const owns = task.user_id === req.user.id;
-    const isTrainee = req.roles?.includes('trainee');
-    let isManager = false;
-    try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+    const isTrainee = roles.includes('trainee');
+
+    let canManageTask = isAdmin || hasManagerRole;
+    if (!canManageTask) {
+      try { canManageTask = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+    }
 
     let allowed;
-    if (isAdmin || isManager) {
+    if (canManageTask) {
       allowed = allFields;
     } else if (isTrainee && owns) {
       allowed = ['done'];
@@ -883,9 +900,11 @@ app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
       if (!allowed.includes(k)) return res.status(403).json({ error: 'forbidden' });
     }
 
-    if ('program_id' in req.body && req.body.program_id !== task.program_id && !isAdmin) {
-      const managesNew = await userManagesProgram(req.user.id, req.body.program_id);
-      if (!managesNew) return res.status(403).json({ error: 'forbidden' });
+    if ('program_id' in req.body && req.body.program_id !== task.program_id) {
+      if (!(isAdmin || hasManagerRole)) {
+        const managesNew = await userManagesProgram(req.user.id, req.body.program_id);
+        if (!managesNew) return res.status(403).json({ error: 'forbidden' });
+      }
     }
 
     const fields = [];
@@ -919,13 +938,16 @@ app.delete('/tasks/:id', ensurePerm('task.delete'), async (req, res) => {
     const task = rows[0];
     if (!task) return res.status(404).json({ error: 'Not found' });
 
-    const isAdmin = req.roles?.includes('admin');
-    let isManager = false;
-    if (req.user?.id) {
-      try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const hasManagerRole = roles.includes('manager');
+
+    let canManage = isAdmin || hasManagerRole;
+    if (!canManage && req.user?.id && task.program_id) {
+      try { canManage = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
     }
 
-    if (!(isAdmin || isManager)) {
+    if (!canManage) {
       return res.status(403).json({ error: 'forbidden' });
     }
 

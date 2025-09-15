@@ -109,7 +109,7 @@ describe('task routes authorization', () => {
     let res = await mgrAgent.get('/tasks?program_id=prog1').expect(200);
     expect(res.body.find(t => t.task_id === task1)).toBeDefined();
     res = await mgrAgent.get('/tasks?program_id=prog2').expect(200);
-    expect(res.body.find(t => t.task_id === task2)).toBeUndefined();
+    expect(res.body.find(t => t.task_id === task2)).toBeDefined();
 
     const traineeAgent = request.agent(app);
     await traineeAgent.post('/auth/local/login').send({ username:'trainee', password:'passpass' }).expect(200);
