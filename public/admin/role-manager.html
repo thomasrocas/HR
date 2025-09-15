@@ -38,7 +38,7 @@
         </div>
         <div class="space-y-3">
           <div class="border rounded-xl p-3">
-            <div class="text-sm font-semibold mb-2">Roles (Admin only)</div>
+            <div id="rolesHeading" class="text-sm font-semibold mb-2">Roles</div>
             <div id="rolesBox" class="flex flex-wrap gap-2 text-sm">
               <!-- checkboxes injected -->
             </div>
@@ -73,8 +73,9 @@ if (!meRes.ok) {
 }
 const me = await meRes.json();
 
-// Render roles UI only if admin; managers can still preload if they manage a program
+// Access flags
 const IS_ADMIN = (me.roles||[]).includes('admin');
+const IS_MANAGER = (me.roles||[]).includes('manager');
 
 // ---- Fetch helpers
 async function listUsers() {
@@ -112,6 +113,7 @@ const elQ = document.getElementById('q');
 const elUserList = document.getElementById('userList');
 const elSelectedUser = document.getElementById('selectedUser');
 const elBtnReloadUsers = document.getElementById('btnReloadUsers');
+const elRolesHeading = document.getElementById('rolesHeading');
 const elRolesBox = document.getElementById('rolesBox');
 const elBtnSaveRoles = document.getElementById('btnSaveRoles');
 const elRolesMsg = document.getElementById('rolesMsg');
@@ -119,11 +121,18 @@ const elProgramList = document.getElementById('programList');
 const elBtnPreload = document.getElementById('btnPreload');
 const elPreloadMsg = document.getElementById('preloadMsg');
 
-// Hide role controls if not admin
-if (!IS_ADMIN) {
+// Set heading & disable controls when necessary
+if (IS_ADMIN) {
+  elRolesHeading.textContent = 'Roles';
+  elBtnSaveRoles.title = '';
+} else if (IS_MANAGER) {
+  elRolesHeading.textContent = 'Roles (managers can only toggle viewer or trainee)';
+  elBtnSaveRoles.title = 'Managers can only toggle viewer or trainee roles.';
+} else {
+  elRolesHeading.textContent = 'Roles (view only)';
   elRolesBox.parentElement.classList.add('opacity-60');
   elBtnSaveRoles.disabled = true;
-  elBtnSaveRoles.title = 'Only admins can change roles.';
+  elBtnSaveRoles.title = 'Only admins or managers can change roles.';
 }
 
 // ---- Renderers
@@ -143,12 +152,22 @@ function renderUsers(filter='') {
 function renderRolesFor(user) {
   const roleKeys = ['admin','manager','viewer','trainee','auditor']; // extend as needed
   const has = new Set(user.roles || []);
-  elRolesBox.innerHTML = roleKeys.map(k => `
+  elRolesBox.innerHTML = roleKeys.map(k => {
+    let disabled = '';
+    if (!IS_ADMIN) {
+      if (IS_MANAGER && ['viewer','trainee'].includes(k)) {
+        disabled = '';
+      } else {
+        disabled = 'disabled';
+      }
+    }
+    return `
     <label class="inline-flex items-center gap-2 mr-3 mb-2">
-      <input type="checkbox" value="${k}" ${has.has(k)?'checked':''} ${IS_ADMIN?'':'disabled'}>
+      <input type="checkbox" value="${k}" ${has.has(k)?'checked':''} ${disabled}>
       <span>${k}</span>
     </label>
-  `).join('');
+    `;
+  }).join('');
 }
 function renderPrograms() {
   elProgramList.innerHTML = PROGRAMS.map(p => `
@@ -177,8 +196,16 @@ elBtnReloadUsers.addEventListener('click', async () => {
 elBtnSaveRoles.addEventListener('click', async () => {
   elRolesMsg.textContent = '';
   if (!selectedUser) { elRolesMsg.textContent = 'Select a user first.'; return; }
-  if (!IS_ADMIN) { elRolesMsg.textContent = 'Only admins can save roles.'; return; }
-  const roles = Array.from(elRolesBox.querySelectorAll('input[type="checkbox"]:checked')).map(i => i.value);
+  if (!(IS_ADMIN || IS_MANAGER)) { elRolesMsg.textContent = 'Only admins or managers can save roles.'; return; }
+  let roles = Array.from(elRolesBox.querySelectorAll('input[type="checkbox"]:checked')).map(i => i.value);
+  if (IS_MANAGER && !IS_ADMIN) {
+    const allowed = ['viewer','trainee'];
+    const original = new Set(selectedUser.roles || []);
+    roles = Array.from(new Set([
+      ...roles.filter(r => allowed.includes(r)),
+      ...Array.from(original).filter(r => !allowed.includes(r))
+    ]));
+  }
   const r = await saveUserRoles(selectedUser.id, roles);
   if (r.status === 200) {
     elRolesMsg.textContent = 'Saved.';
