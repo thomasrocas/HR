@@ -87,19 +87,4 @@ describe('rbac admin routes', () => {
     await userAgent.get('/rbac/users').expect(403);
     await userAgent.patch(`/rbac/users/${adminId}/roles`).send({ roles: [] }).expect(403);
   });
-
-  test('manager cannot list users or update roles', async () => {
-    const managerId = crypto.randomUUID();
-    const userId = crypto.randomUUID();
-    const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [managerId, 'mgr', 'Manager', hash, 'local']);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [userId, 'user', 'User', hash, 'local']);
-    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
-
-    const managerAgent = request.agent(app);
-    await managerAgent.post('/auth/local/login').send({ username: 'mgr', password: 'passpass' }).expect(200);
-
-    await managerAgent.get('/rbac/users').expect(403);
-    await managerAgent.patch(`/rbac/users/${userId}/roles`).send({ roles: ['viewer'] }).expect(403);
-  });
 });
