@@ -870,15 +870,11 @@ app.patch('/tasks/:id', ensurePerm('task.update'), async (req, res) => {
     let isManager = false;
     try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
 
-    let allowed = [];
-    if (isAdmin) allowed = allFields;
-    else if (isTrainee) {
-      if (!owns) return res.status(403).json({ error: 'forbidden' });
+    let allowed;
+    if (isAdmin || isManager) {
+      allowed = allFields;
+    } else if (isTrainee && owns) {
       allowed = ['done'];
-    } else if (isManager) {
-      allowed = allFields;
-    } else if (owns) {
-      allowed = allFields;
     } else {
       return res.status(403).json({ error: 'forbidden' });
     }
