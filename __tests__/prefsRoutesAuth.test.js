@@ -43,17 +43,13 @@ describe('preferences routes authorization', () => {
         role_key text unique,
         description text
       );
-      create table public.permissions (
-        perm_id serial primary key,
-        perm_key text unique
-      );
       create table public.user_roles (
         user_id uuid,
         role_id int references public.roles(role_id)
       );
       create table public.role_permissions (
         role_id int references public.roles(role_id),
-        perm_id int references public.permissions(perm_id)
+        perm_key text
       );
       create table public.program_memberships (
         user_id uuid,
@@ -77,7 +73,6 @@ describe('preferences routes authorization', () => {
     await pool.query('delete from public.program_memberships');
     await pool.query('delete from public.user_roles');
     await pool.query('delete from public.role_permissions');
-    await pool.query('delete from public.permissions');
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
   });

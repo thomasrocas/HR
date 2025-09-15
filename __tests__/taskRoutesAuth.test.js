@@ -43,10 +43,6 @@ describe('task routes authorization', () => {
         role_key text unique,
         description text
       );
-      create table public.permissions (
-        perm_id serial primary key,
-        perm_key text unique
-      );
       create table public.orientation_tasks (
         task_id uuid primary key default gen_random_uuid(),
         user_id uuid,
@@ -65,7 +61,7 @@ describe('task routes authorization', () => {
       );
       create table public.role_permissions (
         role_id int references public.roles(role_id),
-        perm_id int references public.permissions(perm_id)
+        perm_key text
       );
       create table public.program_memberships (
         user_id uuid,
@@ -73,8 +69,6 @@ describe('task routes authorization', () => {
         role text
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
-      insert into public.permissions(perm_key) values
-        ('task.create'),('task.update'),('task.delete');
     `);
   });
 
@@ -89,13 +83,12 @@ describe('task routes authorization', () => {
 
   test('manager can view tasks for managed program', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_id, perm_id)
-      select r.role_id, p.perm_id from (values
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
         ('manager','task.create'),('manager','task.update'),('manager','task.delete'),
         ('trainee','task.create'),('trainee','task.update'),('trainee','task.delete')
       ) as rp(role_key, perm_key)
-      join public.roles r on r.role_key = rp.role_key
-      join public.permissions p on p.perm_key = rp.perm_key;
+      join public.roles r on r.role_key = rp.role_key;
     `);
 
     const managerId = crypto.randomUUID();
@@ -126,13 +119,12 @@ describe('task routes authorization', () => {
 
   test('post tasks requires managing program when assigning to others', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_id, perm_id)
-      select r.role_id, p.perm_id from (values
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
         ('manager','task.create'),
         ('trainee','task.create')
       ) as rp(role_key, perm_key)
-      join public.roles r on r.role_key = rp.role_key
-      join public.permissions p on p.perm_key = rp.perm_key;
+      join public.roles r on r.role_key = rp.role_key;
     `);
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
@@ -155,12 +147,11 @@ describe('task routes authorization', () => {
 
   test('patch tasks limits fields by role', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_id, perm_id)
-      select r.role_id, p.perm_id from (values
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
         ('manager','task.update'),('trainee','task.update')
       ) as rp(role_key, perm_key)
-      join public.roles r on r.role_key = rp.role_key
-      join public.permissions p on p.perm_key = rp.perm_key;
+      join public.roles r on r.role_key = rp.role_key;
     `);
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
@@ -186,12 +177,11 @@ describe('task routes authorization', () => {
 
   test('delete tasks follows scope rules', async () => {
     await pool.query(`
-      insert into public.role_permissions(role_id, perm_id)
-      select r.role_id, p.perm_id from (values
+      insert into public.role_permissions(role_id, perm_key)
+      select r.role_id, rp.perm_key from (values
         ('manager','task.delete'),('trainee','task.delete')
       ) as rp(role_key, perm_key)
-      join public.roles r on r.role_key = rp.role_key
-      join public.permissions p on p.perm_key = rp.perm_key;
+      join public.roles r on r.role_key = rp.role_key;
     `);
     const managerId = crypto.randomUUID();
     const traineeId = crypto.randomUUID();
