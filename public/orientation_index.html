@@ -260,7 +260,7 @@ async function apiGetPrefs(){
   return r.json();
 }
 async function apiPatchPrefs(data){
-  const r = await fetch(`${API}/prefs`, {
+  const r = await fetch(withUser(`${API}/prefs`), {
     method:'PATCH', credentials:'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(withUserBody(data))
