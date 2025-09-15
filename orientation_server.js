@@ -84,7 +84,10 @@ app.use(async (req, _res, next) => {
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
-        lastQuery = 'select distinct perm_key from role_permissions where role_id = any($1::int[])';
+        lastQuery = 'select distinct p.perm_key '
+        + 'from role_permissions rp '
+        + 'join permissions p on p.perm_id = rp.perm_id '
+        + 'where rp.role_id = any($1::int[])';
         const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
         req.perms = new Set(permRows.map(p => p.perm_key));
       } else {
@@ -139,6 +142,15 @@ passport.use(new GoogleStrategy({
       set email=excluded.email, full_name=excluded.full_name, picture_url=excluded.picture_url, updated_at=now()
       returning *;`;
     const { rows } = await pool.query(upsert, [profile.id, email, name, picture]);
+    // Ensure a default role for SSO users (idempotent)
+    try {
+      await pool.query(
+        `insert into public.user_roles(user_id, role_id)
+         select $1, role_id from roles where role_key = $2
+         on conflict do nothing`,
+        [rows[0].id, process.env.DEFAULT_ROLE || 'viewer']
+      );
+    } catch (_e) { /* ignore role seeding errors */ }
     return done(null, rows[0]);
   } catch (e) { return done(e); }
 }));
@@ -612,6 +624,52 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
     res.json({ created: rows.length });
   } catch (err) {
     console.error('POST /programs/:id/instantiate error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Preload a program's templates into another user's tasks (admin or manager of the program)
+app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
+  try {
+    const { id: targetUserId, program_id } = req.params;
+
+    // Permission: admin OR manager of this program
+    const isAdmin = req.roles?.includes('admin');
+    let manages = false;
+    try { manages = await userManagesProgram(req.user.id, program_id); } catch (_e) {}
+    if (!(isAdmin || manages)) return res.status(403).json({ error: 'forbidden' });
+
+    // Get target user's display name for the "trainee" field
+    const { rows: urows } = await pool.query(
+      'select id, full_name from public.users where id=$1',
+      [targetUserId]
+    );
+    if (!urows.length) return res.status(404).json({ error: 'user_not_found' });
+
+    const trainee = urows[0].full_name || '';
+
+    // Copy program templates to target user's orientation_tasks
+    const copySql = `
+      insert into public.orientation_tasks
+        (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
+      select $1, $2, label, null, false, program_id, week_number, notes
+      from public.program_task_templates
+      where program_id = $3
+      order by week_number, sort_order
+      returning task_id;`;
+    const { rowCount } = await pool.query(copySql, [targetUserId, trainee, program_id]);
+
+    // Make this program the target user's current program preference (so their UI opens on it)
+    await pool.query(`
+      insert into public.user_preferences (user_id, program_id, updated_at)
+      values ($1, $2, now())
+      on conflict (user_id) do update
+        set program_id = excluded.program_id, updated_at = now()
+    `, [targetUserId, program_id]);
+
+    res.json({ ok: true, created: rowCount });
+  } catch (err) {
+    console.error('POST /rbac/users/:id/programs/:program_id/instantiate error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
