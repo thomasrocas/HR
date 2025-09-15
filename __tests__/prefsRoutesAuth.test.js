@@ -89,6 +89,22 @@ describe('preferences routes', () => {
     expect(res.body.program_id).toBe('prog2');
   });
 
+  test.each(['not-a-uuid', '12345', ''])('returns 400 when user_id query is invalid (%s)', async invalidUserId => {
+    const userId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    const username = `invaliduser-${invalidUserId || 'empty'}`;
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+      [userId, username, hash, 'local', 'Invalid User']
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username, password: 'passpass' }).expect(200);
+
+    const res = await agent.get(`/prefs?user_id=${encodeURIComponent(invalidUserId)}`).expect(400);
+    expect(res.body).toEqual({ error: 'invalid_user_id' });
+  });
+
   test('login seeds preferences trainee with user id instead of name', async () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);

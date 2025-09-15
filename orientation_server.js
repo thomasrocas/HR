@@ -13,6 +13,9 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isValidUuid = value => typeof value === 'string' && UUID_REGEX.test(value);
 let transporter;
 try {
   const nodemailer = require('nodemailer');
@@ -442,7 +445,11 @@ app.patch('/me', ensureAuth, async (req, res) => {
 });
 
 app.get('/prefs', ensureAuth, async (req, res) => {
-  const userId = req.query.user_id || req.user.id;
+  const requestedUserId = req.query.user_id;
+  if (requestedUserId !== undefined && !isValidUuid(requestedUserId)) {
+    return res.status(400).json({ error: 'invalid_user_id' });
+  }
+  const userId = requestedUserId || req.user.id;
   const { rows: roleRows } = await pool.query(
     'select r.role_key from user_roles ur join roles r on ur.role_id=r.role_id where ur.user_id=$1',
     [userId]
