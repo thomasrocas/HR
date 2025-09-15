@@ -59,7 +59,7 @@ describe('preferences routes', () => {
         trainee text,
         updated_at timestamptz
       );
-      insert into public.roles(role_key) values ('trainee'), ('manager'), ('admin');
+      insert into public.roles(role_key) values ('trainee'), ('manager'), ('viewer'), ('admin');
     `);
   });
 
