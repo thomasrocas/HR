@@ -1627,9 +1627,6 @@ useEffect(() => {
                   {acctMsg && <div className="text-xs text-slate-500">{acctMsg}</div>}
                   <button className="btn btn-primary w-full mt-2" type="submit">Save</button>
                 </form>
-                {me.roles?.includes('admin') && (
-                  <a href="/admin/role-manager.html" className="btn btn-outline w-full mt-2">Role Manager</a>
-                )}
               </div>
             )}
           </div>
@@ -1771,6 +1768,9 @@ useEffect(() => {
                 <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
                   Refresh Programs
                 </button>
+                {me.roles?.includes('admin') && (
+                  <a href="/admin/role-manager.html" className="btn btn-outline w-full">Role Manager</a>
+                )}
                 <button className="btn btn-outline w-full" disabled>
                   Clear Cache (coming soon)
                 </button>
