@@ -920,11 +920,12 @@ app.delete('/tasks/:id', ensurePerm('task.delete'), async (req, res) => {
     if (!task) return res.status(404).json({ error: 'Not found' });
 
     const isAdmin = req.roles?.includes('admin');
-    const owns = task.user_id === req.user.id;
     let isManager = false;
-    try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+    if (req.user?.id) {
+      try { isManager = await userManagesProgram(req.user.id, task.program_id); } catch (_e) { /* ignore */ }
+    }
 
-    if (!(isAdmin || isManager || owns)) {
+    if (!(isAdmin || isManager)) {
       return res.status(403).json({ error: 'forbidden' });
     }
 
