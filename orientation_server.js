@@ -84,10 +84,8 @@ app.use(async (req, _res, next) => {
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
-        lastQuery = 'select distinct p.perm_key '
-        + 'from role_permissions rp '
-        + 'join permissions p on p.perm_id = rp.perm_id '
-        + 'where rp.role_id = any($1::int[])';
+        lastQuery = 'select distinct perm_key from role_permissions '
+          + 'where role_id = any($1::int[])';
         const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
         req.perms = new Set(permRows.map(p => p.perm_key));
       } else {
@@ -348,12 +346,18 @@ function ensurePerm(...permKeys) {
     if (!req.isAuthenticated?.()) {
       return res.status(401).json({ error: 'auth_required' });
     }
-    // Admins are allowed through
-    if (req.roles?.includes('admin')) return next();
-    for (const key of permKeys) {
-      if (req.perms?.has(key)) return next();
+
+    // Only admins bypass permission checks entirely
+    if (req.roles?.includes('admin')) {
+      return next();
     }
-    res.status(403).json({ error: 'forbidden' });
+
+    const hasPerm = permKeys.some(key => req.perms?.has(key));
+    if (hasPerm) {
+      return next();
+    }
+
+    return res.status(403).json({ error: 'forbidden' });
   };
 }
 
@@ -410,11 +414,33 @@ app.patch('/me', ensureAuth, async (req, res) => {
 });
 
 app.get('/prefs', ensureAuth, async (req, res) => {
-  const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [req.user.id]);
+  const targetId = req.query.user_id || req.user.id;
+  if (targetId !== req.user.id) {
+    const isAdmin = req.roles?.includes('admin');
+    let manages = false;
+    if (!isAdmin) {
+      try {
+        const { rows: pref } = await pool.query('select program_id from public.user_preferences where user_id=$1', [targetId]);
+        const prog = pref[0]?.program_id;
+        if (prog) manages = await userManagesProgram(req.user.id, prog);
+      } catch (_e) { /* ignore */ }
+    }
+    if (!(isAdmin || manages)) return res.status(403).json({ error: 'forbidden' });
+  }
+  const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [targetId]);
   res.json(rows[0] || {});
 });
+
 app.patch('/prefs', ensureAuth, async (req, res) => {
-  const { program_id, start_date, num_weeks, trainee } = req.body || {};
+  const { user_id = req.user.id, program_id, start_date, num_weeks, trainee } = req.body || {};
+  if (user_id !== req.user.id) {
+    const isAdmin = req.roles?.includes('admin');
+    let manages = false;
+    if (!isAdmin && program_id) {
+      try { manages = await userManagesProgram(req.user.id, program_id); } catch (_e) { /* ignore */ }
+    }
+    if (!(isAdmin || manages)) return res.status(403).json({ error: 'forbidden' });
+  }
   const up = `
     insert into public.user_preferences (user_id, program_id, start_date, num_weeks, trainee, updated_at)
     values ($1,$2,$3,$4,$5, now())
@@ -425,7 +451,7 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
         trainee=excluded.trainee,
         updated_at=now()
     returning *;`;
-  const { rows } = await pool.query(up, [req.user.id, program_id, start_date, num_weeks, trainee]);
+  const { rows } = await pool.query(up, [user_id, program_id, start_date, num_weeks, trainee]);
   res.json(rows[0]);
 });
 
