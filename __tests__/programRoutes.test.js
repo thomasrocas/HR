@@ -148,6 +148,92 @@ describe('program routes', () => {
     expect(res.body.title).toBe('New');
   });
 
+  test('manager with delete permission can soft delete managed program', async () => {
+    await pool.query(
+      "insert into public.role_permissions(role_id, perm_key) select role_id, 'program.delete' from public.roles where role_key='manager'"
+    );
+
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+      managerId,
+      'mgr-delete',
+      hash,
+      'local'
+    ]);
+    await pool.query("insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'", [
+      managerId
+    ]);
+
+    const progId = 'managed_delete_prog';
+    await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [
+      progId,
+      'Delete Me',
+      managerId
+    ]);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [
+      managerId,
+      progId,
+      'manager'
+    ]);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'mgr-delete', password: 'passpass' }).expect(200);
+
+    await agent.delete(`/programs/${progId}`).expect(200, { deleted: true });
+
+    const { rows } = await pool.query('select deleted_at from public.programs where program_id=$1', [progId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].deleted_at).not.toBeNull();
+  });
+
+  test('manager with template delete permission can soft delete managed template', async () => {
+    await pool.query(
+      "insert into public.role_permissions(role_id, perm_key) select role_id, 'template.delete' from public.roles where role_key='manager'"
+    );
+
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+      managerId,
+      'mgr-template-delete',
+      hash,
+      'local'
+    ]);
+    await pool.query("insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'", [
+      managerId
+    ]);
+
+    const progId = 'managed_template_prog';
+    await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [
+      progId,
+      'Template Delete',
+      managerId
+    ]);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [
+      managerId,
+      progId,
+      'manager'
+    ]);
+
+    const tmplId = crypto.randomUUID();
+    await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [
+      tmplId,
+      progId,
+      1,
+      'Delete Template'
+    ]);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'mgr-template-delete', password: 'passpass' }).expect(200);
+
+    await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
+
+    const { rows } = await pool.query('select deleted_at from public.program_task_templates where template_id=$1', [tmplId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].deleted_at).not.toBeNull();
+  });
+
   test('patch updates program fields', async () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
