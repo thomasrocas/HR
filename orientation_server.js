@@ -192,6 +192,9 @@ app.get('/auth/google/callback',
       values ($1, $2)
       on conflict (user_id) do nothing;`,
       [req.user.id, req.user.full_name || '']);
+    if (req.session && req.user?.id) {
+      req.session.trainee = req.user.id;
+    }
     res.redirect('/');
   }
 );
@@ -230,6 +233,9 @@ app.post('/auth/local/register', async (req, res) => {
 
     req.login(rows[0], (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
+      if (req.session && req.user?.id) {
+        req.session.trainee = req.user.id;
+      }
       res.json({ ok: true, user: { id: rows[0].id, username: rows[0].username } });
     });
   } catch (e) { res.status(500).json({ error: 'server_error' }); }
@@ -263,6 +269,9 @@ app.post('/auth/local/login', async (req, res) => {
 
     req.login(user, (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
+      if (req.session && req.user?.id) {
+        req.session.trainee = req.user.id;
+      }
       res.json({ ok: true, user: { id: user.id, username: user.username } });
     });
   } catch (e) { res.status(500).json({ error: 'server_error' }); }
@@ -352,6 +361,9 @@ app.post('/auth/logout', (req, res, next) => {
   if (!req.session) return res.json({ ok: true });
   req.logout(err => {
     if (err) return next(err);
+    if (req.session) {
+      req.session.trainee = null;
+    }
     req.session.destroy(() => res.json({ ok: true }));
   });
 });
@@ -440,16 +452,19 @@ app.get('/prefs', ensureAuth, async (req, res) => {
     return res.status(403).json({ error: 'forbidden' });
   }
   const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [userId]);
-  res.json(rows[0] || {});
+  const payload = rows[0] ? { ...rows[0] } : {};
+  payload.session_trainee = req.session?.trainee ?? null;
+  res.json(payload);
 });
 app.patch('/prefs', ensureAuth, async (req, res) => {
+  const body = req.body || {};
   const {
     user_id: userId = req.user.id,
     program_id,
     start_date,
     num_weeks,
     trainee
-  } = req.body || {};
+  } = body;
   const { rows: roleRows } = await pool.query(
     'select r.role_key from user_roles ur join roles r on ur.role_id=r.role_id where ur.user_id=$1',
     [userId]
@@ -469,6 +484,9 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
         updated_at=now()
     returning *;`;
   const { rows } = await pool.query(up, [userId, program_id, start_date, num_weeks, trainee]);
+  if (req.session && Object.prototype.hasOwnProperty.call(body, 'trainee')) {
+    req.session.trainee = trainee;
+  }
   res.json(rows[0]);
 });
 
