@@ -73,19 +73,8 @@ if (!meRes.ok) {
 }
 const me = await meRes.json();
 
-// Gate access to admins or managers only
-const IS_ADMIN = (me.roles||[]).includes('admin');
-const IS_MANAGER = (me.roles||[]).includes('manager');
-if (!IS_ADMIN && !IS_MANAGER) {
-  document.body.innerHTML = `
-    <div class="max-w-6xl mx-auto p-4">
-      <p class="text-red-600">Access denied.</p>
-      <p><a href="/" class="text-anx-sky underline">← Back to Orientation</a></p>
-    </div>`;
-  throw new Error('Access denied');
-}
-
 // Render roles UI only if admin; managers can still preload if they manage a program
+const IS_ADMIN = (me.roles||[]).includes('admin');
 
 // ---- Fetch helpers
 async function listUsers() {
