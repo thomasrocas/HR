@@ -1399,7 +1399,7 @@ useEffect(() => {
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
                   {(w.tasks||[]).map((t,ti)=> (
                     <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
-                      {hasPerm('task.delete') && !isTrainee && (
+                      {hasPerm('task.delete') && isPrivileged && !isTrainee && (
                         <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
                                 onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
                       )}
@@ -1427,7 +1427,7 @@ useEffect(() => {
           })}
         </div>
       </Section>
-      {!isTrainee && (
+      {hasPerm('task.delete') && isPrivileged && !isTrainee && (
       <Section title="Deleted Tasks">
         <div className="space-y-2">
           {deletedTasks.length ? (
