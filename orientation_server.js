@@ -84,7 +84,10 @@ app.use(async (req, _res, next) => {
       req.roles = roleRows.map(r => r.role_key);
       const roleIds = roleRows.map(r => r.role_id);
       if (roleIds.length) {
-        lastQuery = 'select distinct perm_key from role_permissions where role_id = any($1::int[])';
+        lastQuery = 'select distinct p.perm_key '
+        + 'from role_permissions rp '
+        + 'join permissions p on p.perm_id = rp.perm_id '
+        + 'where rp.role_id = any($1::int[])';
         const { rows: permRows } = await pool.query(lastQuery, [roleIds]);
         req.perms = new Set(permRows.map(p => p.perm_key));
       } else {
@@ -203,18 +206,14 @@ app.post('/auth/local/register', async (req, res) => {
       [rows[0].id, process.env.DEFAULT_ROLE || 'trainee']
     );
 
-    // Ensure a preferences row so UI can restore program on login (ignore if table missing)
-    try {
-      await pool.query(
-        `insert into public.user_preferences (user_id, trainee)
-         values ($1, $2)
-         on conflict (user_id) do nothing;`,
-        [rows[0].id, rows[0].full_name || '']
-      );
-    } catch (_e) {
-      /* ignore */
-    }
-    req.login(rows[0], (err) => {
+    
+// Ensure a preferences row so UI can restore program on login
+await pool.query(`
+  insert into public.user_preferences (user_id, trainee)
+  values ($1, $2)
+  on conflict (user_id) do nothing;
+`, [rows[0].id, rows[0].full_name || '']);
+req.login(rows[0], (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
       res.json({ ok: true, user: { id: rows[0].id, username: rows[0].username } });
     });
@@ -236,17 +235,12 @@ app.post('/auth/local/login', async (req, res) => {
 
     await pool.query('update public.users set last_login_at=now() where id=$1', [user.id]);
 
-    // Ensure a preferences row so UI can restore program on login (ignore if table missing)
-    try {
-      await pool.query(
-        `insert into public.user_preferences (user_id, trainee)
-         values ($1, $2)
-         on conflict (user_id) do nothing;`,
-        [user.id, user.full_name || '']
-      );
-    } catch (_e) {
-      /* ignore */
-    }
+// Ensure a preferences row so UI can restore program on login
+await pool.query(`
+  insert into public.user_preferences (user_id, trainee)
+  values ($1, $2)
+  on conflict (user_id) do nothing;
+`, [user.id, user.full_name || '']);
 
     req.login(user, (err) => {
       if (err) return res.status(500).json({ error: 'session_error' });
@@ -354,8 +348,8 @@ function ensurePerm(...permKeys) {
     if (!req.isAuthenticated?.()) {
       return res.status(401).json({ error: 'auth_required' });
     }
-    // Admins bypass explicit permission checks; others must have matching permissions
-    if (req.roles?.includes('admin')) return next();
+    // Admins and Managers are allowed through
+    if (req.roles?.includes('admin') || req.roles?.includes('manager')) return next();
     for (const key of permKeys) {
       if (req.perms?.has(key)) return next();
     }
@@ -416,64 +410,30 @@ app.patch('/me', ensureAuth, async (req, res) => {
 });
 
 app.get('/prefs', ensureAuth, async (req, res) => {
-  try {
-    const targetUserId = req.query.user_id || req.user.id;
-    if (targetUserId !== req.user.id) {
-      if (req.roles.includes('admin')) {
-        // allowed
-      } else if (req.roles.includes('manager')) {
-        const { rows: prefRows } = await pool.query('select program_id from public.user_preferences where user_id=$1', [targetUserId]);
-        const progId = prefRows[0]?.program_id;
-        if (!progId || !(await userManagesProgram(req.user.id, progId))) {
-          return res.status(403).json({ error: 'forbidden' });
-        }
-      } else {
-        return res.status(403).json({ error: 'forbidden' });
-      }
-    }
-    const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [targetUserId]);
-    res.json(rows[0] || {});
-  } catch (err) {
-    console.error('GET /prefs error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+  const { rows } = await pool.query('select * from public.user_preferences where user_id=$1', [req.user.id]);
+  res.json(rows[0] || {});
 });
 app.patch('/prefs', ensureAuth, async (req, res) => {
-  try {
-    const { user_id, program_id, start_date, num_weeks, trainee } = req.body || {};
-    const targetUserId = user_id || req.user.id;
-    if (targetUserId !== req.user.id) {
-      if (req.roles.includes('admin')) {
-        // allowed
-      } else if (req.roles.includes('manager') && program_id && await userManagesProgram(req.user.id, program_id)) {
-        // allowed
-      } else {
-        return res.status(403).json({ error: 'forbidden' });
-      }
-    }
-    const up = `
-      insert into public.user_preferences (user_id, program_id, start_date, num_weeks, trainee, updated_at)
-      values ($1,$2,$3,$4,$5, now())
-      on conflict (user_id) do update
-      set program_id=excluded.program_id,
-          start_date=excluded.start_date,
-          num_weeks=excluded.num_weeks,
-          trainee=excluded.trainee,
-          updated_at=now()
-      returning *;`;
-    const { rows } = await pool.query(up, [targetUserId, program_id, start_date, num_weeks, trainee]);
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('PATCH /prefs error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+  const { program_id, start_date, num_weeks, trainee } = req.body || {};
+  const up = `
+    insert into public.user_preferences (user_id, program_id, start_date, num_weeks, trainee, updated_at)
+    values ($1,$2,$3,$4,$5, now())
+    on conflict (user_id) do update
+    set program_id=excluded.program_id,
+        start_date=excluded.start_date,
+        num_weeks=excluded.num_weeks,
+        trainee=excluded.trainee,
+        updated_at=now()
+    returning *;`;
+  const { rows } = await pool.query(up, [req.user.id, program_id, start_date, num_weeks, trainee]);
+  res.json(rows[0]);
 });
 
 // ==== 7) RBAC admin ====
 
 app.get('/rbac/users', async (req, res) => {
   try {
-    if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
+    if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
     const sql = `
       select u.id, u.full_name, u.username,
              coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
@@ -492,7 +452,7 @@ app.get('/rbac/users', async (req, res) => {
 
 app.patch('/rbac/users/:id/roles', async (req, res) => {
   try {
-    if (!req.roles.includes('admin')) return res.status(403).json({ error: 'forbidden' });
+    if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
     const { id } = req.params;
     const { roles = [] } = req.body || {};
     if (!Array.isArray(roles)) return res.status(400).json({ error: 'invalid_roles' });
