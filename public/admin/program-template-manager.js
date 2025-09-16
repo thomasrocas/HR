@@ -35,6 +35,38 @@ function formatDate(dateLike) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const HTML_ESCAPE_LOOKUP = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+const HTML_ESCAPE_REGEXP = /[&<>"']/g;
+
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(HTML_ESCAPE_REGEXP, match => HTML_ESCAPE_LOOKUP[match] || match);
+}
+
+function toNullableNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'string' ? Number(value) : value;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toNullableBoolean(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'required', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'optional', 'n'].includes(normalized)) return false;
+  }
+  return null;
+}
+
 function normalizeId(value) {
   if (value === undefined || value === null) return null;
   return String(value);
@@ -45,30 +77,134 @@ function getProgramId(program) {
 }
 
 function getTemplateId(template) {
-  return normalizeId(template?.id ?? template?.templateId ?? template?.template_id);
+  return normalizeId(template?.id ?? template?.templateId ?? template?.template_id ?? template?.template?.id);
 }
 
 function getTemplateName(template) {
-  return template?.name ?? template?.title ?? '';
+  const value = [
+    template?.name,
+    template?.title,
+    template?.label,
+    template?.template?.name,
+    template?.template?.title,
+    template?.template?.label,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  return value || '';
 }
 
 function getTemplateCategory(template) {
-  return template?.category ?? template?.type ?? '';
+  const value = [
+    template?.category,
+    template?.type,
+    template?.template_category,
+    template?.template?.category,
+    template?.template?.type,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  return value || '';
 }
 
 function getTemplateStatus(template) {
   if (!template) return '';
   const archivedAt = template?.deleted_at ?? template?.deletedAt ?? null;
   if (archivedAt) return 'archived';
-  return template?.status ?? template?.state ?? template?.lifecycle ?? 'draft';
+  return template?.status ?? template?.state ?? template?.lifecycle ?? template?.template?.status ?? 'draft';
 }
 
 function getTemplateDescription(template) {
-  return template?.description ?? template?.summary ?? '';
+  const value = [
+    template?.description,
+    template?.summary,
+    template?.notes,
+    template?.template?.description,
+    template?.template?.summary,
+    template?.template?.notes,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  return value || '';
 }
 
 function getTemplateUpdatedAt(template) {
-  return template?.updated_at ?? template?.updatedAt ?? template?.created_at ?? template?.createdAt ?? null;
+  return template?.updated_at
+    ?? template?.updatedAt
+    ?? template?.created_at
+    ?? template?.createdAt
+    ?? template?.template?.updated_at
+    ?? template?.template?.updatedAt
+    ?? template?.template?.created_at
+    ?? template?.template?.createdAt
+    ?? null;
+}
+
+function getTemplateSortValue(template, fallback = 0) {
+  const rawValue = template?.sort_order
+    ?? template?.sortOrder
+    ?? template?.order
+    ?? template?.position
+    ?? template?.index
+    ?? null;
+  if (rawValue === null || rawValue === undefined || rawValue === '') {
+    return fallback;
+  }
+  const asNumber = typeof rawValue === 'string' ? Number(rawValue) : rawValue;
+  return Number.isFinite(asNumber) ? asNumber : fallback;
+}
+
+function normalizeTemplateAssociation(raw, index = 0) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const normalized = { ...source };
+  const nestedTemplate = source.template && typeof source.template === 'object' ? source.template : null;
+  const templateId = getTemplateId(source) || (nestedTemplate ? getTemplateId(nestedTemplate) : null);
+  if (templateId && !normalized.templateId) {
+    normalized.templateId = templateId;
+  }
+  if (!normalized.id && templateId) {
+    normalized.id = templateId;
+  }
+
+  const dueOffsetSource = source.due_offset_days
+    ?? source.dueOffsetDays
+    ?? source.due_in_days
+    ?? source.dueOffset
+    ?? null;
+  const dueOffsetDays = toNullableNumber(dueOffsetSource);
+  normalized.due_offset_days = dueOffsetDays;
+  normalized.dueOffsetDays = dueOffsetDays;
+
+  const requiredSource = source.required
+    ?? source.is_required
+    ?? source.isRequired
+    ?? (nestedTemplate ? nestedTemplate.required : null);
+  const required = toNullableBoolean(requiredSource);
+  normalized.required = required;
+
+  const visibilitySource = source.visibility
+    ?? source.visible_to
+    ?? source.visibleTo
+    ?? source.audience
+    ?? (nestedTemplate ? nestedTemplate.visibility : null);
+  const visibility = visibilitySource === null || visibilitySource === undefined || visibilitySource === ''
+    ? null
+    : String(visibilitySource);
+  normalized.visibility = visibility;
+
+  const notesSource = source.notes
+    ?? (nestedTemplate ? nestedTemplate.notes : null)
+    ?? source.description
+    ?? source.summary
+    ?? '';
+  normalized.notes = notesSource === null || notesSource === undefined ? '' : String(notesSource);
+
+  const sortSource = source.sort_order
+    ?? source.sortOrder
+    ?? source.order
+    ?? source.position
+    ?? source.index
+    ?? (nestedTemplate ? nestedTemplate.sort_order : null);
+  const sortValue = toNullableNumber(sortSource);
+  const fallbackSort = index + 1;
+  normalized.sort_order = typeof sortValue === 'number' && Number.isFinite(sortValue) ? sortValue : fallbackSort;
+  normalized.sortOrder = normalized.sort_order;
+
+  return normalized;
 }
 
 function getProgramTitle(program) {
@@ -166,6 +302,14 @@ const deleteTemplateModal = document.getElementById('deleteTemplateModal');
 const deleteTemplateModalDescription = document.getElementById('deleteTemplateModalDescription');
 const deleteTemplateModalMessage = document.getElementById('deleteTemplateModalMessage');
 const confirmDeleteTemplateButton = document.getElementById('confirmDeleteTemplate');
+const programTemplatePanel = document.getElementById('programTemplatePanel');
+const programTemplatePanelTitle = document.getElementById('programTemplatePanelTitle');
+const programTemplatePanelDescription = document.getElementById('programTemplatePanelDescription');
+const programTemplatePanelMessage = document.getElementById('programTemplatePanelMessage');
+const programTemplatePanelEmpty = document.getElementById('programTemplatePanelEmpty');
+const programTemplateList = document.getElementById('programTemplateList');
+const btnPanelAddTemplate = document.getElementById('btnPanelAddTemplate');
+const templateVisibilityOptions = document.getElementById('templateVisibilityOptions');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -186,6 +330,7 @@ let deleteTargetProgramId = null;
 let templateModalMode = 'create';
 let templateModalTemplateId = null;
 let deleteTargetTemplateId = null;
+let isPersistingTemplateOrder = false;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -247,6 +392,7 @@ if (!CAN_MANAGE_TEMPLATES) {
 
 updateProgramEditorButtons(programs);
 updateTemplateEditorButtons(templates);
+updatePanelAddButtonState();
 
 function getFilteredPrograms() {
   const term = (programSearchInput?.value || '').trim().toLowerCase();
@@ -499,6 +645,36 @@ function resetProgramForm() {
 
 function setTemplateFormMessage(text, isError = false) {
   setModalMessage(templateFormMessage, text, isError);
+}
+
+function setTemplatePanelMessage(text, isError = false) {
+  setModalMessage(programTemplatePanelMessage, text, isError);
+}
+
+function updatePanelAddButtonState() {
+  if (!btnPanelAddTemplate) return;
+  if (!CAN_MANAGE_TEMPLATES) {
+    btnPanelAddTemplate.disabled = true;
+    btnPanelAddTemplate.title = 'Only admins or managers can add templates.';
+    return;
+  }
+  if (!selectedProgramId) {
+    btnPanelAddTemplate.disabled = true;
+    btnPanelAddTemplate.title = 'Select a program to add templates.';
+  } else {
+    btnPanelAddTemplate.disabled = false;
+    btnPanelAddTemplate.title = '';
+  }
+}
+
+function ensurePanelReadOnlyHint() {
+  if (CAN_MANAGE_TEMPLATES) return;
+  if (!selectedProgramId) return;
+  if (!programTemplatePanelMessage) return;
+  const current = (programTemplatePanelMessage.textContent || '').trim();
+  if (!current) {
+    setTemplatePanelMessage('Read-only mode — assignments are view only for your role.');
+  }
 }
 
 function resetTemplateForm() {
@@ -1228,6 +1404,418 @@ function renderTemplates() {
   }
   updateTemplateSelectionSummary();
   updateTemplateActionsState(displayed);
+  renderTemplateAssignmentsPanel();
+}
+
+function renderTemplateAssignmentsPanel() {
+  if (!programTemplatePanel) return;
+  updatePanelAddButtonState();
+  const hasErrorMessage = programTemplatePanelMessage?.classList?.contains('text-red-600');
+  if (!selectedProgramId) {
+    programTemplatePanel.classList.add('hidden');
+    if (programTemplatePanelDescription) {
+      programTemplatePanelDescription.textContent = 'Select a program to manage template assignments.';
+    }
+    if (programTemplatePanelList) {
+      programTemplatePanelList.innerHTML = '';
+    }
+    if (programTemplatePanelEmpty) {
+      programTemplatePanelEmpty.classList.add('hidden');
+    }
+    if (!hasErrorMessage) {
+      setTemplatePanelMessage('');
+    }
+    return;
+  }
+
+  programTemplatePanel.classList.remove('hidden');
+  const program = getProgramById(selectedProgramId);
+  const programTitle = getProgramTitle(program) || 'this program';
+  if (programTemplatePanelTitle) {
+    programTemplatePanelTitle.textContent = `Templates for ${programTitle}`;
+  }
+  if (programTemplatePanelDescription) {
+    programTemplatePanelDescription.textContent = 'Adjust due offsets, requirements, visibility, and notes for each assignment.';
+  }
+
+  const ordered = templates.slice().sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
+  if (programTemplateList) {
+    if (!ordered.length) {
+      programTemplateList.innerHTML = '';
+    } else {
+      const total = ordered.length;
+      programTemplateList.innerHTML = ordered.map((template, index) => createTemplateAssignmentListItem(template, index, total)).join('');
+    }
+  }
+
+  if (programTemplatePanelEmpty) {
+    programTemplatePanelEmpty.classList.toggle('hidden', Boolean(ordered.length));
+  }
+
+  if (!ordered.length) {
+    if (!hasErrorMessage) {
+      if (CAN_MANAGE_TEMPLATES) {
+        setTemplatePanelMessage('Use “Add Template” to attach templates to this program.');
+      } else {
+        ensurePanelReadOnlyHint();
+      }
+    }
+  } else if (!hasErrorMessage && !programTemplatePanelMessage?.textContent?.trim()) {
+    if (CAN_MANAGE_TEMPLATES) {
+      setTemplatePanelMessage('');
+    } else {
+      ensurePanelReadOnlyHint();
+    }
+  }
+}
+
+function createTemplateAssignmentListItem(template, index, total) {
+  const templateId = getTemplateId(template) || '';
+  const name = escapeHtml(getTemplateName(template) || 'Untitled template');
+  const category = getTemplateCategory(template);
+  const status = getTemplateStatus(template);
+  const dueOffsetRaw = template?.dueOffsetDays ?? template?.due_offset_days ?? null;
+  const dueOffsetValue = dueOffsetRaw === null || dueOffsetRaw === undefined ? '' : String(dueOffsetRaw);
+  const requiredRaw = template?.required;
+  const requiredValue = requiredRaw === null || requiredRaw === undefined ? 'inherit' : (requiredRaw ? 'true' : 'false');
+  const visibilityValue = template?.visibility ?? '';
+  const notesValue = template?.notes ?? '';
+  const disableControls = !CAN_MANAGE_TEMPLATES;
+  const disableUp = disableControls || index === 0;
+  const disableDown = disableControls || index === total - 1;
+  const disableRemove = disableControls;
+  const requiredOptions = [
+    { value: 'inherit', label: 'Inherit program setting' },
+    { value: 'true', label: 'Required' },
+    { value: 'false', label: 'Optional' },
+  ];
+  const requiredSelect = requiredOptions.map(opt => {
+    const selected = opt.value === requiredValue ? ' selected' : '';
+    return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
+  }).join('');
+  const metaParts = [];
+  if (category) {
+    metaParts.push(`<span class="text-xs text-slate-500">${escapeHtml(category)}</span>`);
+  }
+  if (status) {
+    metaParts.push(`<span>${createStatusBadge(status)}</span>`);
+  }
+  const metaHtml = metaParts.length ? `<div class="flex flex-wrap items-center gap-2">${metaParts.join('')}</div>` : '';
+  const notesEscaped = escapeHtml(notesValue);
+  const isActive = selectedTemplateId && templateId && selectedTemplateId === templateId;
+  const itemClasses = ['rounded-xl', 'border', 'border-slate-200', 'bg-white', 'p-4', 'space-y-4'];
+  if (isActive) {
+    itemClasses.push('ring-2', 'ring-sky-200');
+  }
+
+  return `
+    <li class="${itemClasses.join(' ')}" data-template-id="${templateId}" data-order-index="${index}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="space-y-1 min-w-0">
+          <p class="font-medium truncate" title="${name}">${name}</p>
+          ${metaHtml}
+        </div>
+        <div class="flex items-center gap-1">
+          <button class="btn btn-outline text-xs" data-assignment-action="move-up" ${disableUp ? 'disabled' : ''} aria-label="Move template up" title="Move up">↑</button>
+          <button class="btn btn-outline text-xs" data-assignment-action="move-down" ${disableDown ? 'disabled' : ''} aria-label="Move template down" title="Move down">↓</button>
+          <button class="btn btn-danger-outline text-xs" data-assignment-action="remove" ${disableRemove ? 'disabled' : ''} aria-label="Remove template from program" title="Remove template">Remove</button>
+        </div>
+      </div>
+      <div class="grid gap-3 md:grid-cols-2">
+        <label class="space-y-1">
+          <span class="label-text">Due offset (days)</span>
+          <input type="number" class="input" data-association-field="dueOffsetDays" placeholder="e.g. 7" value="${escapeHtml(dueOffsetValue)}" ${disableControls ? 'disabled' : ''}>
+        </label>
+        <label class="space-y-1">
+          <span class="label-text">Required</span>
+          <select class="input" data-association-field="required" ${disableControls ? 'disabled' : ''}>${requiredSelect}</select>
+        </label>
+        <label class="space-y-1 md:col-span-2">
+          <span class="label-text">Visibility</span>
+          <input class="input" data-association-field="visibility" list="templateVisibilityOptions" placeholder="inherit" value="${escapeHtml(visibilityValue)}" ${disableControls ? 'disabled' : ''}>
+        </label>
+      </div>
+      <label class="space-y-1 block">
+        <span class="label-text">Notes</span>
+        <textarea class="textarea" data-association-field="notes" rows="3" ${disableControls ? 'disabled' : ''}>${notesEscaped}</textarea>
+      </label>
+    </li>
+  `;
+}
+
+async function handleAssociationFieldChange(templateId, field, element) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    return;
+  }
+  if (!selectedProgramId) {
+    setTemplatePanelMessage('Select a program before editing template assignments.', true);
+    return;
+  }
+  const template = getTemplateById(templateId);
+  if (!template) return;
+
+  const previousValue = field === 'dueOffsetDays'
+    ? (template?.dueOffsetDays ?? template?.due_offset_days ?? null)
+    : template[field];
+
+  let nextValue;
+  if (field === 'dueOffsetDays') {
+    const raw = element.value;
+    if (raw === '') {
+      nextValue = null;
+    } else {
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) {
+        setTemplatePanelMessage('Enter a valid number of days for the due offset.', true);
+        element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
+        return;
+      }
+      nextValue = parsed;
+    }
+  } else if (field === 'required') {
+    const raw = element.value;
+    if (raw === 'inherit') {
+      nextValue = null;
+    } else if (raw === 'true') {
+      nextValue = true;
+    } else if (raw === 'false') {
+      nextValue = false;
+    } else {
+      nextValue = toNullableBoolean(raw);
+    }
+  } else if (field === 'visibility') {
+    const raw = element.value.trim();
+    nextValue = raw === '' ? null : raw;
+  } else if (field === 'notes') {
+    const raw = element.value;
+    nextValue = raw && raw.trim() !== '' ? raw : '';
+  } else {
+    return;
+  }
+
+  const previousComparable = previousValue === undefined ? null : previousValue;
+  const nextComparable = nextValue === undefined ? null : nextValue;
+  if (field === 'notes') {
+    if ((previousComparable || '') === (nextComparable || '')) {
+      return;
+    }
+  } else if (previousComparable === nextComparable) {
+    return;
+  }
+
+  if (field === 'dueOffsetDays') {
+    template.dueOffsetDays = nextValue;
+    template.due_offset_days = nextValue;
+  } else if (field === 'notes') {
+    template.notes = nextValue || '';
+  } else if (field === 'visibility') {
+    template.visibility = nextValue === null ? null : String(nextValue);
+  } else if (field === 'required') {
+    template.required = nextValue;
+  }
+
+  const updates = field === 'dueOffsetDays'
+    ? { dueOffsetDays: nextValue }
+    : { [field]: nextValue };
+
+  const revert = () => {
+    if (field === 'dueOffsetDays') {
+      template.dueOffsetDays = previousValue;
+      template.due_offset_days = previousValue;
+      element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
+    } else if (field === 'required') {
+      template.required = previousValue;
+      const revertValue = previousValue === null || previousValue === undefined ? 'inherit' : (previousValue ? 'true' : 'false');
+      element.value = revertValue;
+    } else if (field === 'visibility') {
+      template.visibility = previousValue === null || previousValue === undefined ? null : String(previousValue);
+      element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
+    } else if (field === 'notes') {
+      template.notes = previousValue ?? '';
+      element.value = previousValue ?? '';
+    }
+  };
+
+  await persistTemplateAssociationUpdates(templateId, updates, { revert });
+}
+
+async function persistTemplateAssociationUpdates(templateId, updates, { revert, reload = true, savingMessage = 'Saving changes…', successMessage = 'Changes saved.' } = {}) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    return false;
+  }
+  if (!selectedProgramId) {
+    setTemplatePanelMessage('Select a program before editing template assignments.', true);
+    if (typeof revert === 'function') revert();
+    return false;
+  }
+  if (!updates || typeof updates !== 'object') {
+    return true;
+  }
+  const payload = {};
+  if ('dueOffsetDays' in updates) {
+    const value = updates.dueOffsetDays;
+    payload.due_offset_days = value === null || value === '' ? null : Number(value);
+  }
+  if ('required' in updates) {
+    const value = updates.required;
+    if (value === null || value === undefined) {
+      payload.required = null;
+    } else if (typeof value === 'boolean') {
+      payload.required = value;
+    } else if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+        payload.required = true;
+      } else if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+        payload.required = false;
+      } else {
+        payload.required = Boolean(value);
+      }
+    } else {
+      payload.required = Boolean(value);
+    }
+  }
+  if ('visibility' in updates) {
+    const value = updates.visibility;
+    payload.visibility = value === null || value === undefined || value === '' ? null : String(value);
+  }
+  if ('notes' in updates) {
+    const value = updates.notes;
+    if (value === null) {
+      payload.notes = null;
+    } else {
+      const trimmed = String(value);
+      payload.notes = trimmed.trim() === '' ? null : trimmed;
+    }
+  }
+  if ('sortOrder' in updates) {
+    const value = updates.sortOrder;
+    payload.sort_order = value === null || value === undefined ? null : Number(value);
+  }
+  const keys = Object.keys(payload);
+  if (!keys.length) {
+    return true;
+  }
+  const encodedProgramId = encodeURIComponent(selectedProgramId);
+  const encodedTemplateId = encodeURIComponent(templateId);
+  setTemplatePanelMessage(savingMessage);
+  try {
+    await fetchJson(`${API}/programs/${encodedProgramId}/templates/${encodedTemplateId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (reload) {
+      await loadTemplates({ focusTemplateId: templateId, preserveSelection: true });
+    }
+    setTemplatePanelMessage(successMessage);
+    setTimeout(() => {
+      if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+        setTemplatePanelMessage('');
+      }
+    }, 2500);
+    return true;
+  } catch (error) {
+    console.error(error);
+    if (typeof revert === 'function') revert();
+    if (error.status === 403) {
+      setTemplatePanelMessage('You do not have permission to modify template assignments.', true);
+    } else if (error.status === 400) {
+      setTemplatePanelMessage('Please review the assignment details and try again.', true);
+    } else {
+      setTemplatePanelMessage('Unable to save changes right now. Please try again.', true);
+    }
+    return false;
+  }
+}
+
+function moveTemplateAssociation(templateId, direction) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    return;
+  }
+  const index = templates.findIndex(item => getTemplateId(item) === templateId);
+  if (index < 0) return;
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= templates.length) return;
+  const previousOrder = templates.map(getTemplateId);
+  const [moved] = templates.splice(index, 1);
+  templates.splice(targetIndex, 0, moved);
+  templates.forEach((template, idx) => {
+    template.sort_order = idx + 1;
+    template.sortOrder = idx + 1;
+  });
+  renderTemplates();
+  persistTemplateOrder(previousOrder);
+}
+
+async function persistTemplateOrder(previousOrder = null) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    return;
+  }
+  if (!selectedProgramId) {
+    setTemplatePanelMessage('Select a program before reordering templates.', true);
+    return;
+  }
+  if (isPersistingTemplateOrder) {
+    return;
+  }
+  const updates = templates.map((template, index) => {
+    const templateId = getTemplateId(template);
+    if (!templateId) return null;
+    const previousIndex = Array.isArray(previousOrder) ? previousOrder.indexOf(templateId) : index;
+    if (previousIndex === index) return null;
+    return { templateId, sortOrder: index + 1 };
+  }).filter(Boolean);
+  if (!updates.length) {
+    return;
+  }
+  isPersistingTemplateOrder = true;
+  setTemplatePanelMessage('Saving order…');
+  try {
+    const encodedProgramId = encodeURIComponent(selectedProgramId);
+    for (const update of updates) {
+      await fetchJson(`${API}/programs/${encodedProgramId}/templates/${encodeURIComponent(update.templateId)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sort_order: update.sortOrder }),
+      });
+    }
+    await loadTemplates({ preserveSelection: true });
+    setTemplatePanelMessage('Order updated.');
+    setTimeout(() => {
+      if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === 'Order updated.') {
+        setTemplatePanelMessage('');
+      }
+    }, 2500);
+  } catch (error) {
+    console.error(error);
+    if (Array.isArray(previousOrder)) {
+      const orderMap = new Map(previousOrder.map((id, idx) => [id, idx]));
+      templates.sort((a, b) => {
+        const aId = getTemplateId(a);
+        const bId = getTemplateId(b);
+        return (orderMap.get(aId) ?? 0) - (orderMap.get(bId) ?? 0);
+      });
+      templates.forEach((template, idx) => {
+        template.sort_order = idx + 1;
+        template.sortOrder = idx + 1;
+      });
+      renderTemplates();
+    }
+    if (error.status === 403) {
+      setTemplatePanelMessage('You do not have permission to reorder templates.', true);
+    } else {
+      setTemplatePanelMessage('Unable to save the new order. Please try again.', true);
+    }
+  } finally {
+    isPersistingTemplateOrder = false;
+  }
 }
 
 async function loadPrograms() {
@@ -1266,7 +1854,8 @@ async function loadPrograms() {
   }
 }
 
-async function loadTemplates() {
+async function loadTemplates(options = {}) {
+  const { focusTemplateId = null, preserveSelection = false } = options;
   const activeProgramId = selectedProgramId;
   if (!activeProgramId) {
     templates = [];
@@ -1277,38 +1866,73 @@ async function loadTemplates() {
     templateMessage.textContent = programs.length
       ? 'Select a program to view its templates.'
       : 'No programs available.';
+    setTemplatePanelMessage('');
+    updatePanelAddButtonState();
     return;
   }
   try {
     templateMessage.textContent = 'Loading templates…';
-    if (activeProgramId !== lastLoadedTemplateProgramId) {
-      selectedTemplateIds.clear();
-      selectedTemplateId = null;
+    if (!preserveSelection || activeProgramId !== lastLoadedTemplateProgramId) {
+      if (activeProgramId !== lastLoadedTemplateProgramId) {
+        selectedTemplateIds.clear();
+        selectedTemplateId = null;
+      }
     }
     const encodedProgramId = encodeURIComponent(activeProgramId);
     const data = await fetchJson(`${API}/programs/${encodedProgramId}/templates?include_deleted=true`);
+    let fetchedTemplates = [];
     if (Array.isArray(data?.data)) {
-      templates = data.data;
+      fetchedTemplates = data.data;
     } else if (Array.isArray(data)) {
-      templates = data;
-    } else {
-      templates = [];
+      fetchedTemplates = data;
     }
-    selectedTemplateIds.clear();
+    const normalized = fetchedTemplates.map((item, index) => normalizeTemplateAssociation(item, index));
+    normalized.sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
+    templates = normalized;
     lastLoadedTemplateProgramId = activeProgramId;
+
+    if (preserveSelection) {
+      const validIds = new Set(templates.map(getTemplateId).filter(Boolean));
+      for (const id of Array.from(selectedTemplateIds)) {
+        if (!validIds.has(id)) {
+          selectedTemplateIds.delete(id);
+        }
+      }
+      if (selectedTemplateId && !validIds.has(selectedTemplateId)) {
+        selectedTemplateId = null;
+      }
+    } else {
+      selectedTemplateIds.clear();
+      selectedTemplateId = null;
+    }
+
+    if (focusTemplateId) {
+      const exists = templates.some(template => getTemplateId(template) === focusTemplateId);
+      if (exists) {
+        selectedTemplateIds.clear();
+        selectedTemplateIds.add(focusTemplateId);
+        selectedTemplateId = focusTemplateId;
+      }
+    }
+
     renderTemplates();
     templateMessage.textContent = '';
+    setTemplatePanelMessage('');
   } catch (error) {
     console.error(error);
     templates = [];
-    selectedTemplateIds.clear();
-    selectedTemplateId = null;
+    if (!preserveSelection) {
+      selectedTemplateIds.clear();
+      selectedTemplateId = null;
+    }
     lastLoadedTemplateProgramId = null;
     renderTemplates();
     if (error.status === 403) {
       templateMessage.textContent = 'You do not have permission to load templates for this program.';
+      setTemplatePanelMessage('You do not have permission to view assignments for this program.', true);
     } else {
       templateMessage.textContent = 'Unable to load templates. Please try again later.';
+      setTemplatePanelMessage('Unable to load template assignments right now. Please try again.', true);
     }
   }
 }
@@ -1587,6 +2211,50 @@ if (templateSelectAll) {
   });
 }
 
+if (programTemplateList) {
+  programTemplateList.addEventListener('change', event => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) return;
+    const field = target.getAttribute('data-association-field');
+    if (!field) return;
+    const item = target.closest('li[data-template-id]');
+    if (!item) return;
+    const templateId = item.getAttribute('data-template-id');
+    if (!templateId) return;
+    handleAssociationFieldChange(templateId, field, target);
+  });
+
+  programTemplateList.addEventListener('click', event => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) return;
+    const actionBtn = target.closest('[data-assignment-action]');
+    if (actionBtn) {
+      event.preventDefault();
+      const action = actionBtn.getAttribute('data-assignment-action');
+      const item = actionBtn.closest('li[data-template-id]');
+      if (!action || !item) return;
+      const templateId = item.getAttribute('data-template-id');
+      if (!templateId) return;
+      if (action === 'move-up') {
+        moveTemplateAssociation(templateId, 'up');
+      } else if (action === 'move-down') {
+        moveTemplateAssociation(templateId, 'down');
+      } else if (action === 'remove') {
+        openDeleteTemplateModal(templateId);
+      }
+      return;
+    }
+    const item = target.closest('li[data-template-id]');
+    if (!item) return;
+    const templateId = item.getAttribute('data-template-id');
+    if (!templateId) return;
+    selectedTemplateIds.clear();
+    selectedTemplateIds.add(templateId);
+    selectedTemplateId = templateId;
+    renderTemplates();
+  });
+}
+
 const modalElements = [programModal, archiveProgramModal, deleteProgramModal, templateModal, deleteTemplateModal].filter(Boolean);
 modalElements.forEach(modal => {
   modal.addEventListener('mousedown', event => {
@@ -1677,6 +2345,13 @@ if (btnEditTemplate) {
 
 if (templateForm) {
   templateForm.addEventListener('submit', submitTemplateForm);
+}
+
+if (btnPanelAddTemplate) {
+  btnPanelAddTemplate.addEventListener('click', event => {
+    event.preventDefault();
+    openTemplateModal('create');
+  });
 }
 
 if (programModalArchiveTrigger) {
