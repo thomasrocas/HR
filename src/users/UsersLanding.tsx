@@ -1,15 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   getUsers,
   createUser,
   updateUserRoles,
-  assignPrograms,
   deactivateUser,
   reactivateUser,
-  archiveUser,
   seed,
 } from '../api';
-import { can, hasRole, Role, User } from '../rbac';
+import { can, Role, User } from '../rbac';
+import { ALL_ROLES, getActionAvailability, MANAGER_EDITABLE_ROLES } from './actionPermissions';
 
 /**
  * Landing page for managing users.
@@ -21,19 +20,123 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  useEffect(() => {
+  const fetchUsers = useCallback(() => {
     getUsers({ query, role: roleFilter, status: statusFilter }).then(r => setUsers(r.data));
   }, [query, roleFilter, statusFilter]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   /* ------------------------- Modal handlers ------------------------- */
   const [showCreate, setShowCreate] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', roles: ['viewer'] as Role[] });
 
+  const [roleEditorUser, setRoleEditorUser] = useState<User | null>(null);
+  const [roleDraft, setRoleDraft] = useState<Role[]>([]);
+  const [roleEditorMeta, setRoleEditorMeta] = useState<{
+    toggleable: Role[];
+    locked: Role[];
+    managerOnly: boolean;
+  }>({ toggleable: [], locked: [], managerOnly: false });
+  const [roleError, setRoleError] = useState('');
+
+  const globalActions = useMemo(() => getActionAvailability(currentUser), [currentUser]);
+
+  useEffect(() => {
+    if (!globalActions.canInvite) {
+      setShowCreate(false);
+    }
+  }, [globalActions.canInvite]);
+
+  useEffect(() => {
+    if (!globalActions.canManageRoles) {
+      setRoleEditorUser(null);
+    }
+  }, [globalActions.canManageRoles]);
+
+  const handleOpenCreate = () => {
+    if (!globalActions.canInvite) return;
+    setNewUser({ name: '', email: '', roles: ['viewer'] as Role[] });
+    setShowCreate(true);
+  };
+
   const handleInvite = async () => {
+    if (!globalActions.canInvite) return;
     await createUser({ ...newUser, status: 'pending' });
     setShowCreate(false);
-    getUsers({}).then(r => setUsers(r.data));
+    fetchUsers();
     alert('Invite sent');
+  };
+
+  const handleOpenRoles = (user: User) => {
+    if (!globalActions.canManageRoles) return;
+    const availability = getActionAvailability(currentUser, user);
+    setRoleEditorUser(user);
+    setRoleDraft(user.roles);
+    setRoleEditorMeta({
+      toggleable: availability.toggleableRoles,
+      locked: availability.lockedRoles,
+      managerOnly: availability.managerOnly,
+    });
+    setRoleError('');
+  };
+
+  const handleToggleRole = (role: Role) => {
+    if (!roleEditorUser) return;
+    if (!roleEditorMeta.toggleable.includes(role)) return;
+    setRoleDraft(prev =>
+      prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role],
+    );
+  };
+
+  const handleSaveRoles = async () => {
+    if (!roleEditorUser || !globalActions.canManageRoles) return;
+    try {
+      const allowed = new Set(roleEditorMeta.toggleable);
+      const locked = roleEditorMeta.managerOnly ? roleEditorMeta.locked : [];
+      const filteredRoles = roleEditorMeta.managerOnly
+        ? Array.from(
+            new Set([
+              ...locked,
+              ...roleDraft.filter(role => allowed.has(role)),
+            ] as Role[]),
+          )
+        : roleDraft;
+      const updated = await updateUserRoles(roleEditorUser.id, filteredRoles);
+      setUsers(prev =>
+        prev.map(u => (u.id === updated.id ? { ...u, roles: updated.roles } : u)),
+      );
+      setRoleEditorUser(null);
+    } catch (_err) {
+      setRoleError('Failed to update roles. Please try again.');
+    }
+  };
+
+  const handleCloseRoles = () => {
+    setRoleEditorUser(null);
+    setRoleError('');
+  };
+
+  const handleDeactivate = async (user: User) => {
+    if (!can(currentUser, 'deactivate', 'user')) return;
+    await deactivateUser(user.id, '');
+    setUsers(prev =>
+      prev.map(u => (u.id === user.id ? { ...u, status: 'suspended' } : u)),
+    );
+  };
+
+  const handleReactivate = async (user: User) => {
+    if (!can(currentUser, 'reactivate', 'user')) return;
+    await reactivateUser(user.id);
+    setUsers(prev =>
+      prev.map(u => (u.id === user.id ? { ...u, status: 'active' } : u)),
+    );
+  };
+
+  const handleAssignPrograms = (user: User) => {
+    if (!can(currentUser, 'assignPrograms', 'user')) return;
+    console.info(`Assign programs for ${user.name}`);
   };
 
   return (
@@ -81,9 +184,9 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
           <option value="archived">Archived</option>
         </select>
 
-        {can(currentUser, 'create', 'user') && (
+        {globalActions.canInvite && (
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={handleOpenCreate}
             className="ml-auto bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md"
           >
             Add User
@@ -109,53 +212,60 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
             {users.length === 0 && (
               <tr>
                 <td colSpan={7} className="text-center py-8 text-[var(--text-muted)]">
-                  No users. {can(currentUser, 'create', 'user') ? 'Create one?' : ''}
+                  No users. {globalActions.canInvite ? 'Create one?' : ''}
                 </td>
               </tr>
             )}
-            {users.map(u => (
-              <tr key={u.id} className="border-t border-[var(--border)]">
-                <td className="whitespace-nowrap">{u.name}</td>
-                <td>{u.email}</td>
-                <td className="space-x-1">
-                  {u.roles.map(r => (
-                    <span key={r} className={`badge badge-${r}`}>
-                      {r}
-                    </span>
-                  ))}
-                </td>
-                <td>{u.status}</td>
-                <td className="space-x-1">
-                  {(u as any).programs?.map((p: string) => (
-                    <span key={p} className="badge bg-[var(--brand-accent)] text-white">
-                      {p}
-                    </span>
-                  ))}
-                </td>
-                <td>{(u as any).lastActive ?? '--'}</td>
-                <td className="flex gap-2">
-                  <button className="text-sm underline" disabled={!can(currentUser, 'update', 'user')}>
-                    Edit
-                  </button>
-                  {can(currentUser, 'manageRoles', 'user') && (
-                    <button className="text-sm underline">Roles</button>
-                  )}
-                  {can(currentUser, 'assignPrograms', 'user') && (
-                    <button className="text-sm underline">Assign</button>
-                  )}
-                  {u.status !== 'suspended' && can(currentUser, 'deactivate', 'user') && (
-                    <button className="text-sm underline" onClick={() => deactivateUser(u.id, '')}>
-                      Deactivate
+            {users.map(u => {
+              const rowActions = getActionAvailability(currentUser, u);
+              return (
+                <tr key={u.id} className="border-t border-[var(--border)]">
+                  <td className="whitespace-nowrap">{u.name}</td>
+                  <td>{u.email}</td>
+                  <td className="space-x-1">
+                    {u.roles.map(r => (
+                      <span key={r} className={`badge badge-${r}`}>
+                        {r}
+                      </span>
+                    ))}
+                  </td>
+                  <td>{u.status}</td>
+                  <td className="space-x-1">
+                    {(u as any).programs?.map((p: string) => (
+                      <span key={p} className="badge bg-[var(--brand-accent)] text-white">
+                        {p}
+                      </span>
+                    ))}
+                  </td>
+                  <td>{(u as any).lastActive ?? '--'}</td>
+                  <td className="flex gap-2">
+                    <button className="text-sm underline" disabled={!globalActions.canEdit}>
+                      Edit
                     </button>
-                  )}
-                  {u.status === 'suspended' && can(currentUser, 'reactivate', 'user') && (
-                    <button className="text-sm underline" onClick={() => reactivateUser(u.id)}>
-                      Reactivate
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+                    {rowActions.canManageRoles && (
+                      <button className="text-sm underline" onClick={() => handleOpenRoles(u)}>
+                        Roles
+                      </button>
+                    )}
+                    {rowActions.canAssignPrograms && (
+                      <button className="text-sm underline" onClick={() => handleAssignPrograms(u)}>
+                        Assign
+                      </button>
+                    )}
+                    {rowActions.canDeactivate && (
+                      <button className="text-sm underline" onClick={() => handleDeactivate(u)}>
+                        Deactivate
+                      </button>
+                    )}
+                    {rowActions.canReactivate && (
+                      <button className="text-sm underline" onClick={() => handleReactivate(u)}>
+                        Reactivate
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -203,8 +313,59 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
               <button
                 className="px-3 py-2 text-sm bg-[var(--brand-primary)] text-white rounded-md"
                 onClick={handleInvite}
+                disabled={!globalActions.canInvite}
               >
                 Send Invite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {roleEditorUser && (
+        <div
+          className="fixed inset-0 bg-black/30 flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseRoles}
+        >
+          <div
+            className="w-96 bg-white h-full p-6 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold">Manage Roles</h2>
+            {roleEditorMeta.managerOnly && (
+              <p className="text-xs text-[var(--text-muted)]">
+                Managers may only toggle {MANAGER_EDITABLE_ROLES.join(' or ')} roles. Existing roles remain read only.
+              </p>
+            )}
+            <div className="space-y-2">
+              {ALL_ROLES.map(role => {
+                const disabled = !roleEditorMeta.toggleable.includes(role);
+                return (
+                  <label key={role} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={roleDraft.includes(role)}
+                      onChange={() => handleToggleRole(role)}
+                      disabled={disabled}
+                    />
+                    <span className="capitalize">{role}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {roleError && <div className="text-sm text-red-600">{roleError}</div>}
+            <div className="flex gap-2 justify-end">
+              <button className="px-3 py-2 text-sm" onClick={handleCloseRoles}>
+                Cancel
+              </button>
+              <button
+                className="px-3 py-2 text-sm bg-[var(--brand-primary)] text-white rounded-md"
+                onClick={handleSaveRoles}
+                disabled={!globalActions.canManageRoles}
+              >
+                Save
               </button>
             </div>
           </div>
