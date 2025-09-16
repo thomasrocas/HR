@@ -21,24 +21,75 @@ body {
   color: var(--text-primary);
 }
 
-/* Card & table styles */
-.card {
-  @apply bg-white rounded-2xl shadow-sm border border-[var(--border)];
+@layer components {
+  /* Card & table styles */
+  .card {
+    @apply rounded-2xl border border-border bg-surface shadow-sm;
+  }
+
+  .card-header {
+    @apply border-b border-border p-4 font-semibold text-ink;
+  }
+
+  .table {
+    @apply w-full text-left;
+  }
+
+  .table th,
+  .table td {
+    @apply px-4 py-3;
+  }
+
+  .badge {
+    @apply inline-block rounded-full px-2 py-0.5 text-sm;
+  }
+
+  .badge-admin {
+    @apply bg-red-100 text-red-800;
+  }
+
+  .badge-manager {
+    @apply bg-blue-100 text-blue-800;
+  }
+
+  .badge-trainee {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .badge-viewer {
+    @apply bg-gray-100 text-gray-800;
+  }
+
+  .panel {
+    @apply rounded-2xl border border-border bg-surface shadow-sm;
+  }
+
+  .panel-section {
+    @apply rounded-xl border border-border bg-surface-alt;
+  }
+
+  .label-text {
+    @apply block text-xs font-semibold uppercase tracking-wide text-ink-muted;
+  }
+
+  .form-field,
+  .input {
+    @apply w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-ink transition-colors placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-surface;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-primary {
+    @apply border-brand-primary bg-brand-primary text-white hover:bg-brand-accent;
+  }
+
+  .btn-outline {
+    @apply border-border bg-surface text-ink hover:bg-surface-alt;
+  }
+
+  .btn-ghost {
+    @apply border-transparent text-ink-muted hover:bg-surface-alt hover:text-ink;
+  }
 }
-.card-header {
-  @apply p-4 border-b border-[var(--border)] font-semibold;
-}
-.table {
-  @apply w-full text-left;
-}
-.table th,
-.table td {
-  @apply px-4 py-3;
-}
-.badge {
-  @apply inline-block rounded-full px-2 py-0.5 text-sm;
-}
-.badge-admin { @apply bg-red-100 text-red-800; }
-.badge-manager { @apply bg-blue-100 text-blue-800; }
-.badge-trainee { @apply bg-green-100 text-green-800; }
-.badge-viewer { @apply bg-gray-100 text-gray-800; }
