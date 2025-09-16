@@ -1207,10 +1207,13 @@ function openTemplateModal(mode = 'create', templateId = null) {
   templateModalMode = normalizedMode;
   templateModalTemplateId = isEdit ? targetId : null;
   resetTemplateForm();
-  const isDeleteVisible = isEdit && CAN_MANAGE_TEMPLATES;
+  const templateStatus = template ? getTemplateStatus(template) : '';
+  const isTemplateArchived = (templateStatus || '').toLowerCase() === 'archived';
+  const isDeleteVisible = isEdit && CAN_MANAGE_TEMPLATES && !isTemplateArchived;
   if (templateModalDeleteTrigger) {
     templateModalDeleteTrigger.classList.toggle('hidden', !isDeleteVisible);
     templateModalDeleteTrigger.disabled = !isDeleteVisible;
+    templateModalDeleteTrigger.title = isTemplateArchived ? 'Archived templates cannot be deleted.' : '';
   }
   if (isEdit) {
     if (templateModalTitle) templateModalTitle.textContent = 'Edit Template';
@@ -1624,11 +1627,25 @@ function openDeleteTemplateModal(templateId) {
     return;
   }
   deleteTargetTemplateId = templateId;
+  const status = getTemplateStatus(template);
+  const normalizedStatus = (status || '').toLowerCase();
+  const isArchived = normalizedStatus === 'archived';
   if (deleteTemplateModalDescription) {
     const name = getTemplateName(template) || 'this template';
-    deleteTemplateModalDescription.textContent = `This will permanently delete “${name}”.`;
+    deleteTemplateModalDescription.textContent = isArchived
+      ? `“${name}” has already been archived.`
+      : `This will permanently delete “${name}”.`;
   }
-  setModalMessage(deleteTemplateModalMessage, '');
+  if (confirmDeleteTemplateButton) {
+    confirmDeleteTemplateButton.disabled = isArchived;
+    confirmDeleteTemplateButton.title = isArchived ? 'Archived templates cannot be deleted.' : '';
+    confirmDeleteTemplateButton.setAttribute('aria-disabled', isArchived ? 'true' : 'false');
+  }
+  if (isArchived) {
+    setModalMessage(deleteTemplateModalMessage, 'This template has already been archived and cannot be deleted again.');
+  } else {
+    setModalMessage(deleteTemplateModalMessage, '');
+  }
   openModal(deleteTemplateModal);
 }
 
@@ -1638,6 +1655,11 @@ function closeDeleteTemplateModal() {
     deleteTemplateModalDescription.textContent = 'This action cannot be undone.';
   }
   setModalMessage(deleteTemplateModalMessage, '');
+  if (confirmDeleteTemplateButton) {
+    confirmDeleteTemplateButton.disabled = false;
+    confirmDeleteTemplateButton.title = '';
+    confirmDeleteTemplateButton.setAttribute('aria-disabled', 'false');
+  }
   closeModal(deleteTemplateModal);
 }
 
@@ -1648,19 +1670,36 @@ async function confirmDeleteTemplate() {
     return;
   }
   if (!deleteTargetTemplateId) return;
-  await flushPendingTemplateAssociationChanges();
   const targetId = deleteTargetTemplateId;
+  const template = getTemplateById(targetId);
+  const templateStatus = template ? getTemplateStatus(template) : '';
+  const isArchived = (templateStatus || '').toLowerCase() === 'archived';
+  if (isArchived) {
+    setModalMessage(deleteTemplateModalMessage, 'This template has already been archived and cannot be deleted again.');
+    return;
+  }
+  await flushPendingTemplateAssociationChanges();
   const originalLabel = confirmDeleteTemplateButton ? confirmDeleteTemplateButton.textContent : '';
   if (confirmDeleteTemplateButton) {
     confirmDeleteTemplateButton.disabled = true;
     confirmDeleteTemplateButton.textContent = 'Deleting…';
+    confirmDeleteTemplateButton.setAttribute('aria-disabled', 'true');
   }
   setModalMessage(deleteTemplateModalMessage, 'Deleting template…');
+  let deleteWasNoOp = false;
   try {
-    await fetchJson(`${API}/programs/${encodeURIComponent(selectedProgramId)}/templates/${encodeURIComponent(targetId)}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
+    try {
+      await fetchJson(`${API}/programs/${encodeURIComponent(selectedProgramId)}/templates/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } catch (error) {
+      if (error.status === 404) {
+        deleteWasNoOp = true;
+      } else {
+        throw error;
+      }
+    }
     selectedTemplateIds.delete(targetId);
     if (selectedTemplateId === targetId) {
       selectedTemplateId = null;
@@ -1671,7 +1710,9 @@ async function confirmDeleteTemplate() {
       closeTemplateModal();
     }
     await loadTemplates();
-    templateMessage.textContent = 'Template deleted successfully.';
+    templateMessage.textContent = deleteWasNoOp
+      ? 'Template was already removed.'
+      : 'Template deleted successfully.';
   } catch (error) {
     console.error(error);
     if (error.status === 403) {
@@ -1683,6 +1724,7 @@ async function confirmDeleteTemplate() {
     if (confirmDeleteTemplateButton) {
       confirmDeleteTemplateButton.disabled = false;
       confirmDeleteTemplateButton.textContent = originalLabel || 'Delete Template';
+      confirmDeleteTemplateButton.setAttribute('aria-disabled', 'false');
     }
   }
 }
@@ -1911,6 +1953,8 @@ function createTemplateAssignmentListItem(template, index, total) {
   const name = escapeHtml(getTemplateName(template) || 'Untitled template');
   const category = getTemplateCategory(template);
   const status = getTemplateStatus(template);
+  const normalizedStatus = (status || '').toLowerCase();
+  const isArchived = normalizedStatus === 'archived';
   const dueOffsetRaw = template?.dueOffsetDays ?? template?.due_offset_days ?? null;
   const dueOffsetValue = dueOffsetRaw === null || dueOffsetRaw === undefined ? '' : String(dueOffsetRaw);
   const requiredRaw = template?.required;
@@ -1920,7 +1964,12 @@ function createTemplateAssignmentListItem(template, index, total) {
   const disableControls = !CAN_MANAGE_TEMPLATES;
   const disableUp = disableControls || index === 0;
   const disableDown = disableControls || index === total - 1;
-  const disableRemove = disableControls;
+  const disableRemove = disableControls || isArchived;
+  const removeButtonTitle = disableRemove
+    ? (isArchived
+      ? 'Archived templates cannot be removed.'
+      : 'Only admins or managers can remove templates.')
+    : 'Remove template';
   const requiredOptions = [
     { value: 'inherit', label: 'Inherit program setting' },
     { value: 'true', label: 'Required' },
@@ -1960,7 +2009,7 @@ function createTemplateAssignmentListItem(template, index, total) {
           ${dragHandleHtml}
           <button type="button" class="btn btn-outline text-xs" data-assignment-action="move-up" ${disableUp ? 'disabled' : ''} aria-label="Move template up" title="Move up">↑</button>
           <button type="button" class="btn btn-outline text-xs" data-assignment-action="move-down" ${disableDown ? 'disabled' : ''} aria-label="Move template down" title="Move down">↓</button>
-          <button type="button" class="btn btn-danger-outline text-xs" data-assignment-action="remove" ${disableRemove ? 'disabled' : ''} aria-label="Remove template from program" title="Remove template">Remove</button>
+          <button type="button" class="btn btn-danger-outline text-xs" data-assignment-action="remove" ${disableRemove ? 'disabled' : ''} aria-label="Remove template from program" title="${removeButtonTitle}">Remove</button>
         </div>
       </div>
       <div class="grid gap-3 md:grid-cols-2">
@@ -2564,6 +2613,10 @@ if (programTemplateList) {
     const actionBtn = target.closest('[data-assignment-action]');
     if (actionBtn) {
       event.preventDefault();
+      const isDisabled = actionBtn.hasAttribute('disabled') || actionBtn.getAttribute('aria-disabled') === 'true';
+      if (isDisabled) {
+        return;
+      }
       const action = actionBtn.getAttribute('data-assignment-action');
       const item = actionBtn.closest('li[data-template-id]');
       if (!action || !item) return;
