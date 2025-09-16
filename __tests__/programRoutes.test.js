@@ -60,6 +60,7 @@ describe('program routes', () => {
         label text not null,
         notes text,
         sort_order int,
+        status text default 'draft',
         deleted_at timestamp
       );
       create table public.user_roles (
@@ -322,6 +323,67 @@ test('patch updates template fields', async () => {
 
   const { rows } = await pool.query('select week_number, label, notes, sort_order from public.program_task_templates where template_id=$1', [tmplId]);
   expect(rows[0]).toEqual({ week_number: 2, label: 'new', notes: 'n2', sort_order: 5 });
+});
+
+test('patch updates template status', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3c', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user3c', password: 'passpass' }).expect(200);
+
+  const progId = 'prog3c';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label, status) values ($1,$2,$3,$4,$5)', [
+    tmplId,
+    progId,
+    1,
+    'status-old',
+    'draft',
+  ]);
+
+  const res = await agent
+    .patch(`/programs/${progId}/templates/${tmplId}`)
+    .send({ status: 'published' })
+    .expect(200);
+
+  expect(res.body.status).toBe('published');
+
+  const { rows } = await pool.query('select status from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows[0].status).toBe('published');
+});
+
+test('patch rejects invalid template status', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3d', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user3d', password: 'passpass' }).expect(200);
+
+  const progId = 'prog3d';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [
+    tmplId,
+    progId,
+    1,
+    'status-invalid',
+  ]);
+
+  const res = await agent
+    .patch(`/programs/${progId}/templates/${tmplId}`)
+    .send({ status: 'archived' })
+    .expect(400);
+
+  expect(res.body.error).toBe('invalid_status');
+
+  const { rows } = await pool.query('select status from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows[0].status).toBe('draft');
 });
 
 test('patch fails for soft deleted template', async () => {
