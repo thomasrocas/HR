@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import UsersLanding from './users/UsersLanding';
 import ProgramsLanding from './programs/ProgramsLanding';
-import TemplatesLanding from './templates/TemplatesLanding';
 import { can, User } from './rbac';
 
 type AdminTab = 'users' | 'programs' | 'templates';
@@ -130,7 +129,7 @@ export default function AdminLanding({ currentUser }: { currentUser: User }): JS
           <ProgramsLanding key="programs" currentUser={currentUser} />
         )}
         {activeTab === 'templates' && (
-          <TemplatesLanding key="templates" currentUser={currentUser} />
+          <ProgramsLanding key="templates" currentUser={currentUser} />
         )}
       </section>
     </div>
