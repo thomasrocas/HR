@@ -34,6 +34,19 @@ function formatDate(dateLike) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function normalizeId(value) {
+  if (value === undefined || value === null) return null;
+  return String(value);
+}
+
+function getProgramId(program) {
+  return normalizeId(program?.id ?? program?.programId ?? program?.program_id);
+}
+
+function getTemplateId(template) {
+  return normalizeId(template?.id ?? template?.templateId ?? template?.template_id);
+}
+
 const meResponse = await fetch(`${API}/me`, { credentials: 'include' });
 if (!meResponse.ok) {
   window.location.href = '/';
@@ -72,6 +85,8 @@ let programs = [];
 let templates = [];
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
+let selectedProgramId = null;
+let lastLoadedTemplateProgramId = null;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -103,14 +118,14 @@ function getFilteredTemplates() {
 }
 
 function syncProgramSelection() {
-  const validIds = new Set(programs.map(p => p.id));
+  const validIds = new Set(programs.map(getProgramId).filter(Boolean));
   for (const id of Array.from(selectedProgramIds)) {
     if (!validIds.has(id)) selectedProgramIds.delete(id);
   }
 }
 
 function syncTemplateSelection() {
-  const validIds = new Set(templates.map(t => t.id));
+  const validIds = new Set(templates.map(getTemplateId).filter(Boolean));
   for (const id of Array.from(selectedTemplateIds)) {
     if (!validIds.has(id)) selectedTemplateIds.delete(id);
   }
@@ -134,9 +149,10 @@ function updateProgramActionsState(displayedPrograms) {
     btn.title = hasSelection ? '' : 'Select at least one program.';
   });
   if (programSelectAll) {
-    const countDisplayed = displayedPrograms.length;
-    const allSelected = countDisplayed > 0 && displayedPrograms.every(p => selectedProgramIds.has(p.id));
-    const someSelected = displayedPrograms.some(p => selectedProgramIds.has(p.id));
+    const selectableIds = displayedPrograms.map(getProgramId).filter(Boolean);
+    const countDisplayed = selectableIds.length;
+    const allSelected = countDisplayed > 0 && selectableIds.every(id => selectedProgramIds.has(id));
+    const someSelected = selectableIds.some(id => selectedProgramIds.has(id));
     programSelectAll.disabled = !CAN_MANAGE_PROGRAMS || countDisplayed === 0;
     programSelectAll.checked = allSelected;
     programSelectAll.indeterminate = !allSelected && someSelected;
@@ -155,9 +171,10 @@ function updateTemplateActionsState(displayedTemplates) {
     btn.title = hasSelection ? '' : 'Select at least one template.';
   });
   if (templateSelectAll) {
-    const countDisplayed = displayedTemplates.length;
-    const allSelected = countDisplayed > 0 && displayedTemplates.every(t => selectedTemplateIds.has(t.id));
-    const someSelected = displayedTemplates.some(t => selectedTemplateIds.has(t.id));
+    const selectableIds = displayedTemplates.map(getTemplateId).filter(Boolean);
+    const countDisplayed = selectableIds.length;
+    const allSelected = countDisplayed > 0 && selectableIds.every(id => selectedTemplateIds.has(id));
+    const someSelected = selectableIds.some(id => selectedTemplateIds.has(id));
     templateSelectAll.disabled = !CAN_MANAGE_TEMPLATES || countDisplayed === 0;
     templateSelectAll.checked = allSelected;
     templateSelectAll.indeterminate = !allSelected && someSelected;
@@ -193,12 +210,17 @@ function renderPrograms() {
     programTableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No programs found.</td></tr>';
   } else {
     programTableBody.innerHTML = displayed.map(program => {
+      const programId = getProgramId(program);
       const disabledAttr = CAN_MANAGE_PROGRAMS ? '' : 'disabled';
-      const checkedAttr = selectedProgramIds.has(program.id) ? 'checked' : '';
+      const checkedAttr = programId && selectedProgramIds.has(programId) ? 'checked' : '';
+      const rowAttrs = [`data-program-id="${programId ?? ''}"`];
+      if (programId && selectedProgramId === programId) {
+        rowAttrs.push('data-active-program="true"');
+      }
       const assigned = typeof program.assignedCount === 'number' ? program.assignedCount : '—';
       return `
-        <tr data-program-id="${program.id}">
-          <td><input type="checkbox" data-program-id="${program.id}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
+        <tr ${rowAttrs.join(' ')}>
+          <td><input type="checkbox" data-program-id="${programId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
           <td class="font-medium">${program.name || '—'}</td>
           <td>${createStatusBadge(program.status)}</td>
           <td>${program.version || '—'}</td>
@@ -211,6 +233,20 @@ function renderPrograms() {
   }
   updateProgramSelectionSummary();
   updateProgramActionsState(displayed);
+  updateActiveProgramIndicators();
+}
+
+function updateActiveProgramIndicators() {
+  if (!programTableBody) return;
+  const rows = programTableBody.querySelectorAll('tr[data-program-id]');
+  rows.forEach(row => {
+    const rowId = row.getAttribute('data-program-id');
+    if (rowId && rowId === selectedProgramId) {
+      row.setAttribute('data-active-program', 'true');
+    } else {
+      row.removeAttribute('data-active-program');
+    }
+  });
 }
 
 function renderTemplates() {
@@ -220,11 +256,12 @@ function renderTemplates() {
     templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">No templates found.</td></tr>';
   } else {
     templateTableBody.innerHTML = displayed.map(template => {
+      const templateId = getTemplateId(template);
       const disabledAttr = CAN_MANAGE_TEMPLATES ? '' : 'disabled';
-      const checkedAttr = selectedTemplateIds.has(template.id) ? 'checked' : '';
+      const checkedAttr = templateId && selectedTemplateIds.has(templateId) ? 'checked' : '';
       return `
-        <tr data-template-id="${template.id}">
-          <td><input type="checkbox" data-template-id="${template.id}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
+        <tr data-template-id="${templateId ?? ''}">
+          <td><input type="checkbox" data-template-id="${templateId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
           <td class="font-medium">${template.name || '—'}</td>
           <td>${template.category || '—'}</td>
           <td>${createStatusBadge(template.status)}</td>
@@ -240,13 +277,20 @@ function renderTemplates() {
 async function loadPrograms() {
   try {
     programMessage.textContent = 'Loading programs…';
-    const data = await fetchJson(`${API}/api/programs?status=all`);
+    const data = await fetchJson(`${API}/programs?include_deleted=true`);
     if (Array.isArray(data?.data)) {
       programs = data.data;
     } else if (Array.isArray(data)) {
       programs = data;
     } else {
       programs = [];
+    }
+    const validIds = programs.map(getProgramId).filter(Boolean);
+    if (selectedProgramId && !validIds.includes(selectedProgramId)) {
+      selectedProgramId = null;
+    }
+    if (!selectedProgramId && validIds.length) {
+      selectedProgramId = validIds[0];
     }
     selectedProgramIds.clear();
     renderPrograms();
@@ -255,6 +299,8 @@ async function loadPrograms() {
     console.error(error);
     programs = [];
     selectedProgramIds.clear();
+    selectedProgramId = null;
+    lastLoadedTemplateProgramId = null;
     renderPrograms();
     if (error.status === 403) {
       programMessage.textContent = 'You do not have permission to load programs.';
@@ -265,9 +311,24 @@ async function loadPrograms() {
 }
 
 async function loadTemplates() {
+  const activeProgramId = selectedProgramId;
+  if (!activeProgramId) {
+    templates = [];
+    selectedTemplateIds.clear();
+    lastLoadedTemplateProgramId = null;
+    renderTemplates();
+    templateMessage.textContent = programs.length
+      ? 'Select a program to view its templates.'
+      : 'No programs available.';
+    return;
+  }
   try {
     templateMessage.textContent = 'Loading templates…';
-    const data = await fetchJson(`${API}/api/templates?scope=all`);
+    if (activeProgramId !== lastLoadedTemplateProgramId) {
+      selectedTemplateIds.clear();
+    }
+    const encodedProgramId = encodeURIComponent(activeProgramId);
+    const data = await fetchJson(`${API}/programs/${encodedProgramId}/templates?include_deleted=true`);
     if (Array.isArray(data?.data)) {
       templates = data.data;
     } else if (Array.isArray(data)) {
@@ -276,15 +337,17 @@ async function loadTemplates() {
       templates = [];
     }
     selectedTemplateIds.clear();
+    lastLoadedTemplateProgramId = activeProgramId;
     renderTemplates();
     templateMessage.textContent = '';
   } catch (error) {
     console.error(error);
     templates = [];
     selectedTemplateIds.clear();
+    lastLoadedTemplateProgramId = null;
     renderTemplates();
     if (error.status === 403) {
-      templateMessage.textContent = 'You do not have permission to load templates.';
+      templateMessage.textContent = 'You do not have permission to load templates for this program.';
     } else {
       templateMessage.textContent = 'Unable to load templates. Please try again later.';
     }
@@ -295,13 +358,13 @@ function getProgramActionRequest(action, id) {
   const encoded = encodeURIComponent(id);
   switch (action) {
     case 'publish':
-      return { url: `${API}/api/programs/${encoded}/publish`, options: { method: 'POST', credentials: 'include' } };
+      return { url: `${API}/programs/${encoded}/publish`, options: { method: 'POST', credentials: 'include' } };
     case 'deprecate':
-      return { url: `${API}/api/programs/${encoded}/deprecate`, options: { method: 'POST', credentials: 'include' } };
+      return { url: `${API}/programs/${encoded}/deprecate`, options: { method: 'POST', credentials: 'include' } };
     case 'archive':
-      return { url: `${API}/api/programs/${encoded}/archive`, options: { method: 'POST', credentials: 'include' } };
+      return { url: `${API}/programs/${encoded}/archive`, options: { method: 'POST', credentials: 'include' } };
     case 'restore':
-      return { url: `${API}/api/programs/${encoded}/restore`, options: { method: 'POST', credentials: 'include' } };
+      return { url: `${API}/programs/${encoded}/restore`, options: { method: 'POST', credentials: 'include' } };
     default:
       return null;
   }
@@ -342,6 +405,7 @@ async function handleProgramAction(action) {
     }
   }
   await loadPrograms();
+  await loadTemplates();
   programMessage.textContent = `${label} complete — ${success} succeeded, ${failure} failed.`;
 }
 
@@ -366,6 +430,10 @@ function getTemplatePayload(action) {
 
 async function handleTemplateAction(action) {
   if (!CAN_MANAGE_TEMPLATES) return;
+  if (!selectedProgramId) {
+    templateMessage.textContent = 'Select a program first.';
+    return;
+  }
   if (!selectedTemplateIds.size) {
     templateMessage.textContent = 'Select at least one template first.';
     return;
@@ -379,7 +447,7 @@ async function handleTemplateAction(action) {
   let failure = 0;
   for (const id of ids) {
     try {
-      const res = await fetch(`${API}/api/templates/${encodeURIComponent(id)}`, {
+      const res = await fetch(`${API}/programs/${encodeURIComponent(selectedProgramId)}/templates/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -408,14 +476,42 @@ programTableBody.addEventListener('change', event => {
     target.checked = false;
     return;
   }
+  const previousActiveId = selectedProgramId;
   if (target.checked) {
     selectedProgramIds.add(id);
+    selectedProgramId = id;
   } else {
     selectedProgramIds.delete(id);
+    if (selectedProgramId === id) {
+      const nextSelected = selectedProgramIds.values().next();
+      if (!nextSelected.done) {
+        selectedProgramId = nextSelected.value;
+      } else {
+        const fallback = programs.map(getProgramId).find(Boolean) || null;
+        selectedProgramId = fallback;
+      }
+    }
   }
   updateProgramSelectionSummary();
   const displayed = getFilteredPrograms();
   updateProgramActionsState(displayed);
+  if (selectedProgramId !== previousActiveId) {
+    updateActiveProgramIndicators();
+    loadTemplates();
+  }
+});
+
+programTableBody.addEventListener('click', event => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.closest('input[type="checkbox"]')) return;
+  const row = target.closest('tr[data-program-id]');
+  if (!row) return;
+  const id = row.getAttribute('data-program-id');
+  if (!id || selectedProgramId === id) return;
+  selectedProgramId = id;
+  updateActiveProgramIndicators();
+  loadTemplates();
 });
 
 templateTableBody.addEventListener('change', event => {
@@ -455,13 +551,36 @@ if (programSelectAll) {
       programSelectAll.checked = false;
       return;
     }
+    const previousActiveId = selectedProgramId;
     const displayed = getFilteredPrograms();
     if (programSelectAll.checked) {
-      displayed.forEach(p => selectedProgramIds.add(p.id));
+      displayed.forEach(p => {
+        const programId = getProgramId(p);
+        if (programId) selectedProgramIds.add(programId);
+      });
+      const firstDisplayed = displayed.map(getProgramId).find(Boolean) || null;
+      if (firstDisplayed) {
+        selectedProgramId = firstDisplayed;
+      }
     } else {
-      displayed.forEach(p => selectedProgramIds.delete(p.id));
+      displayed.forEach(p => {
+        const programId = getProgramId(p);
+        if (programId) selectedProgramIds.delete(programId);
+      });
+      if (!selectedProgramIds.size) {
+        const fallback = programs.map(getProgramId).find(Boolean) || null;
+        selectedProgramId = fallback;
+      } else if (!selectedProgramIds.has(selectedProgramId)) {
+        const nextSelected = selectedProgramIds.values().next();
+        if (!nextSelected.done) {
+          selectedProgramId = nextSelected.value;
+        }
+      }
     }
     renderPrograms();
+    if (selectedProgramId !== previousActiveId) {
+      loadTemplates();
+    }
   });
 }
 
@@ -473,9 +592,15 @@ if (templateSelectAll) {
     }
     const displayed = getFilteredTemplates();
     if (templateSelectAll.checked) {
-      displayed.forEach(t => selectedTemplateIds.add(t.id));
+      displayed.forEach(t => {
+        const templateId = getTemplateId(t);
+        if (templateId) selectedTemplateIds.add(templateId);
+      });
     } else {
-      displayed.forEach(t => selectedTemplateIds.delete(t.id));
+      displayed.forEach(t => {
+        const templateId = getTemplateId(t);
+        if (templateId) selectedTemplateIds.delete(templateId);
+      });
     }
     renderTemplates();
   });
@@ -499,7 +624,9 @@ templateActionsContainer.addEventListener('click', event => {
 
 if (btnRefreshPrograms) {
   btnRefreshPrograms.addEventListener('click', () => {
-    loadPrograms();
+    loadPrograms()
+      .then(() => loadTemplates())
+      .catch(() => {});
   });
 }
 
