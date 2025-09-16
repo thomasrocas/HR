@@ -1768,8 +1768,8 @@ useEffect(() => {
                 <button className="btn btn-outline w-full" onClick={() => refreshPrograms()}>
                   Refresh Programs
                 </button>
-                {me.roles?.some(r => ['admin', 'manager'].includes(r)) && (
-                  <a href="/admin?tab=users" className="btn btn-outline w-full">Admin Console</a>
+                {me.roles?.includes('admin') && (
+                  <a href="/admin/role-manager.html" className="btn btn-outline w-full">Role Manager</a>
                 )}
                 <button className="btn btn-outline w-full" disabled>
                   Clear Cache (coming soon)

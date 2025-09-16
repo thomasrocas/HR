@@ -17,7 +17,7 @@ const policy: Record<string, Record<string, Role[]>> = {
     create: ['admin'],
     read: ['admin', 'manager', 'viewer', 'trainee'],
     update: ['admin'],
-    manageRoles: ['admin', 'manager'],
+    manageRoles: ['admin'],
     assignPrograms: ['admin', 'manager'],
     deactivate: ['admin'],
     reactivate: ['admin'],
