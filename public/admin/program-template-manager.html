@@ -354,47 +354,73 @@
           <p class="text-sm text-slate-500">Update template readiness before assigning to programs.</p>
         </div>
         <div class="flex items-center gap-2 flex-wrap justify-end">
-          <button id="btnNewTemplate" class="btn btn-primary text-sm">New Template</button>
+          <button id="btnNewTemplate" class="btn btn-primary text-sm">Add Template</button>
           <button id="btnEditTemplate" class="btn btn-outline text-sm" disabled>Edit Template</button>
           <button id="btnRefreshTemplates" class="btn btn-outline text-sm">Refresh</button>
         </div>
       </div>
 
-      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-        <label class="space-y-1">
-          <span class="label-text">Search templates</span>
-          <input id="templateSearch" class="input" placeholder="Search by name, status, category, or description…">
-        </label>
-        <div id="templateSelectionSummary" class="text-xs text-slate-500 md:text-right">No templates selected.</div>
-      </div>
+      <div class="grid gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)] items-start">
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+            <label class="space-y-1">
+              <span class="label-text">Search templates</span>
+              <input id="templateSearch" class="input" placeholder="Search by name, status, category, or description…">
+            </label>
+            <div id="templateSelectionSummary" class="text-xs text-slate-500 md:text-right">No templates selected.</div>
+          </div>
 
-      <div class="panel-section overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="table min-w-full" id="templateTable">
-            <thead class="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th class="w-10">
-                  <input type="checkbox" id="templateSelectAll" class="rounded border-slate-300">
-                </th>
-                <th>Name</th>
-                <th>Category</th>
-                <th>Status</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody id="templateTableBody" class="bg-white text-sm"></tbody>
-          </table>
-        </div>
-      </div>
+          <div class="panel-section overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="table min-w-full" id="templateTable">
+                <thead class="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th class="w-10">
+                      <input type="checkbox" id="templateSelectAll" class="rounded border-slate-300">
+                    </th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="templateTableBody" class="bg-white text-sm"></tbody>
+              </table>
+            </div>
+          </div>
 
-      <div class="space-y-1">
-        <div class="flex flex-wrap gap-2" id="templateActions">
-          <button class="btn btn-primary" data-template-action="publish">Publish</button>
-          <button class="btn btn-outline" data-template-action="draft">Mark Draft</button>
-          <button class="btn btn-outline" data-template-action="deprecate">Deprecate</button>
+          <div class="space-y-1">
+            <div class="flex flex-wrap gap-2" id="templateActions">
+              <button class="btn btn-primary" data-template-action="publish">Publish</button>
+              <button class="btn btn-outline" data-template-action="draft">Mark Draft</button>
+              <button class="btn btn-outline" data-template-action="deprecate">Deprecate</button>
+            </div>
+            <div id="templateActionHint" class="text-xs text-slate-500">Select one or more templates to enable status changes.</div>
+            <div id="templateMessage" class="text-xs text-slate-500"></div>
+          </div>
         </div>
-        <div id="templateActionHint" class="text-xs text-slate-500">Select one or more templates to enable status changes.</div>
-      <div id="templateMessage" class="text-xs text-slate-500"></div>
+
+        <aside id="programTemplatePanel" class="panel-section hidden p-4 space-y-4" aria-live="polite">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="space-y-1">
+              <h3 id="programTemplatePanelTitle" class="text-lg font-semibold">Program templates</h3>
+              <p id="programTemplatePanelDescription" class="text-sm text-slate-500">Select a program to manage template assignments.</p>
+            </div>
+            <button id="btnPanelAddTemplate" class="btn btn-primary text-sm">Add Template</button>
+          </div>
+          <p id="programTemplatePanelMessage" class="text-xs text-slate-500 hidden"></p>
+          <div id="programTemplatePanelEmpty" class="text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl p-4 text-center hidden">
+            No templates assigned to this program yet.
+          </div>
+          <ul id="programTemplateList" class="space-y-4" aria-live="polite"></ul>
+          <datalist id="templateVisibilityOptions">
+            <option value="inherit"></option>
+            <option value="assignee"></option>
+            <option value="manager"></option>
+            <option value="team"></option>
+            <option value="hidden"></option>
+          </datalist>
+        </aside>
       </div>
     </section>
   </div>
