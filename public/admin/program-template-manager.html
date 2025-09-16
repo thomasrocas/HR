@@ -510,28 +510,23 @@
       </div>
       <form id="templateForm" class="flex flex-col gap-0">
         <div class="modal-body space-y-4">
-          <div>
-            <label for="templateFormName" class="label-text mb-1">Name</label>
-            <input id="templateFormName" name="name" class="input" placeholder="Template name" required>
-          </div>
           <div class="grid gap-3 md:grid-cols-2">
             <label class="space-y-1">
-              <span class="label-text">Category</span>
-              <input id="templateFormCategory" name="category" class="input" placeholder="e.g. Onboarding">
+              <span class="label-text">Week number</span>
+              <input id="templateFormWeek" name="week_number" type="number" min="1" step="1" class="input" placeholder="e.g. 1" required>
             </label>
             <label class="space-y-1">
-              <span class="label-text">Status</span>
-              <select id="templateFormStatus" name="status" class="input">
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="deprecated">Deprecated</option>
-                <option value="archived">Archived</option>
-              </select>
+              <span class="label-text">Sort order</span>
+              <input id="templateFormSort" name="sort_order" type="number" min="1" step="1" class="input" placeholder="e.g. 1">
             </label>
           </div>
           <div>
-            <label for="templateFormDescription" class="label-text mb-1">Description</label>
-            <textarea id="templateFormDescription" name="description" class="textarea" placeholder="Add context or guidance for collaborators..."></textarea>
+            <label for="templateFormLabel" class="label-text mb-1">Label</label>
+            <input id="templateFormLabel" name="label" class="input" placeholder="Template label" required>
+          </div>
+          <div>
+            <label for="templateFormNotes" class="label-text mb-1">Notes</label>
+            <textarea id="templateFormNotes" name="notes" class="textarea" placeholder="Add context or guidance for collaborators..."></textarea>
           </div>
           <p id="templateFormMessage" class="text-sm text-slate-500 hidden"></p>
         </div>
