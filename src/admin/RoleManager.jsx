@@ -328,11 +328,11 @@ export default function RoleManager() {
             <a href="/admin/roles" className="btn btn-primary text-sm">
               Roles &amp; Programs
             </a>
-            <a href="/programs" className="btn btn-outline text-sm">
-              Programs
-            </a>
-            <a href="/programs?tab=templates" className="btn btn-outline text-sm">
-              Templates
+            <a
+              href="/admin/program-template-manager.html"
+              className="btn btn-outline text-sm"
+            >
+              Program Templates
             </a>
           </div>
         </header>
