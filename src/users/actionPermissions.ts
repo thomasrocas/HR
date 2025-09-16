@@ -10,6 +10,7 @@ export interface UserActionAvailability {
   canAssignPrograms: boolean;
   canDeactivate: boolean;
   canReactivate: boolean;
+  canArchive: boolean;
   toggleableRoles: Role[];
   lockedRoles: Role[];
   managerOnly: boolean;
@@ -44,6 +45,9 @@ export const getActionAvailability = (
     ),
     canReactivate: Boolean(
       targetUser && targetUser.status === 'suspended' && can(currentUser, 'reactivate', 'user'),
+    ),
+    canArchive: Boolean(
+      targetUser && targetUser.status !== 'archived' && can(currentUser, 'archive', 'user'),
     ),
     toggleableRoles,
     lockedRoles,
