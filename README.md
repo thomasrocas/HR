@@ -6,8 +6,34 @@ The application includes an account and settings side panel on the right. On sma
 panel slides in when the chevron toggle at the screen edge is tapped and closes when the backdrop is clicked or the
 Escape key is pressed. On larger screens it remains visible.
 
-The panel container uses the shared `card` class, while its buttons and form fields use the
-common `btn` and `input` classes to keep styling consistent across the app.
+The panel now shares styling tokens with the admin role manager. Wrap the outer container in a
+`panel` class and any nested sections in `panel-section` to inherit the rounded corners, borders, and
+surface colors. Buttons inside the panel should use the base `btn` class with one of the variants
+(`btn-primary`, `btn-outline`, or `btn-ghost`). Form inputs share the `form-field` utility (alias `input`).
+This keeps typography, spacing, and focus states consistent across admin pages.
+
+## Design tokens & utilities
+
+Color variables are defined in `src/styles.css` (`--brand-primary`, `--surface`, `--text-muted`, etc.)
+and mirrored in `tailwind.config.ts` as the `brand`, `surface`, `ink`, `border`, and `focus` color
+groups. Use the Tailwind classes generated from these tokens (`bg-surface`, `bg-surface-alt`,
+`text-ink`, `text-ink-muted`, `border-border`, `ring-focus`) to keep layouts on brand without
+falling back to arbitrary values.
+
+Shared component classes introduced for the role manager:
+
+- `panel` and `panel-section` – Card containers with rounded corners, border, and subtle shadowing
+  for primary and nested sections respectively.
+- `label-text` – Uppercase caption styling for field labels.
+- `form-field` / `input` – Rounded text input with shared focus ring using the `focus` token.
+- `btn` – Base button styling with consistent spacing, rounded corners, disabled states, and
+  accessible focus ring. Pair with:
+  - `btn-primary` for filled actions using the brand color.
+  - `btn-outline` for neutral bordered actions on surface backgrounds.
+  - `btn-ghost` for low-emphasis text buttons.
+
+When creating new interactions, prefer these utilities over bespoke styles so future contributors
+inherit the same spacing, typography, and color behavior.
 
 
 ## Migrations
