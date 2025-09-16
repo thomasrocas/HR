@@ -14,6 +14,16 @@ export interface Program {
   assignedCount: number;
 }
 
+export interface Template {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  status: 'draft' | 'published' | 'archived';
+  updatedAt: string;
+  usageCount: number;
+}
+
 const useMock = true;
 
 async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
@@ -93,16 +103,16 @@ export const cloneProgram = (id: string) =>
   apiFetch<Program>(`/api/programs/${id}/clone`, { method: 'POST' });
 
 export const getTemplates = (params: { query?: string; category?: string }) =>
-  apiFetch<{ data: any[] }>(`/api/templates?${new URLSearchParams(params as any)}`);
+  apiFetch<{ data: Template[] }>(`/api/templates?${new URLSearchParams(params as any)}`);
 
-export const createTemplate = (payload: any) =>
-  apiFetch('/api/templates', { method: 'POST', body: JSON.stringify(payload) });
+export const createTemplate = (payload: Partial<Template>) =>
+  apiFetch<Template>('/api/templates', { method: 'POST', body: JSON.stringify(payload) });
 
-export const patchTemplate = (id: string, payload: any) =>
-  apiFetch(`/api/templates/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+export const patchTemplate = (id: string, payload: Partial<Template>) =>
+  apiFetch<Template>(`/api/templates/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
 
 export const archiveTemplate = (id: string) =>
-  apiFetch(`/api/templates/${id}/archive`, { method: 'POST' });
+  apiFetch<Template>(`/api/templates/${id}/archive`, { method: 'POST' });
 
 export const bulkAssign = (
   assignments: { userId: string; programId: string; startDate: string; dueDate: string }[],
@@ -117,6 +127,7 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   await new Promise(r => setTimeout(r, 300)); // simulate latency
   const u = seed.users;
   const p = seed.programs;
+  const t = seed.templates;
   switch (true) {
     case url.startsWith('/api/users?'):
       return { data: u, meta: { total: u.length, page: 1 } } as any;
@@ -124,6 +135,58 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { ...opts?.body && JSON.parse(opts.body.toString()), id: 'u-new' } as any;
     case url.startsWith('/api/programs?'):
       return { data: p, meta: { total: p.length, page: 1 } } as any;
+    case url.startsWith('/api/templates?'): {
+      const searchParams = url.includes('?')
+        ? new URLSearchParams(url.split('?')[1])
+        : new URLSearchParams();
+      const query = (searchParams.get('query') ?? '').toLowerCase();
+      const category = searchParams.get('category') ?? '';
+      let data = [...t];
+      if (query) {
+        data = data.filter(template =>
+          `${template.name} ${template.description}`.toLowerCase().includes(query),
+        );
+      }
+      if (category) {
+        data = data.filter(template => template.category === category);
+      }
+      return { data } as any;
+    }
+    case url === '/api/templates' && opts?.method === 'POST': {
+      const payload = opts?.body ? JSON.parse(opts.body.toString()) : {};
+      const now = new Date().toISOString().split('T')[0];
+      const newTemplate: Template = {
+        id: `tpl-${Math.random().toString(36).slice(2, 8)}`,
+        name: payload.name ?? 'Untitled Template',
+        category: payload.category ?? 'General',
+        description: payload.description ?? '',
+        status: payload.status ?? 'draft',
+        updatedAt: now,
+        usageCount: 0,
+      };
+      t.push(newTemplate);
+      return newTemplate as any;
+    }
+    case /^\/api\/templates\/[^/]+$/.test(url) && opts?.method === 'PATCH': {
+      const id = url.split('/')[3];
+      const payload = opts?.body ? JSON.parse(opts.body.toString()) : {};
+      const template = t.find(item => item.id === id);
+      if (!template) {
+        throw new Error('Template not found');
+      }
+      Object.assign(template, payload, { updatedAt: new Date().toISOString().split('T')[0] });
+      return template as any;
+    }
+    case /^\/api\/templates\/[^/]+\/archive$/.test(url) && opts?.method === 'POST': {
+      const id = url.split('/')[3];
+      const template = t.find(item => item.id === id);
+      if (!template) {
+        throw new Error('Template not found');
+      }
+      template.status = 'archived';
+      template.updatedAt = new Date().toISOString().split('T')[0];
+      return template as any;
+    }
     case url.startsWith('/api/audit'):
       return seed.audit as any;
     default:
@@ -183,6 +246,35 @@ export const seed = {
       assignedCount: 1,
     },
   ] as Program[],
+  templates: [
+    {
+      id: 'tpl-1',
+      name: 'New Hire Orientation Checklist',
+      category: 'Onboarding',
+      description: 'Step-by-step onboarding checklist for new employees.',
+      status: 'published',
+      updatedAt: '2024-05-12',
+      usageCount: 18,
+    },
+    {
+      id: 'tpl-2',
+      name: 'Manager Coaching Plan',
+      category: 'Development',
+      description: 'Guided coaching plan for newly promoted managers.',
+      status: 'draft',
+      updatedAt: '2024-04-02',
+      usageCount: 5,
+    },
+    {
+      id: 'tpl-3',
+      name: 'Security Refresher',
+      category: 'Compliance',
+      description: 'Annual security awareness and policy refresh template.',
+      status: 'published',
+      updatedAt: '2024-03-18',
+      usageCount: 24,
+    },
+  ] as Template[],
   audit: [
     { id: 'a1', action: 'create', at: '2024-05-10', actor: 'alice@example.com' },
     { id: 'a2', action: 'deactivate', at: '2024-06-01', actor: 'admin@example.com' },

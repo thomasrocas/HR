@@ -1,44 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import {
-  getPrograms,
-  createProgram,
-  publishProgram,
-  deprecateProgram,
-  archiveProgram,
-  getTemplates,
-} from '../api';
+import { getPrograms, createProgram, publishProgram, deprecateProgram, archiveProgram } from '../api';
 import { can, User } from '../rbac';
 
 export default function ProgramsLanding({ currentUser }: { currentUser: User }) {
-  const [tab, setTab] = useState<'programs' | 'templates' | 'assignments'>(() => {
+  const [tab, setTab] = useState<'programs' | 'assignments'>(() => {
     if (typeof window === 'undefined') return 'programs';
     const initialTab = new URLSearchParams(window.location.search).get('tab');
-    return initialTab === 'templates' || initialTab === 'assignments' || initialTab === 'programs'
-      ? initialTab
-      : 'programs';
+    return initialTab === 'assignments' ? 'assignments' : 'programs';
   });
   const [programs, setPrograms] = useState<any[]>([]);
-  const [templates, setTemplates] = useState<any[]>([]);
 
   useEffect(() => {
     if (tab === 'programs') getPrograms({}).then(r => setPrograms(r.data));
-    if (tab === 'templates') getTemplates({}).then(r => setTemplates(r.data));
   }, [tab]);
 
   return (
     <div className="p-8 space-y-6">
       <header className="space-y-2">
-        <h1 className="text-2xl font-bold">Programs & Templates</h1>
+        <h1 className="text-2xl font-bold">Programs</h1>
       </header>
 
       {/* Segmented Tabs */}
       <div className="flex gap-2">
-        {['programs', 'templates', 'assignments']
+        {(['programs', 'assignments'] as const)
           .filter(t => (t === 'assignments' ? can(currentUser, 'assignToUser', 'program') : true))
           .map(t => (
             <button
               key={t}
-              onClick={() => setTab(t as any)}
+              onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-full text-sm ${
                 tab === t ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--surface-alt)]'
               }`}
@@ -94,41 +83,6 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
           </div>
         </section>
       )}
-
-      {tab === 'templates' && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="Search templates"
-            />
-            {can(currentUser, 'create', 'template') && (
-              <button className="bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md">
-                New Template
-              </button>
-            )}
-          </div>
-          <div className="grid md:grid-cols-3 gap-4">
-            {templates.map(t => (
-              <div key={t.id} className="card p-4 space-y-2">
-                <h3 className="font-semibold">{t.name}</h3>
-                <p className="text-sm text-[var(--text-muted)]">{t.category}</p>
-                <p className="text-sm">Updated: {t.updatedAt || '--'}</p>
-                <div className="flex gap-2 text-sm pt-2">
-                  {can(currentUser, 'update', 'template') && (
-                    <button className="underline">Edit</button>
-                  )}
-                  {can(currentUser, 'archive', 'template') && (
-                    <button className="underline">Archive</button>
-                  )}
-                </div>
-              }
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
       {tab === 'assignments' && (
         <section>
           <p className="text-[var(--text-muted)]">
