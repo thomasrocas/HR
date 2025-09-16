@@ -391,6 +391,14 @@ function ensurePerm(...permKeys) {
   };
 }
 
+app.get('/admin/user-manager', ensureAuth, (req, res) => {
+  const roles = req.roles || [];
+  if (!(roles.includes('admin') || roles.includes('manager'))) {
+    return res.status(403).send('forbidden');
+  }
+  res.sendFile(path.join(PUBLIC_DIR, 'admin', 'user-manager.html'));
+});
+
 async function userManagesProgram(userId, programId) {
   if (!userId || !programId) return false;
   const { rowCount } = await pool.query(

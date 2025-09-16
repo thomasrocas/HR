@@ -25,10 +25,43 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
     if (tab === 'templates') getTemplates({}).then(r => setTemplates(r.data));
   }, [tab]);
 
+  const navLinkBase =
+    'inline-flex items-center justify-center px-3 py-1.5 rounded-full border text-sm transition-colors';
+  const navLinkActive = 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]';
+  const navLinkInactive =
+    'bg-[var(--surface)] text-[var(--text-primary)] border-[var(--border)] hover:bg-[var(--surface-alt)]';
+  const navLinkClass = (isActive: boolean) =>
+    `${navLinkBase} ${isActive ? navLinkActive : navLinkInactive}`;
+  const isTemplatesView = tab === 'templates';
+
   return (
     <div className="p-8 space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-bold">Programs & Templates</h1>
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold">Programs & Templates</h1>
+          <p className="text-sm text-[var(--text-muted)]">
+            Publish, template, and assign onboarding experiences for your teammates.
+          </p>
+        </div>
+        <div className="flex flex-col items-start gap-3 md:items-end">
+          <nav className="flex flex-wrap gap-2">
+            <a href="/admin/user-manager" className={navLinkClass(false)}>
+              Users
+            </a>
+            <a href="/admin/role-manager.html" className={navLinkClass(false)}>
+              Roles &amp; Programs
+            </a>
+            <a href="/programs" className={navLinkClass(!isTemplatesView)}>
+              Programs
+            </a>
+            <a href="/programs?tab=templates" className={navLinkClass(isTemplatesView)}>
+              Templates
+            </a>
+          </nav>
+          <a href="/" className="text-sm text-[var(--brand-primary)] underline">
+            ← Back to Orientation
+          </a>
+        </div>
       </header>
 
       {/* Segmented Tabs */}
