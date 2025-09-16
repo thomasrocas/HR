@@ -52,9 +52,13 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 const SRC_DIR = path.join(__dirname, 'src');
 app.use('/src', express.static(SRC_DIR));
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'orientation_index.html'));
-});
+
+const ORIENTATION_INDEX = path.join(PUBLIC_DIR, 'orientation_index.html');
+const sendOrientationApp = (_req, res) => res.sendFile(ORIENTATION_INDEX);
+
+app.get('/', sendOrientationApp);
+app.get('/admin', sendOrientationApp);
+app.get('/admin/*', sendOrientationApp);
 
 // ==== 4) Sessions (stored in Postgres) + Passport ====
 // Use env override so local HTTP works but prod can require HTTPS.
