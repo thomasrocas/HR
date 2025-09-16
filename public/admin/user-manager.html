@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>ANX • User Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { anx: { sky: '#0ea5e9' }}}}};
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-6xl mx-auto p-4 space-y-4">
+    <header class="flex items-center justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold">User Manager</h1>
+        <p class="text-sm text-slate-500">Invite teammates, update their profiles, and control access.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex gap-2">
+          <a href="/admin/user-manager.html" class="btn btn-outline text-sm bg-anx-sky text-white">Users</a>
+          <a href="/admin/role-manager.html" class="btn btn-outline text-sm">Roles &amp; Programs</a>
+          <a href="/programs" class="btn btn-outline text-sm">Programs</a>
+          <a href="/programs?tab=templates" class="btn btn-outline text-sm">Templates</a>
+        </div>
+        <a href="/" class="text-sm text-anx-sky underline">← Back to Orientation</a>
+      </div>
+    </header>
+
+    <section class="bg-white border rounded-2xl p-4 space-y-4">
+      <div class="flex flex-wrap gap-3 items-end">
+        <div class="flex-1 min-w-[260px]">
+          <label class="block text-sm mb-1" for="q">Search users</label>
+          <input id="q" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Search by name or email…">
+        </div>
+        <div class="min-w-[200px]">
+          <label class="block text-sm mb-1">Selected user</label>
+          <div id="selectedUserSummary" class="text-sm font-medium">—</div>
+        </div>
+        <div>
+          <button id="btnReloadUsers" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm">Refresh</button>
+        </div>
+      </div>
+
+      <div class="mt-4 grid md:grid-cols-2 gap-4">
+        <div>
+          <div id="userList" class="bg-slate-50 border rounded-xl max-h-[380px] overflow-auto text-sm"></div>
+        </div>
+        <div class="space-y-4">
+          <div class="border rounded-xl p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div id="selectedName" class="text-lg font-semibold">Select a user</div>
+                <div id="selectedUsername" class="text-sm text-slate-500">Search or choose a user to view their details.</div>
+              </div>
+              <div id="selectedStatus" class="hidden text-xs uppercase tracking-wide bg-slate-100 text-slate-600 px-3 py-1 rounded-full"></div>
+            </div>
+            <div class="mt-4">
+              <div class="text-xs font-semibold uppercase text-slate-500">Roles</div>
+              <div id="selectedRoles" class="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                <span class="text-slate-500">Roles will appear once a user is selected.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="border rounded-xl p-4">
+            <div class="text-sm font-semibold mb-3">User actions</div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <button id="btnOpenCreate" class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm bg-anx-sky text-white">Create / Invite</button>
+              <button id="btnOpenEdit" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Edit name &amp; email</button>
+              <button id="btnOpenRoles" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Update roles</button>
+              <button id="btnOpenPrograms" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Assign programs</button>
+              <button id="btnOpenLifecycle" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm sm:col-span-2">Deactivate / Reactivate / Archive</button>
+            </div>
+            <p id="actionHint" class="mt-3 text-xs text-slate-500">Select a user to enable profile actions.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Drawers -->
+  <div id="drawerCreate" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Invite a new user</h2>
+          <p class="text-sm text-slate-500 mt-1">Send an invitation email and assign starter roles.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <form id="formCreate" class="mt-4 space-y-4">
+        <div>
+          <label class="block text-sm mb-1" for="createFullName">Full name</label>
+          <input id="createFullName" name="fullName" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="ex: Jamie Ramirez" data-autofocus>
+        </div>
+        <div>
+          <label class="block text-sm mb-1" for="createEmail">Email</label>
+          <input id="createEmail" name="email" type="email" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="name@example.com" required>
+        </div>
+        <div>
+          <label class="block text-sm mb-1" for="createRoles">Initial roles</label>
+          <select id="createRoles" name="roles" multiple class="w-full border rounded-xl px-3 py-2 text-sm h-28">
+            <option value="admin">admin</option>
+            <option value="manager">manager</option>
+            <option value="viewer">viewer</option>
+            <option value="trainee">trainee</option>
+            <option value="auditor">auditor</option>
+          </select>
+          <p class="text-xs text-slate-500 mt-1">Hold ⌘/Ctrl to select more than one role.</p>
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input id="createSendInvite" name="sendInvite" type="checkbox" class="rounded border-slate-300">
+          <span>Send invitation email immediately</span>
+        </label>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
+          <button type="submit" class="px-3 py-2 rounded-xl border text-sm bg-anx-sky text-white">Send invite</button>
+        </div>
+        <div id="createMsg" class="text-xs text-slate-500"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="drawerEdit" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Edit user details</h2>
+          <p class="text-sm text-slate-500 mt-1">Update the name or email address for the selected user.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <form id="formEdit" class="mt-4 space-y-4">
+        <div>
+          <label class="block text-sm mb-1" for="editFullName">Full name</label>
+          <input id="editFullName" name="fullName" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Full name">
+        </div>
+        <div>
+          <label class="block text-sm mb-1" for="editEmail">Email</label>
+          <input id="editEmail" name="email" type="email" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="name@example.com" required>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
+          <button type="submit" class="px-3 py-2 rounded-xl border text-sm bg-anx-sky text-white">Save changes</button>
+        </div>
+        <div id="editMsg" class="text-xs text-slate-500"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="drawerRoles" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Update roles</h2>
+          <p class="text-sm text-slate-500 mt-1">Choose which roles apply to <span id="rolesUserName" class="font-medium text-slate-700">this user</span>.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <form id="formRoles" class="mt-4 space-y-4">
+        <div id="drawerRolesBox" class="flex flex-wrap gap-2 text-sm"></div>
+        <p id="rolesInfo" class="text-xs text-slate-500"></p>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
+          <button type="submit" class="px-3 py-2 rounded-xl border text-sm bg-anx-sky text-white">Save roles</button>
+        </div>
+        <div id="rolesDrawerMsg" class="text-xs text-slate-500"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="drawerPrograms" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Assign programs</h2>
+          <p class="text-sm text-slate-500 mt-1">Preload orientation programs for <span id="programsUserName" class="font-medium text-slate-700">this user</span>.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <form id="formPrograms" class="mt-4 space-y-4">
+        <div id="drawerProgramList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"></div>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
+          <button type="submit" class="px-3 py-2 rounded-xl border text-sm bg-anx-sky text-white">Assign programs</button>
+        </div>
+        <div id="programsMsg" class="text-xs text-slate-500"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="drawerLifecycle" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Manage user lifecycle</h2>
+          <p class="text-sm text-slate-500 mt-1">Deactivate, reactivate, or archive <span id="lifecycleUserName" class="font-medium text-slate-700">this user</span>.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <form id="formDeactivate" class="mt-4 space-y-3">
+        <div>
+          <label class="block text-sm mb-1" for="deactivateReason">Reason (optional)</label>
+          <textarea id="deactivateReason" name="reason" rows="3" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Share context for this change."></textarea>
+        </div>
+        <button id="btnDeactivate" type="submit" class="w-full inline-flex justify-center px-3 py-2 rounded-xl border text-sm">Deactivate user</button>
+      </form>
+      <div class="mt-4 grid gap-2">
+        <button id="btnReactivate" class="px-3 py-2 rounded-xl border text-sm">Reactivate user</button>
+        <button id="btnArchive" class="px-3 py-2 rounded-xl border text-sm">Archive user</button>
+      </div>
+      <div id="lifecycleMsg" class="text-xs text-slate-500 mt-3"></div>
+    </div>
+  </div>
+
+  <script type="module">
+const API = window.location.origin;
+
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(value = '') {
+  return String(value).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch] || ch);
+}
+
+const meRes = await fetch(`${API}/me`, { credentials: 'include' });
+if (!meRes.ok) {
+  location.href = '/';
+}
+const me = await meRes.json();
+const IS_ADMIN = (me.roles || []).includes('admin');
+const IS_MANAGER = (me.roles || []).includes('manager');
+
+async function listUsers() {
+  const r = await fetch(`${API}/rbac/users`, { credentials: 'include' });
+  if (!r.ok) throw new Error('GET /rbac/users failed');
+  return r.json();
+}
+async function listPrograms() {
+  const r = await fetch(`${API}/programs`, { credentials: 'include' });
+  if (!r.ok) throw new Error('GET /programs failed');
+  return r.json();
+}
+async function saveUserRoles(userId, roles) {
+  return fetch(`${API}/rbac/users/${userId}/roles`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roles })
+  });
+}
+async function preloadForUser(userId, programId) {
+  return fetch(`${API}/rbac/users/${userId}/programs/${encodeURIComponent(programId)}/instantiate`, {
+    method: 'POST',
+    credentials: 'include'
+  });
+}
+async function createUser(payload) {
+  return fetch(`${API}/api/users`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+async function updateUserProfile(userId, payload) {
+  return fetch(`${API}/api/users/${userId}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+async function deactivateUserRequest(userId, reason) {
+  return fetch(`${API}/api/users/${userId}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason })
+  });
+}
+async function reactivateUserRequest(userId) {
+  return fetch(`${API}/api/users/${userId}/reactivate`, {
+    method: 'POST',
+    credentials: 'include'
+  });
+}
+async function archiveUserRequest(userId) {
+  return fetch(`${API}/api/users/${userId}/archive`, {
+    method: 'POST',
+    credentials: 'include'
+  });
+}
+
+let USERS = [];
+let PROGRAMS = [];
+let selectedUser = null;
+
+const elQ = document.getElementById('q');
+const elUserList = document.getElementById('userList');
+const elSelectedSummary = document.getElementById('selectedUserSummary');
+const elSelectedName = document.getElementById('selectedName');
+const elSelectedUsername = document.getElementById('selectedUsername');
+const elSelectedStatus = document.getElementById('selectedStatus');
+const elSelectedRoles = document.getElementById('selectedRoles');
+const elBtnReloadUsers = document.getElementById('btnReloadUsers');
+const actionHint = document.getElementById('actionHint');
+
+const btnOpenCreate = document.getElementById('btnOpenCreate');
+const btnOpenEdit = document.getElementById('btnOpenEdit');
+const btnOpenRoles = document.getElementById('btnOpenRoles');
+const btnOpenPrograms = document.getElementById('btnOpenPrograms');
+const btnOpenLifecycle = document.getElementById('btnOpenLifecycle');
+const userActionButtons = document.querySelectorAll('[data-requires-user]');
+
+const formCreate = document.getElementById('formCreate');
+const formEdit = document.getElementById('formEdit');
+const formRoles = document.getElementById('formRoles');
+const formPrograms = document.getElementById('formPrograms');
+const formDeactivate = document.getElementById('formDeactivate');
+
+const createMsg = document.getElementById('createMsg');
+const editMsg = document.getElementById('editMsg');
+const rolesDrawerMsg = document.getElementById('rolesDrawerMsg');
+const programsMsg = document.getElementById('programsMsg');
+const lifecycleMsg = document.getElementById('lifecycleMsg');
+
+const rolesInfo = document.getElementById('rolesInfo');
+const rolesUserName = document.getElementById('rolesUserName');
+const programsUserName = document.getElementById('programsUserName');
+const lifecycleUserName = document.getElementById('lifecycleUserName');
+
+const drawerRolesBox = document.getElementById('drawerRolesBox');
+const drawerProgramList = document.getElementById('drawerProgramList');
+
+const inputEditFullName = document.getElementById('editFullName');
+const inputEditEmail = document.getElementById('editEmail');
+const inputCreateRoles = document.getElementById('createRoles');
+const textareaDeactivateReason = document.getElementById('deactivateReason');
+
+const btnDeactivate = document.getElementById('btnDeactivate');
+const btnReactivate = document.getElementById('btnReactivate');
+const btnArchive = document.getElementById('btnArchive');
+
+function setUserActionState(enabled) {
+  userActionButtons.forEach(btn => {
+    btn.disabled = !enabled;
+    btn.classList.toggle('opacity-50', !enabled);
+    btn.classList.toggle('pointer-events-none', !enabled);
+  });
+}
+setUserActionState(false);
+
+function renderUsers(filter = '') {
+  const f = filter.trim().toLowerCase();
+  const rows = USERS
+    .filter(u => (u.full_name || '').toLowerCase().includes(f) || (u.username || '').toLowerCase().includes(f))
+    .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+  if (!rows.length) {
+    elUserList.innerHTML = '<div class="p-4 text-sm text-slate-500">No users match your search.</div>';
+    return;
+  }
+  elUserList.innerHTML = rows.map(u => {
+    const active = selectedUser && selectedUser.id === u.id;
+    const idAttr = escapeHtml(u.id || '');
+    const displayName = escapeHtml(u.full_name || '—');
+    const username = escapeHtml(u.username || '');
+    const status = escapeHtml(u.status || 'active');
+    const roles = escapeHtml((u.roles || []).join(', ') || '—');
+    const classes = active ? 'bg-white shadow-sm' : '';
+    return `
+    <button data-id="${idAttr}" class="w-full text-left px-3 py-2 border-b hover:bg-white ${classes}">
+      <div class="font-medium">${displayName}</div>
+      <div class="text-xs text-slate-500">${username}</div>
+      <div class="text-xs text-slate-500">Status: ${status}</div>
+      <div class="text-xs text-slate-500">Roles: ${roles}</div>
+    </button>
+    `;
+  }).join('');
+}
+
+function renderRolesChips(user) {
+  const roles = user && Array.isArray(user.roles) ? user.roles : [];
+  if (!roles.length) {
+    elSelectedRoles.innerHTML = '<span class="text-xs text-slate-500">No roles assigned.</span>';
+    return;
+  }
+  elSelectedRoles.innerHTML = roles.map(role => `
+    <span class="inline-flex items-center px-2 py-1 rounded-full border text-xs capitalize">${escapeHtml(role)}</span>
+  `).join('');
+}
+
+function setLifecycleButtons(status) {
+  const normalized = (status || '').toLowerCase();
+  const allowDeactivate = normalized ? ['active', 'pending'].includes(normalized) : true;
+  const allowReactivate = normalized ? normalized === 'suspended' : true;
+  const allowArchive = normalized ? normalized === 'suspended' : true;
+
+  btnDeactivate.disabled = !allowDeactivate;
+  btnReactivate.disabled = !allowReactivate;
+  btnArchive.disabled = !allowArchive;
+
+  [btnDeactivate, btnReactivate, btnArchive].forEach(btn => {
+    btn.classList.toggle('opacity-50', btn.disabled);
+    btn.classList.toggle('pointer-events-none', btn.disabled);
+  });
+}
+
+function renderSelectedUser(user) {
+  if (!user) {
+    selectedUser = null;
+    elSelectedSummary.textContent = '—';
+    elSelectedName.textContent = 'Select a user';
+    elSelectedUsername.textContent = 'Search or choose a user to view their details.';
+    elSelectedStatus.textContent = '';
+    elSelectedStatus.classList.add('hidden');
+    elSelectedRoles.innerHTML = '<span class="text-xs text-slate-500">Roles will appear once a user is selected.</span>';
+    actionHint.textContent = 'Select a user to enable profile actions.';
+    setUserActionState(false);
+    setLifecycleButtons('');
+    return;
+  }
+
+  selectedUser = user;
+  const displayName = user.full_name || user.username || '—';
+  elSelectedSummary.textContent = user.full_name || user.username || '—';
+  elSelectedName.textContent = displayName;
+  elSelectedUsername.textContent = user.username || '—';
+  const status = user.status || '';
+  if (status) {
+    elSelectedStatus.textContent = status;
+    elSelectedStatus.classList.remove('hidden');
+  } else {
+    elSelectedStatus.textContent = '';
+    elSelectedStatus.classList.add('hidden');
+  }
+  renderRolesChips(user);
+  actionHint.textContent = `Managing ${displayName}.`;
+  rolesUserName.textContent = displayName;
+  programsUserName.textContent = displayName;
+  lifecycleUserName.textContent = displayName;
+  if (inputEditFullName) inputEditFullName.value = user.full_name || '';
+  if (inputEditEmail) inputEditEmail.value = user.username || '';
+  setUserActionState(true);
+  setLifecycleButtons(status);
+}
+
+function openDrawer(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('hidden');
+  const focusTarget = el.querySelector('[data-autofocus]') || el.querySelector('input, textarea, select, button');
+  if (focusTarget) focusTarget.focus();
+}
+function closeDrawer(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('hidden');
+}
+function closeAllDrawers() {
+  document.querySelectorAll('[data-drawer]').forEach(el => el.classList.add('hidden'));
+}
+
+document.querySelectorAll('[data-drawer-close]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const drawer = btn.closest('[data-drawer]');
+    if (drawer) drawer.classList.add('hidden');
+  });
+});
+document.querySelectorAll('[data-drawer-panel]').forEach(panel => {
+  panel.addEventListener('click', e => e.stopPropagation());
+});
+document.querySelectorAll('[data-drawer]').forEach(drawer => {
+  drawer.addEventListener('click', () => drawer.classList.add('hidden'));
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeAllDrawers();
+});
+
+elQ.addEventListener('input', e => renderUsers(e.target.value || ''));
+elUserList.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-id]');
+  if (!btn) return;
+  const id = btn.getAttribute('data-id');
+  const found = USERS.find(u => u.id === id);
+  renderSelectedUser(found || null);
+  renderUsers(elQ.value || '');
+});
+
+elBtnReloadUsers.addEventListener('click', async () => {
+  await reloadUsers();
+});
+
+btnOpenCreate.addEventListener('click', () => {
+  formCreate.reset();
+  createMsg.textContent = '';
+  Array.from(inputCreateRoles ? inputCreateRoles.options : []).forEach(opt => (opt.selected = false));
+  openDrawer('drawerCreate');
+});
+
+btnOpenEdit.addEventListener('click', () => {
+  if (!selectedUser) return;
+  editMsg.textContent = '';
+  openDrawer('drawerEdit');
+});
+
+btnOpenRoles.addEventListener('click', () => {
+  if (!selectedUser) return;
+  rolesDrawerMsg.textContent = '';
+  renderRolesDrawer(selectedUser);
+  openDrawer('drawerRoles');
+});
+
+btnOpenPrograms.addEventListener('click', () => {
+  if (!selectedUser) return;
+  programsMsg.textContent = '';
+  renderProgramDrawer();
+  openDrawer('drawerPrograms');
+});
+
+btnOpenLifecycle.addEventListener('click', () => {
+  if (!selectedUser) return;
+  lifecycleMsg.textContent = '';
+  textareaDeactivateReason.value = '';
+  openDrawer('drawerLifecycle');
+});
+
+formCreate.addEventListener('submit', async e => {
+  e.preventDefault();
+  createMsg.textContent = '';
+  const formData = new FormData(formCreate);
+  const payload = {
+    full_name: (formData.get('fullName') || '').toString().trim(),
+    email: (formData.get('email') || '').toString().trim(),
+    roles: formData.getAll('roles').map(String),
+    sendInvite: formData.get('sendInvite') === 'on'
+  };
+  if (!payload.email) {
+    createMsg.textContent = 'Email is required.';
+    return;
+  }
+  createMsg.textContent = 'Sending invite…';
+  try {
+    const res = await createUser(payload);
+    if (res.ok) {
+      createMsg.textContent = 'Invitation sent.';
+      formCreate.reset();
+      await reloadUsers(false);
+    } else if (res.status === 403) {
+      createMsg.textContent = 'You do not have permission to invite users.';
+    } else {
+      const error = await res.text();
+      createMsg.textContent = error || 'Failed to invite user.';
+    }
+  } catch (err) {
+    console.error(err);
+    createMsg.textContent = 'Failed to invite user.';
+  }
+});
+
+formEdit.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!selectedUser) return;
+  editMsg.textContent = '';
+  const formData = new FormData(formEdit);
+  const payload = {
+    full_name: (formData.get('fullName') || '').toString().trim(),
+    email: (formData.get('email') || '').toString().trim()
+  };
+  if (!payload.email) {
+    editMsg.textContent = 'Email is required.';
+    return;
+  }
+  editMsg.textContent = 'Saving…';
+  try {
+    const res = await updateUserProfile(selectedUser.id, payload);
+    if (res.ok) {
+      editMsg.textContent = 'Profile updated.';
+      await reloadUsers(true);
+    } else if (res.status === 403) {
+      editMsg.textContent = 'You do not have permission to update this user.';
+    } else {
+      const error = await res.text();
+      editMsg.textContent = error || 'Update failed.';
+    }
+  } catch (err) {
+    console.error(err);
+    editMsg.textContent = 'Update failed.';
+  }
+});
+
+function renderRolesDrawer(user) {
+  const roleKeys = ['admin', 'manager', 'viewer', 'trainee', 'auditor'];
+  const has = new Set(user.roles || []);
+  drawerRolesBox.innerHTML = roleKeys.map(role => {
+    let disabled = '';
+    if (!IS_ADMIN) {
+      if (IS_MANAGER && ['viewer', 'trainee'].includes(role)) {
+        disabled = '';
+      } else {
+        disabled = 'disabled';
+      }
+    }
+    const checked = has.has(role) ? 'checked' : '';
+    return `
+      <label class="inline-flex items-center gap-2 border rounded-xl px-3 py-2 bg-slate-50">
+        <input type="checkbox" name="roles" value="${role}" ${checked} ${disabled}>
+        <span class="capitalize">${role}</span>
+      </label>
+    `;
+  }).join('');
+  if (IS_ADMIN) {
+    rolesInfo.textContent = '';
+  } else if (IS_MANAGER) {
+    rolesInfo.textContent = 'Managers can only toggle viewer or trainee roles.';
+  } else {
+    rolesInfo.textContent = 'You can view assigned roles but not modify them.';
+  }
+}
+
+formRoles.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!selectedUser) return;
+  rolesDrawerMsg.textContent = '';
+  if (!(IS_ADMIN || IS_MANAGER)) {
+    rolesDrawerMsg.textContent = 'Only admins or managers can update roles.';
+    return;
+  }
+  const formData = new FormData(formRoles);
+  let roles = formData.getAll('roles').map(String);
+  if (IS_MANAGER && !IS_ADMIN) {
+    const allowed = ['viewer', 'trainee'];
+    const original = new Set(selectedUser.roles || []);
+    roles = Array.from(new Set([
+      ...roles.filter(r => allowed.includes(r)),
+      ...Array.from(original).filter(r => !allowed.includes(r))
+    ]));
+  }
+  rolesDrawerMsg.textContent = 'Saving roles…';
+  try {
+    const res = await saveUserRoles(selectedUser.id, roles);
+    if (res.ok) {
+      rolesDrawerMsg.textContent = 'Roles updated.';
+      await reloadUsers(true);
+    } else if (res.status === 403) {
+      rolesDrawerMsg.textContent = 'You do not have permission to update roles.';
+    } else {
+      rolesDrawerMsg.textContent = 'Failed to update roles.';
+    }
+  } catch (err) {
+    console.error(err);
+    rolesDrawerMsg.textContent = 'Failed to update roles.';
+  }
+});
+
+function renderProgramDrawer() {
+  if (!PROGRAMS.length) {
+    drawerProgramList.innerHTML = '<div class="text-sm text-slate-500">No programs available.</div>';
+    return;
+  }
+  drawerProgramList.innerHTML = PROGRAMS.map(program => `
+    <label class="inline-flex items-center gap-2 border rounded-xl px-3 py-2 bg-slate-50">
+      <input type="checkbox" name="programs" value="${escapeHtml(program.program_id ?? '')}">
+      <span class="truncate" title="${escapeHtml(program.title || '')}">📘 ${escapeHtml(program.title || '')}</span>
+    </label>
+  `).join('');
+}
+
+formPrograms.addEventListener('submit', async e => {
+  e.preventDefault();
+  programsMsg.textContent = '';
+  if (!selectedUser) return;
+  const formData = new FormData(formPrograms);
+  const chosen = formData.getAll('programs').map(String);
+  if (!chosen.length) {
+    programsMsg.textContent = 'Select at least one program.';
+    return;
+  }
+  programsMsg.textContent = 'Assigning programs…';
+  let ok = 0;
+  let fail = 0;
+  for (const pid of chosen) {
+    try {
+      const res = await preloadForUser(selectedUser.id, pid);
+      if (res.ok) ok++; else fail++;
+    } catch (err) {
+      console.error(err);
+      fail++;
+    }
+  }
+  programsMsg.textContent = `Programs assigned — ${ok} succeeded, ${fail} failed.`;
+});
+
+formDeactivate.addEventListener('submit', async e => {
+  e.preventDefault();
+  lifecycleMsg.textContent = '';
+  if (!selectedUser) return;
+  const reason = textareaDeactivateReason.value.trim();
+  lifecycleMsg.textContent = 'Deactivating…';
+  try {
+    const res = await deactivateUserRequest(selectedUser.id, reason);
+    if (res.ok) {
+      lifecycleMsg.textContent = 'User deactivated.';
+      await reloadUsers(true);
+    } else if (res.status === 403) {
+      lifecycleMsg.textContent = 'You do not have permission to deactivate users.';
+    } else {
+      const error = await res.text();
+      lifecycleMsg.textContent = error || 'Failed to deactivate user.';
+    }
+  } catch (err) {
+    console.error(err);
+    lifecycleMsg.textContent = 'Failed to deactivate user.';
+  }
+});
+
+btnReactivate.addEventListener('click', async () => {
+  lifecycleMsg.textContent = '';
+  if (!selectedUser) return;
+  lifecycleMsg.textContent = 'Reactivating…';
+  try {
+    const res = await reactivateUserRequest(selectedUser.id);
+    if (res.ok) {
+      lifecycleMsg.textContent = 'User reactivated.';
+      await reloadUsers(true);
+    } else if (res.status === 403) {
+      lifecycleMsg.textContent = 'You do not have permission to reactivate users.';
+    } else {
+      const error = await res.text();
+      lifecycleMsg.textContent = error || 'Failed to reactivate user.';
+    }
+  } catch (err) {
+    console.error(err);
+    lifecycleMsg.textContent = 'Failed to reactivate user.';
+  }
+});
+
+btnArchive.addEventListener('click', async () => {
+  lifecycleMsg.textContent = '';
+  if (!selectedUser) return;
+  lifecycleMsg.textContent = 'Archiving…';
+  try {
+    const res = await archiveUserRequest(selectedUser.id);
+    if (res.ok) {
+      lifecycleMsg.textContent = 'User archived.';
+      await reloadUsers(true);
+    } else if (res.status === 403) {
+      lifecycleMsg.textContent = 'You do not have permission to archive users.';
+    } else {
+      const error = await res.text();
+      lifecycleMsg.textContent = error || 'Failed to archive user.';
+    }
+  } catch (err) {
+    console.error(err);
+    lifecycleMsg.textContent = 'Failed to archive user.';
+  }
+});
+
+async function reloadUsers(preserveSelection = true) {
+  try {
+    const currentId = preserveSelection && selectedUser ? selectedUser.id : null;
+    USERS = await listUsers();
+    if (currentId) {
+      const refreshed = USERS.find(u => u.id === currentId);
+      renderSelectedUser(refreshed || null);
+    } else if (selectedUser) {
+      const refreshed = USERS.find(u => u.id === selectedUser.id);
+      renderSelectedUser(refreshed || null);
+    } else {
+      renderSelectedUser(null);
+    }
+    renderUsers(elQ.value || '');
+  } catch (err) {
+    console.error(err);
+    elUserList.innerHTML = '<div class="p-4 text-sm text-red-500">Failed to load users.</div>';
+  }
+}
+
+try {
+  USERS = await listUsers();
+} catch (err) {
+  console.error(err);
+}
+try {
+  PROGRAMS = await listPrograms();
+} catch (err) {
+  console.error(err);
+}
+renderSelectedUser(null);
+renderUsers();
+  </script>
+</body>
+</html>
