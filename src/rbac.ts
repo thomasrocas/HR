@@ -29,14 +29,14 @@ const policy: Record<string, Record<string, Role[]>> = {
     update: ['admin', 'manager'],
     publish: ['admin', 'manager'],
     deprecate: ['admin', 'manager'],
-    archive: ['admin'],
+    delete: ['admin'],
     assignToUser: ['admin', 'manager'],
   },
   template: {
     create: ['admin', 'manager'],
     read: ['admin', 'manager', 'viewer', 'trainee'],
     update: ['admin', 'manager'],
-    archive: ['admin', 'manager'],
+    delete: ['admin', 'manager'],
   },
 };
 
