@@ -48,6 +48,29 @@ function getTemplateId(template) {
   return normalizeId(template?.id ?? template?.templateId ?? template?.template_id);
 }
 
+function getTemplateName(template) {
+  return template?.name ?? template?.title ?? '';
+}
+
+function getTemplateCategory(template) {
+  return template?.category ?? template?.type ?? '';
+}
+
+function getTemplateStatus(template) {
+  if (!template) return '';
+  const archivedAt = template?.deleted_at ?? template?.deletedAt ?? null;
+  if (archivedAt) return 'archived';
+  return template?.status ?? template?.state ?? template?.lifecycle ?? 'draft';
+}
+
+function getTemplateDescription(template) {
+  return template?.description ?? template?.summary ?? '';
+}
+
+function getTemplateUpdatedAt(template) {
+  return template?.updated_at ?? template?.updatedAt ?? template?.created_at ?? template?.createdAt ?? null;
+}
+
 function getProgramTitle(program) {
   return program?.title ?? program?.name ?? '';
 }
@@ -109,6 +132,8 @@ const btnRefreshPrograms = document.getElementById('btnRefreshPrograms');
 const btnRefreshTemplates = document.getElementById('btnRefreshTemplates');
 const btnNewProgram = document.getElementById('btnNewProgram');
 const btnEditProgram = document.getElementById('btnEditProgram');
+const btnNewTemplate = document.getElementById('btnNewTemplate');
+const btnEditTemplate = document.getElementById('btnEditTemplate');
 const programModal = document.getElementById('programModal');
 const programModalTitle = document.getElementById('programModalTitle');
 const programForm = document.getElementById('programForm');
@@ -127,6 +152,20 @@ const deleteProgramModal = document.getElementById('deleteProgramModal');
 const deleteProgramModalDescription = document.getElementById('deleteProgramModalDescription');
 const deleteProgramModalMessage = document.getElementById('deleteProgramModalMessage');
 const confirmDeleteProgramButton = document.getElementById('confirmDeleteProgram');
+const templateModal = document.getElementById('templateModal');
+const templateModalTitle = document.getElementById('templateModalTitle');
+const templateForm = document.getElementById('templateForm');
+const templateFormNameInput = document.getElementById('templateFormName');
+const templateFormCategoryInput = document.getElementById('templateFormCategory');
+const templateFormStatusSelect = document.getElementById('templateFormStatus');
+const templateFormDescriptionInput = document.getElementById('templateFormDescription');
+const templateFormMessage = document.getElementById('templateFormMessage');
+const templateFormSubmit = document.getElementById('templateFormSubmit');
+const templateModalDeleteTrigger = document.getElementById('templateModalDeleteTrigger');
+const deleteTemplateModal = document.getElementById('deleteTemplateModal');
+const deleteTemplateModalDescription = document.getElementById('deleteTemplateModalDescription');
+const deleteTemplateModalMessage = document.getElementById('deleteTemplateModalMessage');
+const confirmDeleteTemplateButton = document.getElementById('confirmDeleteTemplate');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -137,12 +176,16 @@ let templates = [];
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
 let selectedProgramId = null;
+let selectedTemplateId = null;
 let lastLoadedTemplateProgramId = null;
 const modalStack = [];
 let programModalMode = 'create';
 let programModalProgramId = null;
 let archiveTargetProgramId = null;
 let deleteTargetProgramId = null;
+let templateModalMode = 'create';
+let templateModalTemplateId = null;
+let deleteTargetTemplateId = null;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -176,9 +219,34 @@ if (!CAN_MANAGE_PROGRAMS) {
 if (!CAN_MANAGE_TEMPLATES) {
   templateActionHint.textContent = 'You have read-only access. Only admins or managers can change template statuses.';
   if (templateSelectAll) templateSelectAll.disabled = true;
+  if (btnNewTemplate) {
+    btnNewTemplate.disabled = true;
+    btnNewTemplate.title = 'Only admins or managers can create templates.';
+  }
+  if (btnEditTemplate) {
+    btnEditTemplate.disabled = true;
+    btnEditTemplate.title = 'Only admins or managers can edit templates.';
+    btnEditTemplate.removeAttribute('data-template-id');
+  }
+  if (templateModalDeleteTrigger) {
+    templateModalDeleteTrigger.disabled = true;
+    templateModalDeleteTrigger.classList.add('hidden');
+  }
+  if (confirmDeleteTemplateButton) confirmDeleteTemplateButton.disabled = true;
+} else {
+  if (btnNewTemplate) {
+    btnNewTemplate.disabled = false;
+    btnNewTemplate.title = selectedProgramId ? '' : 'Select a program to add templates.';
+  }
+  if (btnEditTemplate) {
+    btnEditTemplate.disabled = true;
+    btnEditTemplate.title = 'Select a template to edit.';
+  }
+  if (confirmDeleteTemplateButton) confirmDeleteTemplateButton.disabled = false;
 }
 
 updateProgramEditorButtons(programs);
+updateTemplateEditorButtons(templates);
 
 function getFilteredPrograms() {
   const term = (programSearchInput?.value || '').trim().toLowerCase();
@@ -206,8 +274,17 @@ function getFilteredTemplates() {
   const term = (templateSearchInput?.value || '').trim().toLowerCase();
   if (!term) return [...templates];
   return templates.filter(t => {
-    return [t.name, t.status, t.category]
-      .filter(Boolean)
+    const values = [
+      getTemplateName(t),
+      getTemplateStatus(t),
+      getTemplateCategory(t),
+      getTemplateDescription(t),
+      getTemplateId(t),
+    ];
+    const updatedAt = getTemplateUpdatedAt(t);
+    if (updatedAt) values.push(String(updatedAt));
+    return values
+      .filter(value => value !== null && value !== undefined && value !== '')
       .some(value => value.toString().toLowerCase().includes(term));
   });
 }
@@ -223,6 +300,10 @@ function syncTemplateSelection() {
   const validIds = new Set(templates.map(getTemplateId).filter(Boolean));
   for (const id of Array.from(selectedTemplateIds)) {
     if (!validIds.has(id)) selectedTemplateIds.delete(id);
+  }
+  if (selectedTemplateId && !validIds.has(selectedTemplateId)) {
+    const nextSelected = selectedTemplateIds.values().next();
+    selectedTemplateId = nextSelected.done ? null : nextSelected.value;
   }
 }
 
@@ -265,6 +346,57 @@ function updateProgramEditorButtons(displayedPrograms = programs) {
   btnEditProgram.dataset.programId = targetId;
 }
 
+function getTemplateById(id) {
+  if (!id) return null;
+  return templates.find(template => getTemplateId(template) === id) || null;
+}
+
+function getPrimaryTemplateId(displayedTemplates = getFilteredTemplates()) {
+  if (selectedTemplateIds.size > 1) return null;
+  if (selectedTemplateIds.size === 1) {
+    const { value } = selectedTemplateIds.values().next();
+    if (value) return value;
+  }
+  if (!selectedTemplateId) return null;
+  const pool = Array.isArray(displayedTemplates) && displayedTemplates.length ? displayedTemplates : templates;
+  const exists = pool.some(template => getTemplateId(template) === selectedTemplateId);
+  return exists ? selectedTemplateId : null;
+}
+
+function updateTemplateEditorButtons(displayedTemplates = templates) {
+  if (btnNewTemplate) {
+    if (!CAN_MANAGE_TEMPLATES) {
+      btnNewTemplate.disabled = true;
+      btnNewTemplate.title = 'Only admins or managers can create templates.';
+    } else if (!selectedProgramId) {
+      btnNewTemplate.disabled = true;
+      btnNewTemplate.title = 'Select a program to add templates.';
+    } else {
+      btnNewTemplate.disabled = false;
+      btnNewTemplate.title = '';
+    }
+  }
+  if (!btnEditTemplate) return;
+  if (!CAN_MANAGE_TEMPLATES) {
+    btnEditTemplate.disabled = true;
+    btnEditTemplate.title = 'Only admins or managers can edit templates.';
+    btnEditTemplate.removeAttribute('data-template-id');
+    return;
+  }
+  const targetId = getPrimaryTemplateId(displayedTemplates);
+  if (!targetId) {
+    btnEditTemplate.disabled = true;
+    btnEditTemplate.title = selectedTemplateIds.size > 1
+      ? 'Select a single template to edit.'
+      : 'Select a template to edit.';
+    btnEditTemplate.removeAttribute('data-template-id');
+    return;
+  }
+  btnEditTemplate.disabled = false;
+  btnEditTemplate.title = '';
+  btnEditTemplate.dataset.templateId = targetId;
+}
+
 function openModal(modal) {
   if (!modal || modal.classList.contains('is-open')) return;
   modal.classList.add('is-open');
@@ -293,6 +425,10 @@ function closeTopModal() {
     closeArchiveProgramModal();
   } else if (modal === deleteProgramModal) {
     closeDeleteProgramModal();
+  } else if (modal === templateModal) {
+    closeTemplateModal();
+  } else if (modal === deleteTemplateModal) {
+    closeDeleteTemplateModal();
   } else {
     closeModal(modal);
   }
@@ -359,6 +495,21 @@ function resetProgramForm() {
     programForm.reset();
   }
   setProgramFormMessage('');
+}
+
+function setTemplateFormMessage(text, isError = false) {
+  setModalMessage(templateFormMessage, text, isError);
+}
+
+function resetTemplateForm() {
+  if (templateForm) {
+    templateForm.reset();
+  }
+  if (templateFormStatusSelect) {
+    const defaultStatus = 'draft';
+    templateFormStatusSelect.value = defaultStatus;
+  }
+  setTemplateFormMessage('');
 }
 
 function closeProgramModal() {
@@ -435,6 +586,77 @@ function openProgramModal(mode = 'create', programId = null) {
       programFormTitleInput.focus();
       if (isEdit) {
         programFormTitleInput.select?.();
+      }
+    });
+  }
+}
+
+function closeTemplateModal() {
+  templateModalMode = 'create';
+  templateModalTemplateId = null;
+  resetTemplateForm();
+  if (templateModalDeleteTrigger) {
+    templateModalDeleteTrigger.classList.add('hidden');
+    if (CAN_MANAGE_TEMPLATES) {
+      templateModalDeleteTrigger.disabled = false;
+    }
+  }
+  closeModal(templateModal);
+}
+
+function openTemplateModal(mode = 'create', templateId = null) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    templateMessage.textContent = 'You do not have permission to manage templates.';
+    return;
+  }
+  if (!selectedProgramId) {
+    templateMessage.textContent = 'Select a program before managing templates.';
+    return;
+  }
+  const normalizedMode = mode === 'edit' ? 'edit' : 'create';
+  const isEdit = normalizedMode === 'edit';
+  const targetId = isEdit ? templateId || getPrimaryTemplateId() : null;
+  if (isEdit && !targetId) {
+    templateMessage.textContent = 'Select a template to edit first.';
+    return;
+  }
+  const template = isEdit ? getTemplateById(targetId) : null;
+  if (isEdit && !template) {
+    templateMessage.textContent = 'Unable to locate the selected template.';
+    return;
+  }
+  templateModalMode = normalizedMode;
+  templateModalTemplateId = isEdit ? targetId : null;
+  resetTemplateForm();
+  const isDeleteVisible = isEdit && CAN_MANAGE_TEMPLATES;
+  if (templateModalDeleteTrigger) {
+    templateModalDeleteTrigger.classList.toggle('hidden', !isDeleteVisible);
+    templateModalDeleteTrigger.disabled = !isDeleteVisible;
+  }
+  if (isEdit) {
+    if (templateModalTitle) templateModalTitle.textContent = 'Edit Template';
+    if (templateFormSubmit) templateFormSubmit.textContent = 'Save Changes';
+    if (templateFormNameInput) templateFormNameInput.value = getTemplateName(template) || '';
+    if (templateFormCategoryInput) templateFormCategoryInput.value = getTemplateCategory(template) || '';
+    if (templateFormStatusSelect) {
+      const status = (getTemplateStatus(template) || 'draft').toString().toLowerCase();
+      const allowedStatuses = new Set(['draft', 'published', 'deprecated', 'archived']);
+      templateFormStatusSelect.value = allowedStatuses.has(status) ? status : 'draft';
+    }
+    if (templateFormDescriptionInput) {
+      templateFormDescriptionInput.value = getTemplateDescription(template) || '';
+    }
+  } else {
+    if (templateModalTitle) templateModalTitle.textContent = 'New Template';
+    if (templateFormSubmit) templateFormSubmit.textContent = 'Create Template';
+  }
+  setTemplateFormMessage('');
+  openModal(templateModal);
+  if (templateFormNameInput) {
+    requestAnimationFrame(() => {
+      templateFormNameInput.focus();
+      if (isEdit) {
+        templateFormNameInput.select?.();
       }
     });
   }
@@ -528,6 +750,99 @@ async function submitProgramForm(event) {
     if (programFormSubmit) {
       programFormSubmit.disabled = false;
       programFormSubmit.textContent = initialSubmitLabel || (programModalMode === 'edit' ? 'Save Changes' : 'Create Program');
+    }
+  }
+}
+
+async function submitTemplateForm(event) {
+  event.preventDefault();
+  if (!CAN_MANAGE_TEMPLATES) {
+    setTemplateFormMessage('You do not have permission to manage templates.', true);
+    return;
+  }
+  if (!selectedProgramId) {
+    setTemplateFormMessage('Select a program before managing templates.', true);
+    return;
+  }
+  const isEdit = templateModalMode === 'edit';
+  const targetId = isEdit ? templateModalTemplateId : null;
+  if (isEdit && !targetId) {
+    setTemplateFormMessage('Select a template to edit first.', true);
+    return;
+  }
+  const initialSubmitLabel = templateFormSubmit ? templateFormSubmit.textContent : '';
+  if (templateFormSubmit) {
+    templateFormSubmit.disabled = true;
+  }
+  const nameValue = (templateFormNameInput?.value || '').trim();
+  if (!nameValue) {
+    setTemplateFormMessage('Template name is required.', true);
+    if (templateFormSubmit) {
+      templateFormSubmit.disabled = false;
+      templateFormSubmit.textContent = initialSubmitLabel || (isEdit ? 'Save Changes' : 'Create Template');
+    }
+    templateFormNameInput?.focus();
+    return;
+  }
+  const categoryValue = (templateFormCategoryInput?.value || '').trim();
+  let statusValue = templateFormStatusSelect?.value || 'draft';
+  if (statusValue) {
+    statusValue = statusValue.toString().toLowerCase();
+  }
+  const allowedStatuses = new Set(['draft', 'published', 'deprecated', 'archived']);
+  if (!allowedStatuses.has(statusValue)) {
+    statusValue = 'draft';
+  }
+  const descriptionValue = (templateFormDescriptionInput?.value || '').trim();
+  const payload = {
+    name: nameValue,
+    category: categoryValue || null,
+    status: statusValue || 'draft',
+    description: descriptionValue ? descriptionValue : null,
+  };
+  const encodedProgramId = encodeURIComponent(selectedProgramId);
+  const encodedTemplateId = targetId ? encodeURIComponent(targetId) : null;
+  const url = isEdit && encodedTemplateId
+    ? `${API}/programs/${encodedProgramId}/templates/${encodedTemplateId}`
+    : `${API}/programs/${encodedProgramId}/templates`;
+  const method = isEdit ? 'PATCH' : 'POST';
+  if (templateFormSubmit) {
+    templateFormSubmit.textContent = isEdit ? 'Saving…' : 'Creating…';
+  }
+  setTemplateFormMessage(isEdit ? 'Saving changes…' : 'Creating template…');
+  try {
+    const result = await fetchJson(url, {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const resultId = result && typeof result === 'object' ? getTemplateId(result) : null;
+    closeTemplateModal();
+    await loadTemplates();
+    const idToSelect = resultId || targetId || null;
+    if (idToSelect) {
+      selectedTemplateIds.clear();
+      selectedTemplateIds.add(idToSelect);
+      selectedTemplateId = idToSelect;
+      renderTemplates();
+    }
+    templateMessage.textContent = isEdit
+      ? 'Template updated successfully.'
+      : 'Template created successfully.';
+  } catch (error) {
+    console.error(error);
+    if (error.status === 403) {
+      setTemplateFormMessage('You do not have permission to save templates.', true);
+    } else if (error.status === 400) {
+      setTemplateFormMessage('Please review the template details and try again.', true);
+    } else {
+      setTemplateFormMessage('Unable to save this template. Please try again.', true);
+    }
+  } finally {
+    if (templateFormSubmit) {
+      templateFormSubmit.disabled = false;
+      templateFormSubmit.textContent = initialSubmitLabel || (isEdit ? 'Save Changes' : 'Create Template');
     }
   }
 }
@@ -687,6 +1002,80 @@ function closeDeleteProgramModal() {
   closeModal(deleteProgramModal);
 }
 
+function openDeleteTemplateModal(templateId) {
+  if (!CAN_MANAGE_TEMPLATES) return;
+  if (!selectedProgramId) {
+    templateMessage.textContent = 'Select a program before deleting templates.';
+    return;
+  }
+  const template = getTemplateById(templateId);
+  if (!template) {
+    templateMessage.textContent = 'Unable to locate the selected template.';
+    return;
+  }
+  deleteTargetTemplateId = templateId;
+  if (deleteTemplateModalDescription) {
+    const name = getTemplateName(template) || 'this template';
+    deleteTemplateModalDescription.textContent = `This will permanently delete “${name}”.`;
+  }
+  setModalMessage(deleteTemplateModalMessage, '');
+  openModal(deleteTemplateModal);
+}
+
+function closeDeleteTemplateModal() {
+  deleteTargetTemplateId = null;
+  if (deleteTemplateModalDescription) {
+    deleteTemplateModalDescription.textContent = 'This action cannot be undone.';
+  }
+  setModalMessage(deleteTemplateModalMessage, '');
+  closeModal(deleteTemplateModal);
+}
+
+async function confirmDeleteTemplate() {
+  if (!CAN_MANAGE_TEMPLATES) return;
+  if (!selectedProgramId) {
+    templateMessage.textContent = 'Select a program before deleting templates.';
+    return;
+  }
+  if (!deleteTargetTemplateId) return;
+  const targetId = deleteTargetTemplateId;
+  const originalLabel = confirmDeleteTemplateButton ? confirmDeleteTemplateButton.textContent : '';
+  if (confirmDeleteTemplateButton) {
+    confirmDeleteTemplateButton.disabled = true;
+    confirmDeleteTemplateButton.textContent = 'Deleting…';
+  }
+  setModalMessage(deleteTemplateModalMessage, 'Deleting template…');
+  try {
+    await fetchJson(`${API}/programs/${encodeURIComponent(selectedProgramId)}/templates/${encodeURIComponent(targetId)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    selectedTemplateIds.delete(targetId);
+    if (selectedTemplateId === targetId) {
+      selectedTemplateId = null;
+    }
+    setModalMessage(deleteTemplateModalMessage, '');
+    closeDeleteTemplateModal();
+    if (templateModal && templateModal.classList.contains('is-open')) {
+      closeTemplateModal();
+    }
+    await loadTemplates();
+    templateMessage.textContent = 'Template deleted successfully.';
+  } catch (error) {
+    console.error(error);
+    if (error.status === 403) {
+      setModalMessage(deleteTemplateModalMessage, 'You do not have permission to delete this template.', true);
+    } else {
+      setModalMessage(deleteTemplateModalMessage, 'Unable to delete this template. Please try again.', true);
+    }
+  } finally {
+    if (confirmDeleteTemplateButton) {
+      confirmDeleteTemplateButton.disabled = false;
+      confirmDeleteTemplateButton.textContent = originalLabel || 'Delete Template';
+    }
+  }
+}
+
 function updateProgramActionsState(displayedPrograms) {
   const hasSelection = selectedProgramIds.size > 0;
   programActionsContainer.querySelectorAll('button[data-program-action]').forEach(btn => {
@@ -736,6 +1125,7 @@ function updateTemplateActionsState(displayedTemplates) {
     templateSelectAll.checked = allSelected;
     templateSelectAll.indeterminate = !allSelected && someSelected;
   }
+  updateTemplateEditorButtons(displayedTemplates);
 }
 
 function updateProgramSelectionSummary() {
@@ -821,13 +1211,17 @@ function renderTemplates() {
       const templateId = getTemplateId(template);
       const disabledAttr = CAN_MANAGE_TEMPLATES ? '' : 'disabled';
       const checkedAttr = templateId && selectedTemplateIds.has(templateId) ? 'checked' : '';
+      const name = getTemplateName(template) || '—';
+      const category = getTemplateCategory(template) || '—';
+      const status = getTemplateStatus(template);
+      const updatedAt = getTemplateUpdatedAt(template);
       return `
         <tr data-template-id="${templateId ?? ''}">
           <td><input type="checkbox" data-template-id="${templateId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
-          <td class="font-medium">${template.name || '—'}</td>
-          <td>${template.category || '—'}</td>
-          <td>${createStatusBadge(template.status)}</td>
-          <td>${formatDate(template.updatedAt)}</td>
+          <td class="font-medium">${name}</td>
+          <td>${category}</td>
+          <td>${createStatusBadge(status)}</td>
+          <td>${formatDate(updatedAt)}</td>
         </tr>
       `;
     }).join('');
@@ -877,6 +1271,7 @@ async function loadTemplates() {
   if (!activeProgramId) {
     templates = [];
     selectedTemplateIds.clear();
+    selectedTemplateId = null;
     lastLoadedTemplateProgramId = null;
     renderTemplates();
     templateMessage.textContent = programs.length
@@ -888,6 +1283,7 @@ async function loadTemplates() {
     templateMessage.textContent = 'Loading templates…';
     if (activeProgramId !== lastLoadedTemplateProgramId) {
       selectedTemplateIds.clear();
+      selectedTemplateId = null;
     }
     const encodedProgramId = encodeURIComponent(activeProgramId);
     const data = await fetchJson(`${API}/programs/${encodedProgramId}/templates?include_deleted=true`);
@@ -906,6 +1302,7 @@ async function loadTemplates() {
     console.error(error);
     templates = [];
     selectedTemplateIds.clear();
+    selectedTemplateId = null;
     lastLoadedTemplateProgramId = null;
     renderTemplates();
     if (error.status === 403) {
@@ -1026,6 +1423,16 @@ async function handleTemplateAction(action) {
     }
   }
   await loadTemplates();
+  const existingIds = new Set(templates.map(getTemplateId).filter(Boolean));
+  const survivingIds = ids.filter(id => existingIds.has(id));
+  selectedTemplateIds.clear();
+  if (survivingIds.length) {
+    survivingIds.forEach(id => selectedTemplateIds.add(id));
+    selectedTemplateId = survivingIds.length === 1 ? survivingIds[0] : null;
+  } else {
+    selectedTemplateId = null;
+  }
+  renderTemplates();
   templateMessage.textContent = `${label} complete — ${success} succeeded, ${failure} failed.`;
 }
 
@@ -1087,8 +1494,17 @@ templateTableBody.addEventListener('change', event => {
   }
   if (target.checked) {
     selectedTemplateIds.add(id);
+    selectedTemplateId = id;
   } else {
     selectedTemplateIds.delete(id);
+    if (selectedTemplateId === id) {
+      const nextSelected = selectedTemplateIds.values().next();
+      if (!nextSelected.done) {
+        selectedTemplateId = nextSelected.value;
+      } else {
+        selectedTemplateId = null;
+      }
+    }
   }
   updateTemplateSelectionSummary();
   const displayed = getFilteredTemplates();
@@ -1158,17 +1574,20 @@ if (templateSelectAll) {
         const templateId = getTemplateId(t);
         if (templateId) selectedTemplateIds.add(templateId);
       });
+      const firstDisplayed = displayed.map(getTemplateId).find(Boolean) || null;
+      selectedTemplateId = firstDisplayed;
     } else {
       displayed.forEach(t => {
         const templateId = getTemplateId(t);
         if (templateId) selectedTemplateIds.delete(templateId);
       });
+      selectedTemplateId = null;
     }
     renderTemplates();
   });
 }
 
-const modalElements = [programModal, archiveProgramModal, deleteProgramModal].filter(Boolean);
+const modalElements = [programModal, archiveProgramModal, deleteProgramModal, templateModal, deleteTemplateModal].filter(Boolean);
 modalElements.forEach(modal => {
   modal.addEventListener('mousedown', event => {
     if (event.target === modal) {
@@ -1178,6 +1597,10 @@ modalElements.forEach(modal => {
         closeArchiveProgramModal();
       } else if (modal === deleteProgramModal) {
         closeDeleteProgramModal();
+      } else if (modal === templateModal) {
+        closeTemplateModal();
+      } else if (modal === deleteTemplateModal) {
+        closeDeleteTemplateModal();
       } else {
         closeModal(modal);
       }
@@ -1196,6 +1619,10 @@ document.querySelectorAll('[data-modal-close]').forEach(btn => {
       closeArchiveProgramModal();
     } else if (modal === deleteProgramModal) {
       closeDeleteProgramModal();
+    } else if (modal === templateModal) {
+      closeTemplateModal();
+    } else if (modal === deleteTemplateModal) {
+      closeDeleteTemplateModal();
     } else if (modal) {
       closeModal(modal);
     }
@@ -1230,6 +1657,28 @@ if (programForm) {
   programForm.addEventListener('submit', submitProgramForm);
 }
 
+if (btnNewTemplate) {
+  btnNewTemplate.addEventListener('click', () => {
+    openTemplateModal('create');
+  });
+}
+
+if (btnEditTemplate) {
+  btnEditTemplate.addEventListener('click', () => {
+    if (!CAN_MANAGE_TEMPLATES) return;
+    const targetId = btnEditTemplate.dataset.templateId || getPrimaryTemplateId();
+    if (!targetId) {
+      templateMessage.textContent = 'Select a template to edit first.';
+      return;
+    }
+    openTemplateModal('edit', targetId);
+  });
+}
+
+if (templateForm) {
+  templateForm.addEventListener('submit', submitTemplateForm);
+}
+
 if (programModalArchiveTrigger) {
   programModalArchiveTrigger.addEventListener('click', () => {
     if (programModalArchiveTrigger.disabled) return;
@@ -1248,12 +1697,25 @@ if (programModalDeleteTrigger) {
   });
 }
 
+if (templateModalDeleteTrigger) {
+  templateModalDeleteTrigger.addEventListener('click', () => {
+    if (templateModalDeleteTrigger.disabled) return;
+    if (templateModalTemplateId) {
+      openDeleteTemplateModal(templateModalTemplateId);
+    }
+  });
+}
+
 if (confirmArchiveProgramButton) {
   confirmArchiveProgramButton.addEventListener('click', confirmArchiveProgram);
 }
 
 if (confirmDeleteProgramButton) {
   confirmDeleteProgramButton.addEventListener('click', confirmDeleteProgram);
+}
+
+if (confirmDeleteTemplateButton) {
+  confirmDeleteTemplateButton.addEventListener('click', confirmDeleteTemplate);
 }
 
 programActionsContainer.addEventListener('click', event => {
