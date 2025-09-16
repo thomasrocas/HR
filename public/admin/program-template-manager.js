@@ -134,6 +134,24 @@ function getTemplateUpdatedAt(template) {
     ?? null;
 }
 
+function getTemplateWeekNumber(template) {
+  const candidates = [
+    template?.week_number,
+    template?.weekNumber,
+    template?.week,
+    template?.template?.week_number,
+    template?.template?.weekNumber,
+    template?.template?.week,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === '') continue;
+    const parsed = toNullableNumber(candidate);
+    if (parsed !== null) return parsed;
+    return String(candidate);
+  }
+  return null;
+}
+
 function getTemplateSortValue(template, fallback = 0) {
   const rawValue = template?.sort_order
     ?? template?.sortOrder
@@ -448,6 +466,10 @@ function getFilteredTemplates() {
       getTemplateDescription(t),
       getTemplateId(t),
     ];
+    const weekNumber = getTemplateWeekNumber(t);
+    if (weekNumber !== null && weekNumber !== undefined && weekNumber !== '') {
+      values.push(String(weekNumber));
+    }
     const updatedAt = getTemplateUpdatedAt(t);
     if (updatedAt) values.push(String(updatedAt));
     return values
@@ -1755,7 +1777,7 @@ function renderTemplates() {
   syncTemplateSelection();
   const displayed = getFilteredTemplates();
   if (!displayed.length) {
-    templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">No templates found.</td></tr>';
+    templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="6">No templates found.</td></tr>';
   } else {
     templateTableBody.innerHTML = displayed.map(template => {
       const templateId = getTemplateId(template);
@@ -1765,9 +1787,11 @@ function renderTemplates() {
       const category = getTemplateCategory(template) || '—';
       const status = getTemplateStatus(template);
       const updatedAt = getTemplateUpdatedAt(template);
+      const weekNumber = getTemplateWeekNumber(template);
       return `
         <tr data-template-id="${templateId ?? ''}">
           <td><input type="checkbox" data-template-id="${templateId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
+          <td>${weekNumber ?? '—'}</td>
           <td class="font-medium">${name}</td>
           <td>${category}</td>
           <td>${createStatusBadge(status)}</td>
