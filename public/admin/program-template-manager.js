@@ -107,6 +107,26 @@ const programActionsContainer = document.getElementById('programActions');
 const templateActionsContainer = document.getElementById('templateActions');
 const btnRefreshPrograms = document.getElementById('btnRefreshPrograms');
 const btnRefreshTemplates = document.getElementById('btnRefreshTemplates');
+const btnNewProgram = document.getElementById('btnNewProgram');
+const btnEditProgram = document.getElementById('btnEditProgram');
+const programModal = document.getElementById('programModal');
+const programModalTitle = document.getElementById('programModalTitle');
+const programForm = document.getElementById('programForm');
+const programFormTitleInput = document.getElementById('programFormTitle');
+const programFormWeeksInput = document.getElementById('programFormWeeks');
+const programFormDescriptionInput = document.getElementById('programFormDescription');
+const programFormMessage = document.getElementById('programFormMessage');
+const programFormSubmit = document.getElementById('programFormSubmit');
+const programModalArchiveTrigger = document.getElementById('programModalArchiveTrigger');
+const programModalDeleteTrigger = document.getElementById('programModalDeleteTrigger');
+const archiveProgramModal = document.getElementById('archiveProgramModal');
+const archiveProgramModalDescription = document.getElementById('archiveProgramModalDescription');
+const archiveProgramModalMessage = document.getElementById('archiveProgramModalMessage');
+const confirmArchiveProgramButton = document.getElementById('confirmArchiveProgram');
+const deleteProgramModal = document.getElementById('deleteProgramModal');
+const deleteProgramModalDescription = document.getElementById('deleteProgramModalDescription');
+const deleteProgramModalMessage = document.getElementById('deleteProgramModalMessage');
+const confirmDeleteProgramButton = document.getElementById('confirmDeleteProgram');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -118,15 +138,47 @@ const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
 let selectedProgramId = null;
 let lastLoadedTemplateProgramId = null;
+const modalStack = [];
+let programModalMode = 'create';
+let programModalProgramId = null;
+let archiveTargetProgramId = null;
+let deleteTargetProgramId = null;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
   if (programSelectAll) programSelectAll.disabled = true;
+  if (btnNewProgram) {
+    btnNewProgram.disabled = true;
+    btnNewProgram.title = 'Only admins or managers can create programs.';
+  }
+  if (btnEditProgram) {
+    btnEditProgram.disabled = true;
+    btnEditProgram.title = 'Only admins or managers can edit programs.';
+  }
+  if (programModalArchiveTrigger) {
+    programModalArchiveTrigger.disabled = true;
+    programModalArchiveTrigger.classList.add('hidden');
+  }
+  if (programModalDeleteTrigger) {
+    programModalDeleteTrigger.disabled = true;
+    programModalDeleteTrigger.classList.add('hidden');
+  }
+  if (confirmArchiveProgramButton) confirmArchiveProgramButton.disabled = true;
+  if (confirmDeleteProgramButton) confirmDeleteProgramButton.disabled = true;
+} else {
+  if (btnNewProgram) {
+    btnNewProgram.disabled = false;
+    btnNewProgram.title = '';
+  }
+  if (confirmArchiveProgramButton) confirmArchiveProgramButton.disabled = false;
+  if (confirmDeleteProgramButton) confirmDeleteProgramButton.disabled = false;
 }
 if (!CAN_MANAGE_TEMPLATES) {
   templateActionHint.textContent = 'You have read-only access. Only admins or managers can change template statuses.';
   if (templateSelectAll) templateSelectAll.disabled = true;
 }
+
+updateProgramEditorButtons(programs);
 
 function getFilteredPrograms() {
   const term = (programSearchInput?.value || '').trim().toLowerCase();
@@ -174,6 +226,467 @@ function syncTemplateSelection() {
   }
 }
 
+function getProgramById(id) {
+  if (!id) return null;
+  return programs.find(program => getProgramId(program) === id) || null;
+}
+
+function getPrimaryProgramId(displayedPrograms = getFilteredPrograms()) {
+  if (selectedProgramIds.size > 1) return null;
+  if (selectedProgramIds.size === 1) {
+    const { value } = selectedProgramIds.values().next();
+    if (value) return value;
+  }
+  if (!selectedProgramId) return null;
+  const pool = Array.isArray(displayedPrograms) && displayedPrograms.length ? displayedPrograms : programs;
+  const exists = pool.some(program => getProgramId(program) === selectedProgramId);
+  return exists ? selectedProgramId : null;
+}
+
+function updateProgramEditorButtons(displayedPrograms = programs) {
+  if (!btnEditProgram) return;
+  if (!CAN_MANAGE_PROGRAMS) {
+    btnEditProgram.disabled = true;
+    btnEditProgram.title = 'Only admins or managers can edit programs.';
+    btnEditProgram.removeAttribute('data-program-id');
+    return;
+  }
+  const targetId = getPrimaryProgramId(displayedPrograms);
+  if (!targetId) {
+    btnEditProgram.disabled = true;
+    btnEditProgram.title = selectedProgramIds.size > 1
+      ? 'Select a single program to edit.'
+      : 'Select a program to edit.';
+    btnEditProgram.removeAttribute('data-program-id');
+    return;
+  }
+  btnEditProgram.disabled = false;
+  btnEditProgram.title = '';
+  btnEditProgram.dataset.programId = targetId;
+}
+
+function openModal(modal) {
+  if (!modal || modal.classList.contains('is-open')) return;
+  modal.classList.add('is-open');
+  modal.removeAttribute('hidden');
+  modalStack.push(modal);
+  document.body.classList.add('modal-open');
+}
+
+function closeModal(modal) {
+  if (!modal || !modal.classList.contains('is-open')) return;
+  modal.classList.remove('is-open');
+  modal.setAttribute('hidden', 'hidden');
+  const index = modalStack.lastIndexOf(modal);
+  if (index >= 0) modalStack.splice(index, 1);
+  if (!modalStack.length) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+function closeTopModal() {
+  if (!modalStack.length) return;
+  const modal = modalStack[modalStack.length - 1];
+  if (modal === programModal) {
+    closeProgramModal();
+  } else if (modal === archiveProgramModal) {
+    closeArchiveProgramModal();
+  } else if (modal === deleteProgramModal) {
+    closeDeleteProgramModal();
+  } else {
+    closeModal(modal);
+  }
+}
+
+function setModalMessage(element, text, isError = false) {
+  if (!element) return;
+  if (!text) {
+    element.textContent = '';
+    element.classList.add('hidden');
+    element.classList.remove('text-red-600');
+    if (!element.classList.contains('text-slate-500')) {
+      element.classList.add('text-slate-500');
+    }
+    return;
+  }
+  element.textContent = text;
+  element.classList.remove('hidden');
+  if (isError) {
+    element.classList.add('text-red-600');
+    element.classList.remove('text-slate-500');
+  } else {
+    element.classList.add('text-slate-500');
+    element.classList.remove('text-red-600');
+  }
+}
+
+function upsertProgram(program, { makeActive = false } = {}) {
+  if (!program) return;
+  const id = getProgramId(program);
+  if (!id) return;
+  const index = programs.findIndex(existing => getProgramId(existing) === id);
+  if (index >= 0) {
+    programs[index] = { ...programs[index], ...program };
+  } else {
+    programs = [program, ...programs];
+  }
+  if (makeActive) {
+    selectedProgramIds.clear();
+    selectedProgramIds.add(id);
+    selectedProgramId = id;
+  }
+}
+
+function removeProgramFromList(programId) {
+  if (!programId) return;
+  const index = programs.findIndex(program => getProgramId(program) === programId);
+  if (index >= 0) {
+    programs.splice(index, 1);
+  }
+  selectedProgramIds.delete(programId);
+  if (selectedProgramId === programId) {
+    const fallback = programs.map(getProgramId).find(Boolean) || null;
+    selectedProgramId = fallback;
+  }
+}
+
+function setProgramFormMessage(text, isError = false) {
+  setModalMessage(programFormMessage, text, isError);
+}
+
+function resetProgramForm() {
+  if (programForm) {
+    programForm.reset();
+  }
+  setProgramFormMessage('');
+}
+
+function closeProgramModal() {
+  programModalMode = 'create';
+  programModalProgramId = null;
+  resetProgramForm();
+  if (programModalArchiveTrigger) {
+    programModalArchiveTrigger.classList.add('hidden');
+  }
+  if (programModalDeleteTrigger) {
+    programModalDeleteTrigger.classList.add('hidden');
+  }
+  closeModal(programModal);
+}
+
+function openProgramModal(mode = 'create', programId = null) {
+  if (!CAN_MANAGE_PROGRAMS) {
+    programMessage.textContent = 'You do not have permission to manage programs.';
+    return;
+  }
+  const normalizedMode = mode === 'edit' ? 'edit' : 'create';
+  const isEdit = normalizedMode === 'edit';
+  const targetId = isEdit ? programId || getPrimaryProgramId() : null;
+  if (isEdit && !targetId) {
+    programMessage.textContent = 'Select a program to edit first.';
+    return;
+  }
+  programModalMode = normalizedMode;
+  programModalProgramId = isEdit ? targetId : null;
+  if (programForm) {
+    programForm.reset();
+  }
+  const isDangerVisible = isEdit && CAN_MANAGE_PROGRAMS;
+  if (programModalArchiveTrigger) {
+    programModalArchiveTrigger.classList.toggle('hidden', !isDangerVisible);
+    programModalArchiveTrigger.disabled = !isDangerVisible;
+    if (!isDangerVisible) {
+      programModalArchiveTrigger.title = '';
+    }
+  }
+  if (programModalDeleteTrigger) {
+    programModalDeleteTrigger.classList.toggle('hidden', !isDangerVisible);
+    programModalDeleteTrigger.disabled = !isDangerVisible;
+  }
+  if (isEdit) {
+    const program = getProgramById(targetId);
+    if (!program) {
+      programMessage.textContent = 'Unable to locate the selected program.';
+      return;
+    }
+    if (programModalTitle) programModalTitle.textContent = 'Edit Program';
+    if (programFormSubmit) programFormSubmit.textContent = 'Save Changes';
+    if (programFormTitleInput) programFormTitleInput.value = getProgramTitle(program) || '';
+    if (programFormWeeksInput) {
+      const weeks = getProgramTotalWeeks(program);
+      programFormWeeksInput.value = Number.isFinite(weeks) ? String(weeks) : '';
+    }
+    if (programFormDescriptionInput) {
+      programFormDescriptionInput.value = getProgramDescription(program) || '';
+    }
+    if (programModalArchiveTrigger) {
+      const archivedAt = getProgramArchivedAt(program);
+      programModalArchiveTrigger.disabled = Boolean(archivedAt);
+      programModalArchiveTrigger.title = archivedAt ? 'This program is already archived.' : '';
+    }
+  } else {
+    if (programModalTitle) programModalTitle.textContent = 'New Program';
+    if (programFormSubmit) programFormSubmit.textContent = 'Create Program';
+  }
+  setProgramFormMessage('');
+  openModal(programModal);
+  if (programFormTitleInput) {
+    requestAnimationFrame(() => {
+      programFormTitleInput.focus();
+      if (isEdit) {
+        programFormTitleInput.select?.();
+      }
+    });
+  }
+}
+
+async function submitProgramForm(event) {
+  event.preventDefault();
+  if (!CAN_MANAGE_PROGRAMS) {
+    setProgramFormMessage('You do not have permission to manage programs.', true);
+    return;
+  }
+  const isEdit = programModalMode === 'edit';
+  const targetId = isEdit ? programModalProgramId : null;
+  if (isEdit && !targetId) {
+    setProgramFormMessage('Select a program to edit first.', true);
+    return;
+  }
+  const initialSubmitLabel = programFormSubmit ? programFormSubmit.textContent : '';
+  if (programFormSubmit) {
+    programFormSubmit.disabled = true;
+  }
+  const title = (programFormTitleInput?.value || '').trim();
+  if (!title) {
+    setProgramFormMessage('Program title is required.', true);
+    if (programFormSubmit) {
+      programFormSubmit.disabled = false;
+      programFormSubmit.textContent = initialSubmitLabel;
+    }
+    programFormTitleInput?.focus();
+    return;
+  }
+  const weeksValue = programFormWeeksInput?.value || '';
+  let totalWeeks = null;
+  if (weeksValue !== '') {
+    const parsed = Number(weeksValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setProgramFormMessage('Total weeks must be a positive number.', true);
+      if (programFormSubmit) {
+        programFormSubmit.disabled = false;
+        programFormSubmit.textContent = initialSubmitLabel;
+      }
+      programFormWeeksInput?.focus();
+      return;
+    }
+    totalWeeks = parsed;
+  }
+  const descriptionValue = (programFormDescriptionInput?.value || '').trim();
+  const payload = {
+    title,
+    total_weeks: totalWeeks === null ? null : totalWeeks,
+    description: descriptionValue ? descriptionValue : null,
+  };
+  const encodedId = targetId ? encodeURIComponent(targetId) : null;
+  const url = isEdit && encodedId ? `${API}/programs/${encodedId}` : `${API}/programs`;
+  const method = isEdit ? 'PATCH' : 'POST';
+  if (programFormSubmit) {
+    programFormSubmit.textContent = isEdit ? 'Saving…' : 'Creating…';
+  }
+  setProgramFormMessage(isEdit ? 'Saving changes…' : 'Creating program…');
+  try {
+    const result = await fetchJson(url, {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const makeActive = !isEdit;
+    if (result && typeof result === 'object') {
+      upsertProgram(result, { makeActive });
+    }
+    renderPrograms();
+    if (makeActive) {
+      await loadTemplates();
+    } else if (result && getProgramId(result) === selectedProgramId) {
+      await loadTemplates();
+    }
+    closeProgramModal();
+    programMessage.textContent = isEdit
+      ? 'Program updated successfully.'
+      : 'Program created successfully.';
+  } catch (error) {
+    console.error(error);
+    if (error.status === 403) {
+      setProgramFormMessage('You do not have permission to save programs.', true);
+    } else if (error.status === 400) {
+      setProgramFormMessage('Please review the form inputs and try again.', true);
+    } else {
+      setProgramFormMessage('Unable to save the program. Please try again.', true);
+    }
+  } finally {
+    if (programFormSubmit) {
+      programFormSubmit.disabled = false;
+      programFormSubmit.textContent = initialSubmitLabel || (programModalMode === 'edit' ? 'Save Changes' : 'Create Program');
+    }
+  }
+}
+
+function openArchiveProgramModal(programId) {
+  if (!CAN_MANAGE_PROGRAMS) return;
+  const target = getProgramById(programId);
+  const title = getProgramTitle(target) || 'this program';
+  if (archiveProgramModalDescription) {
+    archiveProgramModalDescription.textContent = `Archive “${title}”? Archived programs can be restored later.`;
+  }
+  setModalMessage(archiveProgramModalMessage, '');
+  archiveTargetProgramId = programId;
+  openModal(archiveProgramModal);
+}
+
+async function archiveProgram(programId) {
+  if (!programId) return;
+  const encoded = encodeURIComponent(programId);
+  let archivedResponse = null;
+  try {
+    archivedResponse = await fetchJson(`${API}/programs/${encoded}/archive`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+  } catch (error) {
+    if (error.status === 404 || error.status === 405 || error.status === 501) {
+      archivedResponse = await fetchJson(`${API}/programs/${encoded}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } else {
+      throw error;
+    }
+  }
+  if (archivedResponse && typeof archivedResponse === 'object' && getProgramId(archivedResponse)) {
+    upsertProgram(archivedResponse);
+  } else {
+    const index = programs.findIndex(program => getProgramId(program) === programId);
+    if (index >= 0) {
+      const timestamp = new Date().toISOString();
+      const existing = programs[index];
+      programs[index] = { ...existing, deleted_at: existing?.deleted_at ?? timestamp, deletedAt: existing?.deletedAt ?? timestamp };
+    }
+  }
+  selectedProgramIds.delete(programId);
+  renderPrograms();
+  if (selectedProgramId === programId) {
+    lastLoadedTemplateProgramId = null;
+    await loadTemplates();
+  }
+}
+
+async function confirmArchiveProgram() {
+  if (!CAN_MANAGE_PROGRAMS) return;
+  if (!archiveTargetProgramId) return;
+  const targetId = archiveTargetProgramId;
+  const originalLabel = confirmArchiveProgramButton ? confirmArchiveProgramButton.textContent : '';
+  if (confirmArchiveProgramButton) {
+    confirmArchiveProgramButton.disabled = true;
+    confirmArchiveProgramButton.textContent = 'Archiving…';
+  }
+  setModalMessage(archiveProgramModalMessage, 'Archiving program…');
+  try {
+    await archiveProgram(targetId);
+    setModalMessage(archiveProgramModalMessage, '');
+    closeArchiveProgramModal();
+    if (programModal && programModal.classList.contains('is-open')) {
+      closeProgramModal();
+    }
+    programMessage.textContent = 'Program archived successfully.';
+  } catch (error) {
+    console.error(error);
+    if (error.status === 403) {
+      setModalMessage(archiveProgramModalMessage, 'You do not have permission to archive this program.', true);
+    } else {
+      setModalMessage(archiveProgramModalMessage, 'Unable to archive this program. Please try again.', true);
+    }
+  } finally {
+    if (confirmArchiveProgramButton) {
+      confirmArchiveProgramButton.disabled = false;
+      confirmArchiveProgramButton.textContent = originalLabel || 'Archive Program';
+    }
+  }
+}
+
+function openDeleteProgramModal(programId) {
+  if (!CAN_MANAGE_PROGRAMS) return;
+  const target = getProgramById(programId);
+  const title = getProgramTitle(target) || 'this program';
+  if (deleteProgramModalDescription) {
+    deleteProgramModalDescription.textContent = `Delete “${title}”? This action cannot be undone.`;
+  }
+  setModalMessage(deleteProgramModalMessage, '');
+  deleteTargetProgramId = programId;
+  openModal(deleteProgramModal);
+}
+
+async function deleteProgram(programId) {
+  if (!programId) return;
+  const encoded = encodeURIComponent(programId);
+  await fetchJson(`${API}/programs/${encoded}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  const wasActive = selectedProgramId === programId;
+  removeProgramFromList(programId);
+  renderPrograms();
+  if (wasActive) {
+    lastLoadedTemplateProgramId = null;
+    await loadTemplates();
+  }
+}
+
+async function confirmDeleteProgram() {
+  if (!CAN_MANAGE_PROGRAMS) return;
+  if (!deleteTargetProgramId) return;
+  const targetId = deleteTargetProgramId;
+  const originalLabel = confirmDeleteProgramButton ? confirmDeleteProgramButton.textContent : '';
+  if (confirmDeleteProgramButton) {
+    confirmDeleteProgramButton.disabled = true;
+    confirmDeleteProgramButton.textContent = 'Deleting…';
+  }
+  setModalMessage(deleteProgramModalMessage, 'Deleting program…');
+  try {
+    await deleteProgram(targetId);
+    setModalMessage(deleteProgramModalMessage, '');
+    closeDeleteProgramModal();
+    if (programModal && programModal.classList.contains('is-open')) {
+      closeProgramModal();
+    }
+    programMessage.textContent = 'Program deleted successfully.';
+  } catch (error) {
+    console.error(error);
+    if (error.status === 403) {
+      setModalMessage(deleteProgramModalMessage, 'You do not have permission to delete this program.', true);
+    } else {
+      setModalMessage(deleteProgramModalMessage, 'Unable to delete this program. Please try again.', true);
+    }
+  } finally {
+    if (confirmDeleteProgramButton) {
+      confirmDeleteProgramButton.disabled = false;
+      confirmDeleteProgramButton.textContent = originalLabel || 'Delete Program';
+    }
+  }
+}
+
+function closeArchiveProgramModal() {
+  archiveTargetProgramId = null;
+  setModalMessage(archiveProgramModalMessage, '');
+  closeModal(archiveProgramModal);
+}
+
+function closeDeleteProgramModal() {
+  deleteTargetProgramId = null;
+  setModalMessage(deleteProgramModalMessage, '');
+  closeModal(deleteProgramModal);
+}
+
 function updateProgramActionsState(displayedPrograms) {
   const hasSelection = selectedProgramIds.size > 0;
   programActionsContainer.querySelectorAll('button[data-program-action]').forEach(btn => {
@@ -200,6 +713,7 @@ function updateProgramActionsState(displayedPrograms) {
     programSelectAll.checked = allSelected;
     programSelectAll.indeterminate = !allSelected && someSelected;
   }
+  updateProgramEditorButtons(displayedPrograms);
 }
 
 function updateTemplateActionsState(displayedTemplates) {
@@ -652,6 +1166,94 @@ if (templateSelectAll) {
     }
     renderTemplates();
   });
+}
+
+const modalElements = [programModal, archiveProgramModal, deleteProgramModal].filter(Boolean);
+modalElements.forEach(modal => {
+  modal.addEventListener('mousedown', event => {
+    if (event.target === modal) {
+      if (modal === programModal) {
+        closeProgramModal();
+      } else if (modal === archiveProgramModal) {
+        closeArchiveProgramModal();
+      } else if (modal === deleteProgramModal) {
+        closeDeleteProgramModal();
+      } else {
+        closeModal(modal);
+      }
+    }
+  });
+});
+
+document.querySelectorAll('[data-modal-close]').forEach(btn => {
+  btn.addEventListener('click', event => {
+    event.preventDefault();
+    const targetId = btn.getAttribute('data-modal-close');
+    const modal = targetId ? document.getElementById(targetId) : btn.closest('.modal-overlay');
+    if (modal === programModal) {
+      closeProgramModal();
+    } else if (modal === archiveProgramModal) {
+      closeArchiveProgramModal();
+    } else if (modal === deleteProgramModal) {
+      closeDeleteProgramModal();
+    } else if (modal) {
+      closeModal(modal);
+    }
+  });
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' || event.key === 'Esc') {
+    closeTopModal();
+  }
+});
+
+if (btnNewProgram) {
+  btnNewProgram.addEventListener('click', () => {
+    openProgramModal('create');
+  });
+}
+
+if (btnEditProgram) {
+  btnEditProgram.addEventListener('click', () => {
+    if (!CAN_MANAGE_PROGRAMS) return;
+    const targetId = btnEditProgram.dataset.programId || getPrimaryProgramId();
+    if (!targetId) {
+      programMessage.textContent = 'Select a program to edit first.';
+      return;
+    }
+    openProgramModal('edit', targetId);
+  });
+}
+
+if (programForm) {
+  programForm.addEventListener('submit', submitProgramForm);
+}
+
+if (programModalArchiveTrigger) {
+  programModalArchiveTrigger.addEventListener('click', () => {
+    if (programModalArchiveTrigger.disabled) return;
+    if (programModalProgramId) {
+      openArchiveProgramModal(programModalProgramId);
+    }
+  });
+}
+
+if (programModalDeleteTrigger) {
+  programModalDeleteTrigger.addEventListener('click', () => {
+    if (programModalDeleteTrigger.disabled) return;
+    if (programModalProgramId) {
+      openDeleteProgramModal(programModalProgramId);
+    }
+  });
+}
+
+if (confirmArchiveProgramButton) {
+  confirmArchiveProgramButton.addEventListener('click', confirmArchiveProgram);
+}
+
+if (confirmDeleteProgramButton) {
+  confirmDeleteProgramButton.addEventListener('click', confirmDeleteProgram);
 }
 
 programActionsContainer.addEventListener('click', event => {
