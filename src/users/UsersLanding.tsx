@@ -2,13 +2,21 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   getUsers,
   createUser,
+  updateUser,
   updateUserRoles,
+  assignPrograms as assignProgramsApi,
   deactivateUser,
   reactivateUser,
+  archiveUser,
+  getPrograms,
   seed,
 } from '../api';
-import { can, Role, User } from '../rbac';
+import type { Program } from '../api';
+import { Role, User } from '../rbac';
 import { ALL_ROLES, getActionAvailability, MANAGER_EDITABLE_ROLES } from './actionPermissions';
+import EditUserModal from './EditUserModal';
+import AssignProgramsModal from './AssignProgramsModal';
+import ConfirmUserActionModal from './ConfirmUserActionModal';
 
 /**
  * Landing page for managing users.
@@ -19,13 +27,25 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [programModalUser, setProgramModalUser] = useState<User | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    action: 'deactivate' | 'reactivate' | 'archive';
+    user: User;
+  } | null>(null);
+  const [programs, setPrograms] = useState<Program[]>([]);
 
-  const fetchUsers = useCallback(() => {
-    getUsers({ query, role: roleFilter, status: statusFilter }).then(r => setUsers(r.data));
+  const fetchUsers = useCallback(async () => {
+    try {
+      const response = await getUsers({ query, role: roleFilter, status: statusFilter });
+      setUsers(response.data);
+    } catch (_err) {
+      setUsers([]);
+    }
   }, [query, roleFilter, statusFilter]);
 
   useEffect(() => {
-    fetchUsers();
+    void fetchUsers();
   }, [fetchUsers]);
 
   /* ------------------------- Modal handlers ------------------------- */
@@ -55,17 +75,105 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
     }
   }, [globalActions.canManageRoles]);
 
+  useEffect(() => {
+    if (!globalActions.canEdit) {
+      setEditingUser(null);
+    }
+  }, [globalActions.canEdit]);
+
+  useEffect(() => {
+    if (!globalActions.canAssignPrograms) {
+      setProgramModalUser(null);
+      setPrograms([]);
+      return;
+    }
+    let active = true;
+    getPrograms({})
+      .then(response => {
+        if (active) {
+          setPrograms(response.data);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPrograms([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [globalActions.canAssignPrograms]);
+
   const handleOpenCreate = () => {
     if (!globalActions.canInvite) return;
     setNewUser({ name: '', email: '', roles: ['viewer'] as Role[] });
     setShowCreate(true);
   };
 
+  const handleOpenEdit = (user: User) => {
+    if (!globalActions.canEdit) return;
+    setEditingUser(user);
+  };
+
+  const handleSaveProfile = async (values: { name: string; email: string }) => {
+    if (!editingUser || !globalActions.canEdit) return;
+    await updateUser(editingUser.id, values);
+    await fetchUsers();
+  };
+
+  const handleCloseEdit = () => {
+    setEditingUser(null);
+  };
+
+  const handleOpenAssign = (user: User) => {
+    if (!globalActions.canAssignPrograms) return;
+    setProgramModalUser(user);
+  };
+
+  const handleAssignPrograms = async (
+    values: { programId: string; startDate: string; dueDate: string; notes?: string },
+  ) => {
+    if (!programModalUser || !globalActions.canAssignPrograms) return;
+    await assignProgramsApi(programModalUser.id, values);
+    await fetchUsers();
+  };
+
+  const handleCloseAssign = () => {
+    setProgramModalUser(null);
+  };
+
+  const handleOpenConfirm = (action: 'deactivate' | 'reactivate' | 'archive', user: User) => {
+    setConfirmAction({ action, user });
+  };
+
+  const handleConfirmLifecycleAction = async (reason?: string) => {
+    if (!confirmAction) return;
+    const { action, user } = confirmAction;
+    switch (action) {
+      case 'deactivate':
+        await deactivateUser(user.id, reason ?? '');
+        break;
+      case 'reactivate':
+        await reactivateUser(user.id);
+        break;
+      case 'archive':
+        await archiveUser(user.id);
+        break;
+      default:
+        break;
+    }
+    await fetchUsers();
+  };
+
+  const handleCloseConfirm = () => {
+    setConfirmAction(null);
+  };
+
   const handleInvite = async () => {
     if (!globalActions.canInvite) return;
     await createUser({ ...newUser, status: 'pending' });
     setShowCreate(false);
-    fetchUsers();
+    await fetchUsers();
     alert('Invite sent');
   };
 
@@ -116,27 +224,6 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
   const handleCloseRoles = () => {
     setRoleEditorUser(null);
     setRoleError('');
-  };
-
-  const handleDeactivate = async (user: User) => {
-    if (!can(currentUser, 'deactivate', 'user')) return;
-    await deactivateUser(user.id, '');
-    setUsers(prev =>
-      prev.map(u => (u.id === user.id ? { ...u, status: 'suspended' } : u)),
-    );
-  };
-
-  const handleReactivate = async (user: User) => {
-    if (!can(currentUser, 'reactivate', 'user')) return;
-    await reactivateUser(user.id);
-    setUsers(prev =>
-      prev.map(u => (u.id === user.id ? { ...u, status: 'active' } : u)),
-    );
-  };
-
-  const handleAssignPrograms = (user: User) => {
-    if (!can(currentUser, 'assignPrograms', 'user')) return;
-    console.info(`Assign programs for ${user.name}`);
   };
 
   return (
@@ -238,8 +325,12 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
                     ))}
                   </td>
                   <td>{(u as any).lastActive ?? '--'}</td>
-                  <td className="flex gap-2">
-                    <button className="text-sm underline" disabled={!globalActions.canEdit}>
+                  <td className="flex flex-wrap gap-2">
+                    <button
+                      className="text-sm underline disabled:text-[var(--text-muted)] disabled:no-underline"
+                      disabled={!globalActions.canEdit}
+                      onClick={() => handleOpenEdit(u)}
+                    >
                       Edit
                     </button>
                     {rowActions.canManageRoles && (
@@ -248,18 +339,23 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
                       </button>
                     )}
                     {rowActions.canAssignPrograms && (
-                      <button className="text-sm underline" onClick={() => handleAssignPrograms(u)}>
+                      <button className="text-sm underline" onClick={() => handleOpenAssign(u)}>
                         Assign
                       </button>
                     )}
                     {rowActions.canDeactivate && (
-                      <button className="text-sm underline" onClick={() => handleDeactivate(u)}>
+                      <button className="text-sm underline" onClick={() => handleOpenConfirm('deactivate', u)}>
                         Deactivate
                       </button>
                     )}
                     {rowActions.canReactivate && (
-                      <button className="text-sm underline" onClick={() => handleReactivate(u)}>
+                      <button className="text-sm underline" onClick={() => handleOpenConfirm('reactivate', u)}>
                         Reactivate
+                      </button>
+                    )}
+                    {rowActions.canArchive && (
+                      <button className="text-sm underline" onClick={() => handleOpenConfirm('archive', u)}>
+                        Archive
                       </button>
                     )}
                   </td>
@@ -371,6 +467,29 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
           </div>
         </div>
       )}
+
+      <EditUserModal
+        open={Boolean(editingUser)}
+        user={editingUser}
+        onClose={handleCloseEdit}
+        onSave={handleSaveProfile}
+      />
+
+      <AssignProgramsModal
+        open={Boolean(programModalUser)}
+        user={programModalUser}
+        programs={programs}
+        onClose={handleCloseAssign}
+        onAssign={handleAssignPrograms}
+      />
+
+      <ConfirmUserActionModal
+        open={Boolean(confirmAction)}
+        user={confirmAction?.user ?? null}
+        action={confirmAction?.action ?? 'deactivate'}
+        onClose={handleCloseConfirm}
+        onConfirm={handleConfirmLifecycleAction}
+      />
     </div>
   );
 }
