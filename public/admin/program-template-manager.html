@@ -353,7 +353,9 @@
           <h2 class="text-xl font-semibold">Templates</h2>
           <p class="text-sm text-slate-500">Update template readiness before assigning to programs.</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap justify-end">
+          <button id="btnNewTemplate" class="btn btn-primary text-sm">New Template</button>
+          <button id="btnEditTemplate" class="btn btn-outline text-sm" disabled>Edit Template</button>
           <button id="btnRefreshTemplates" class="btn btn-outline text-sm">Refresh</button>
         </div>
       </div>
@@ -361,7 +363,7 @@
       <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <label class="space-y-1">
           <span class="label-text">Search templates</span>
-          <input id="templateSearch" class="input" placeholder="Search by name, status, or category…">
+          <input id="templateSearch" class="input" placeholder="Search by name, status, category, or description…">
         </label>
         <div id="templateSelectionSummary" class="text-xs text-slate-500 md:text-right">No templates selected.</div>
       </div>
@@ -469,6 +471,69 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" data-modal-close="deleteProgramModal">Cancel</button>
         <button type="button" id="confirmDeleteProgram" class="btn btn-danger">Delete Program</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="templateModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="templateModalTitle" hidden>
+    <div class="modal" role="document">
+      <div class="modal-header">
+        <h3 id="templateModalTitle" class="text-lg font-semibold">New Template</h3>
+        <button type="button" class="btn btn-ghost" aria-label="Close" data-modal-close="templateModal">✕</button>
+      </div>
+      <form id="templateForm" class="flex flex-col gap-0">
+        <div class="modal-body space-y-4">
+          <div>
+            <label for="templateFormName" class="label-text mb-1">Name</label>
+            <input id="templateFormName" name="name" class="input" placeholder="Template name" required>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="label-text">Category</span>
+              <input id="templateFormCategory" name="category" class="input" placeholder="e.g. Onboarding">
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Status</span>
+              <select id="templateFormStatus" name="status" class="input">
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+                <option value="deprecated">Deprecated</option>
+                <option value="archived">Archived</option>
+              </select>
+            </label>
+          </div>
+          <div>
+            <label for="templateFormDescription" class="label-text mb-1">Description</label>
+            <textarea id="templateFormDescription" name="description" class="textarea" placeholder="Add context or guidance for collaborators..."></textarea>
+          </div>
+          <p id="templateFormMessage" class="text-sm text-slate-500 hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <div class="flex items-center gap-2" id="templateModalDangerZone">
+            <button type="button" id="templateModalDeleteTrigger" class="btn btn-danger text-sm hidden">Delete</button>
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <button type="button" class="btn btn-ghost" data-modal-close="templateModal">Cancel</button>
+            <button type="submit" id="templateFormSubmit" class="btn btn-primary">Create Template</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="deleteTemplateModal" class="modal-overlay modal-overlay-confirm" role="dialog" aria-modal="true" aria-labelledby="deleteTemplateModalTitle" hidden>
+    <div class="modal modal-sm" role="document">
+      <div class="modal-header">
+        <h3 id="deleteTemplateModalTitle" class="text-base font-semibold">Delete template?</h3>
+        <button type="button" class="btn btn-ghost" aria-label="Close" data-modal-close="deleteTemplateModal">✕</button>
+      </div>
+      <div class="modal-body space-y-3">
+        <p id="deleteTemplateModalDescription" class="text-sm text-slate-600">This action cannot be undone.</p>
+        <p id="deleteTemplateModalMessage" class="text-sm text-red-600 hidden"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-modal-close="deleteTemplateModal">Cancel</button>
+        <button type="button" id="confirmDeleteTemplate" class="btn btn-danger">Delete Template</button>
       </div>
     </div>
   </div>
