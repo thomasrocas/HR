@@ -331,6 +331,27 @@ let templateModalMode = 'create';
 let templateModalTemplateId = null;
 let deleteTargetTemplateId = null;
 let isPersistingTemplateOrder = false;
+let isPersistingMetadataUpdates = false;
+let metadataInFlightPromise = null;
+let reorderInFlightPromise = null;
+let metadataSaveTimeout = null;
+let reorderSaveTimeout = null;
+const METADATA_SAVE_DELAY_MS = 600;
+const REORDER_SAVE_DELAY_MS = 400;
+const pendingMetadataState = {
+  programId: null,
+  updates: new Map(),
+  savingMessage: 'Saving changes…',
+  successMessage: 'Changes saved.',
+  reload: false,
+};
+const pendingReorderState = {
+  programId: null,
+  order: null,
+  revert: null,
+  savingMessage: 'Saving order…',
+  successMessage: 'Order updated.',
+};
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -675,6 +696,358 @@ function ensurePanelReadOnlyHint() {
   if (!current) {
     setTemplatePanelMessage('Read-only mode — assignments are view only for your role.');
   }
+}
+
+function resetPendingMetadataState() {
+  pendingMetadataState.programId = null;
+  pendingMetadataState.updates = new Map();
+  pendingMetadataState.savingMessage = 'Saving changes…';
+  pendingMetadataState.successMessage = 'Changes saved.';
+  pendingMetadataState.reload = false;
+}
+
+function buildAssociationUpdatePayload(updates) {
+  const payload = {};
+  if (!updates || typeof updates !== 'object') return payload;
+  if ('dueOffsetDays' in updates) {
+    const value = updates.dueOffsetDays;
+    if (value === null || value === undefined || value === '') {
+      payload.due_offset_days = null;
+    } else {
+      const asNumber = typeof value === 'number' ? value : Number(value);
+      payload.due_offset_days = Number.isFinite(asNumber) ? asNumber : null;
+    }
+  }
+  if ('required' in updates) {
+    const value = updates.required;
+    if (value === null || value === undefined) {
+      payload.required = null;
+    } else if (typeof value === 'boolean') {
+      payload.required = value;
+    } else if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'required', 'y'].includes(normalized)) {
+        payload.required = true;
+      } else if (['false', '0', 'no', 'optional', 'n'].includes(normalized)) {
+        payload.required = false;
+      } else {
+        payload.required = Boolean(normalized);
+      }
+    } else {
+      payload.required = Boolean(value);
+    }
+  }
+  if ('visibility' in updates) {
+    const value = updates.visibility;
+    payload.visibility = value === null || value === undefined || value === ''
+      ? null
+      : String(value);
+  }
+  if ('notes' in updates) {
+    const value = updates.notes;
+    if (value === null) {
+      payload.notes = null;
+    } else {
+      const trimmed = String(value);
+      payload.notes = trimmed.trim() === '' ? null : trimmed;
+    }
+  }
+  if ('sortOrder' in updates) {
+    const value = updates.sortOrder;
+    if (value === null || value === undefined || value === '') {
+      payload.sort_order = null;
+    } else {
+      const asNumber = typeof value === 'number' ? value : Number(value);
+      payload.sort_order = Number.isFinite(asNumber) ? asNumber : null;
+    }
+  }
+  return payload;
+}
+
+function scheduleMetadataSave() {
+  if (metadataSaveTimeout) {
+    clearTimeout(metadataSaveTimeout);
+  }
+  metadataSaveTimeout = setTimeout(() => {
+    metadataSaveTimeout = null;
+    flushPendingMetadataUpdates({ immediate: true }).catch(error => {
+      console.error(error);
+    });
+  }, METADATA_SAVE_DELAY_MS);
+}
+
+async function flushPendingMetadataUpdates({ immediate = false } = {}) {
+  if (metadataInFlightPromise) {
+    try {
+      await metadataInFlightPromise;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  if (!pendingMetadataState.updates.size || !pendingMetadataState.programId) {
+    if (immediate && metadataSaveTimeout) {
+      clearTimeout(metadataSaveTimeout);
+      metadataSaveTimeout = null;
+    }
+    return false;
+  }
+  if (!immediate && metadataSaveTimeout) {
+    return false;
+  }
+  if (immediate && metadataSaveTimeout) {
+    clearTimeout(metadataSaveTimeout);
+    metadataSaveTimeout = null;
+  }
+
+  const programId = pendingMetadataState.programId;
+  const savingMessage = pendingMetadataState.savingMessage;
+  const successMessage = pendingMetadataState.successMessage;
+  const shouldReload = pendingMetadataState.reload;
+  const entries = Array.from(pendingMetadataState.updates.entries());
+  resetPendingMetadataState();
+
+  const batch = [];
+  const revertFns = [];
+  entries.forEach(([templateId, entry]) => {
+    if (!templateId) return;
+    const payload = entry?.payload || {};
+    const payloadKeys = Object.keys(payload).filter(key => payload[key] !== undefined);
+    if (!payloadKeys.length) return;
+    const formatted = { template_id: templateId };
+    payloadKeys.forEach(key => {
+      formatted[key] = payload[key];
+    });
+    batch.push(formatted);
+    if (typeof entry?.revert === 'function') {
+      revertFns.push(entry.revert);
+    }
+  });
+
+  if (!batch.length) {
+    return false;
+  }
+
+  const performSave = (async () => {
+    isPersistingMetadataUpdates = true;
+    if (selectedProgramId === programId) {
+      setTemplatePanelMessage(savingMessage);
+    }
+    let success = false;
+    try {
+      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/metadata`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: batch }),
+      });
+      success = true;
+      if (selectedProgramId === programId) {
+        if (shouldReload) {
+          await loadTemplates({ preserveSelection: true });
+        }
+        setTemplatePanelMessage(successMessage);
+        setTimeout(() => {
+          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+            setTemplatePanelMessage('');
+          }
+        }, 2500);
+      }
+    } catch (error) {
+      console.error(error);
+      revertFns.forEach(fn => {
+        try {
+          fn();
+        } catch (revertError) {
+          console.error(revertError);
+        }
+      });
+      if (selectedProgramId === programId) {
+        await loadTemplates({ preserveSelection: true }).catch(() => {});
+        if (error.status === 403) {
+          setTemplatePanelMessage('You do not have permission to edit template assignments.', true);
+        } else {
+          setTemplatePanelMessage('Unable to save template changes. Please try again.', true);
+        }
+      }
+    } finally {
+      isPersistingMetadataUpdates = false;
+      metadataInFlightPromise = null;
+      if (pendingMetadataState.updates.size) {
+        scheduleMetadataSave();
+      }
+    }
+    return success;
+  })();
+
+  metadataInFlightPromise = performSave;
+  return performSave;
+}
+
+function resetPendingReorderState() {
+  pendingReorderState.programId = null;
+  pendingReorderState.order = null;
+  pendingReorderState.revert = null;
+  pendingReorderState.savingMessage = 'Saving order…';
+  pendingReorderState.successMessage = 'Order updated.';
+}
+
+function scheduleReorderSave() {
+  if (reorderSaveTimeout) {
+    clearTimeout(reorderSaveTimeout);
+  }
+  reorderSaveTimeout = setTimeout(() => {
+    reorderSaveTimeout = null;
+    flushPendingTemplateOrder({ immediate: true }).catch(error => {
+      console.error(error);
+    });
+  }, REORDER_SAVE_DELAY_MS);
+}
+
+function createOrderRevert(previousOrder) {
+  if (!Array.isArray(previousOrder) || !previousOrder.length) {
+    return null;
+  }
+  const orderMap = new Map(previousOrder.filter(Boolean).map((id, index) => [id, index]));
+  return () => {
+    templates.sort((a, b) => {
+      const aId = getTemplateId(a);
+      const bId = getTemplateId(b);
+      return (orderMap.get(aId) ?? 0) - (orderMap.get(bId) ?? 0);
+    });
+    templates.forEach((template, index) => {
+      template.sort_order = index + 1;
+      template.sortOrder = index + 1;
+    });
+    renderTemplates();
+  };
+}
+
+function queueTemplateOrderSave(previousOrder = null) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    return;
+  }
+  if (!selectedProgramId) {
+    setTemplatePanelMessage('Select a program before reordering templates.', true);
+    return;
+  }
+  const programId = selectedProgramId;
+  const currentOrder = templates.map(getTemplateId).filter(Boolean);
+  if (!currentOrder.length) {
+    return;
+  }
+  if (Array.isArray(previousOrder) && previousOrder.length === currentOrder.length) {
+    const unchanged = previousOrder.every((id, index) => id === currentOrder[index]);
+    if (unchanged) {
+      return;
+    }
+  }
+  pendingReorderState.programId = programId;
+  pendingReorderState.order = currentOrder;
+  pendingReorderState.revert = createOrderRevert(previousOrder);
+  pendingReorderState.savingMessage = 'Saving order…';
+  pendingReorderState.successMessage = 'Order updated.';
+  if (selectedProgramId === programId) {
+    setTemplatePanelMessage('Saving order…');
+  }
+  scheduleReorderSave();
+}
+
+async function flushPendingTemplateOrder({ immediate = false } = {}) {
+  if (reorderInFlightPromise) {
+    try {
+      await reorderInFlightPromise;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  if (!pendingReorderState.order || !pendingReorderState.programId) {
+    if (immediate && reorderSaveTimeout) {
+      clearTimeout(reorderSaveTimeout);
+      reorderSaveTimeout = null;
+    }
+    return false;
+  }
+  if (!immediate && reorderSaveTimeout) {
+    return false;
+  }
+  if (immediate && reorderSaveTimeout) {
+    clearTimeout(reorderSaveTimeout);
+    reorderSaveTimeout = null;
+  }
+
+  const programId = pendingReorderState.programId;
+  const order = Array.isArray(pendingReorderState.order) ? [...pendingReorderState.order] : null;
+  const revert = pendingReorderState.revert;
+  const savingMessage = pendingReorderState.savingMessage;
+  const successMessage = pendingReorderState.successMessage;
+  resetPendingReorderState();
+
+  if (!order || !order.length || !programId) {
+    return false;
+  }
+  const filteredOrder = order.filter(id => id !== null && id !== undefined && id !== '');
+  if (!filteredOrder.length) {
+    return false;
+  }
+
+  const performSave = (async () => {
+    isPersistingTemplateOrder = true;
+    if (selectedProgramId === programId) {
+      setTemplatePanelMessage(savingMessage);
+    }
+    let success = false;
+    try {
+      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/reorder`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: filteredOrder }),
+      });
+      success = true;
+      if (selectedProgramId === programId) {
+        await loadTemplates({ preserveSelection: true });
+        setTemplatePanelMessage(successMessage);
+        setTimeout(() => {
+          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+            setTemplatePanelMessage('');
+          }
+        }, 2500);
+      }
+    } catch (error) {
+      console.error(error);
+      if (typeof revert === 'function') {
+        try {
+          revert();
+        } catch (revertError) {
+          console.error(revertError);
+        }
+      }
+      if (selectedProgramId === programId) {
+        await loadTemplates({ preserveSelection: true }).catch(() => {});
+        if (error.status === 403) {
+          setTemplatePanelMessage('You do not have permission to reorder templates.', true);
+        } else {
+          setTemplatePanelMessage('Unable to save the new order. Please try again.', true);
+        }
+      }
+    } finally {
+      isPersistingTemplateOrder = false;
+      reorderInFlightPromise = null;
+      if (pendingReorderState.order && pendingReorderState.programId) {
+        scheduleReorderSave();
+      }
+    }
+    return success;
+  })();
+
+  reorderInFlightPromise = performSave;
+  return performSave;
+}
+
+async function flushPendingTemplateAssociationChanges() {
+  await flushPendingMetadataUpdates({ immediate: true });
+  await flushPendingTemplateOrder({ immediate: true });
 }
 
 function resetTemplateForm() {
@@ -1214,6 +1587,7 @@ async function confirmDeleteTemplate() {
     return;
   }
   if (!deleteTargetTemplateId) return;
+  await flushPendingTemplateAssociationChanges();
   const targetId = deleteTargetTemplateId;
   const originalLabel = confirmDeleteTemplateButton ? confirmDeleteTemplateButton.textContent : '';
   if (confirmDeleteTemplateButton) {
@@ -1507,6 +1881,10 @@ function createTemplateAssignmentListItem(template, index, total) {
   if (isActive) {
     itemClasses.push('ring-2', 'ring-sky-200');
   }
+  const dragHandleClasses = disableControls
+    ? 'inline-flex h-7 w-7 items-center justify-center rounded text-slate-300 select-none'
+    : 'inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-slate-50 text-slate-400 select-none cursor-move';
+  const dragHandleHtml = `<span class="${dragHandleClasses}" data-assignment-handle title="Drag to reorder" aria-hidden="true">☰</span>`;
 
   return `
     <li class="${itemClasses.join(' ')}" data-template-id="${templateId}" data-order-index="${index}">
@@ -1516,9 +1894,10 @@ function createTemplateAssignmentListItem(template, index, total) {
           ${metaHtml}
         </div>
         <div class="flex items-center gap-1">
-          <button class="btn btn-outline text-xs" data-assignment-action="move-up" ${disableUp ? 'disabled' : ''} aria-label="Move template up" title="Move up">↑</button>
-          <button class="btn btn-outline text-xs" data-assignment-action="move-down" ${disableDown ? 'disabled' : ''} aria-label="Move template down" title="Move down">↓</button>
-          <button class="btn btn-danger-outline text-xs" data-assignment-action="remove" ${disableRemove ? 'disabled' : ''} aria-label="Remove template from program" title="Remove template">Remove</button>
+          ${dragHandleHtml}
+          <button type="button" class="btn btn-outline text-xs" data-assignment-action="move-up" ${disableUp ? 'disabled' : ''} aria-label="Move template up" title="Move up">↑</button>
+          <button type="button" class="btn btn-outline text-xs" data-assignment-action="move-down" ${disableDown ? 'disabled' : ''} aria-label="Move template down" title="Move down">↓</button>
+          <button type="button" class="btn btn-danger-outline text-xs" data-assignment-action="remove" ${disableRemove ? 'disabled' : ''} aria-label="Remove template from program" title="Remove template">Remove</button>
         </div>
       </div>
       <div class="grid gap-3 md:grid-cols-2">
@@ -1653,83 +2032,29 @@ async function persistTemplateAssociationUpdates(templateId, updates, { revert, 
   if (!updates || typeof updates !== 'object') {
     return true;
   }
-  const payload = {};
-  if ('dueOffsetDays' in updates) {
-    const value = updates.dueOffsetDays;
-    payload.due_offset_days = value === null || value === '' ? null : Number(value);
-  }
-  if ('required' in updates) {
-    const value = updates.required;
-    if (value === null || value === undefined) {
-      payload.required = null;
-    } else if (typeof value === 'boolean') {
-      payload.required = value;
-    } else if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
-        payload.required = true;
-      } else if (normalized === 'false' || normalized === '0' || normalized === 'no') {
-        payload.required = false;
-      } else {
-        payload.required = Boolean(value);
-      }
-    } else {
-      payload.required = Boolean(value);
-    }
-  }
-  if ('visibility' in updates) {
-    const value = updates.visibility;
-    payload.visibility = value === null || value === undefined || value === '' ? null : String(value);
-  }
-  if ('notes' in updates) {
-    const value = updates.notes;
-    if (value === null) {
-      payload.notes = null;
-    } else {
-      const trimmed = String(value);
-      payload.notes = trimmed.trim() === '' ? null : trimmed;
-    }
-  }
-  if ('sortOrder' in updates) {
-    const value = updates.sortOrder;
-    payload.sort_order = value === null || value === undefined ? null : Number(value);
-  }
-  const keys = Object.keys(payload);
-  if (!keys.length) {
+  const payload = buildAssociationUpdatePayload(updates);
+  if (!Object.keys(payload).length) {
     return true;
   }
-  const encodedProgramId = encodeURIComponent(selectedProgramId);
-  const encodedTemplateId = encodeURIComponent(templateId);
-  setTemplatePanelMessage(savingMessage);
-  try {
-    await fetchJson(`${API}/programs/${encodedProgramId}/templates/${encodedTemplateId}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (reload) {
-      await loadTemplates({ focusTemplateId: templateId, preserveSelection: true });
-    }
-    setTemplatePanelMessage(successMessage);
-    setTimeout(() => {
-      if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
-        setTemplatePanelMessage('');
-      }
-    }, 2500);
-    return true;
-  } catch (error) {
-    console.error(error);
-    if (typeof revert === 'function') revert();
-    if (error.status === 403) {
-      setTemplatePanelMessage('You do not have permission to modify template assignments.', true);
-    } else if (error.status === 400) {
-      setTemplatePanelMessage('Please review the assignment details and try again.', true);
-    } else {
-      setTemplatePanelMessage('Unable to save changes right now. Please try again.', true);
-    }
-    return false;
+  const programId = selectedProgramId;
+  if (pendingMetadataState.programId && pendingMetadataState.programId !== programId && pendingMetadataState.updates.size) {
+    await flushPendingMetadataUpdates({ immediate: true });
   }
+  pendingMetadataState.programId = programId;
+  pendingMetadataState.savingMessage = savingMessage;
+  pendingMetadataState.successMessage = successMessage;
+  pendingMetadataState.reload = pendingMetadataState.reload || reload;
+  const existing = pendingMetadataState.updates.get(templateId) || { payload: {}, revert: null };
+  existing.payload = { ...existing.payload, ...payload };
+  if (typeof revert === 'function' && !existing.revert) {
+    existing.revert = revert;
+  }
+  pendingMetadataState.updates.set(templateId, existing);
+  if (selectedProgramId === programId) {
+    setTemplatePanelMessage(savingMessage);
+  }
+  scheduleMetadataSave();
+  return true;
 }
 
 function moveTemplateAssociation(templateId, direction) {
@@ -1749,73 +2074,7 @@ function moveTemplateAssociation(templateId, direction) {
     template.sortOrder = idx + 1;
   });
   renderTemplates();
-  persistTemplateOrder(previousOrder);
-}
-
-async function persistTemplateOrder(previousOrder = null) {
-  if (!CAN_MANAGE_TEMPLATES) {
-    ensurePanelReadOnlyHint();
-    return;
-  }
-  if (!selectedProgramId) {
-    setTemplatePanelMessage('Select a program before reordering templates.', true);
-    return;
-  }
-  if (isPersistingTemplateOrder) {
-    return;
-  }
-  const updates = templates.map((template, index) => {
-    const templateId = getTemplateId(template);
-    if (!templateId) return null;
-    const previousIndex = Array.isArray(previousOrder) ? previousOrder.indexOf(templateId) : index;
-    if (previousIndex === index) return null;
-    return { templateId, sortOrder: index + 1 };
-  }).filter(Boolean);
-  if (!updates.length) {
-    return;
-  }
-  isPersistingTemplateOrder = true;
-  setTemplatePanelMessage('Saving order…');
-  try {
-    const encodedProgramId = encodeURIComponent(selectedProgramId);
-    for (const update of updates) {
-      await fetchJson(`${API}/programs/${encodedProgramId}/templates/${encodeURIComponent(update.templateId)}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sort_order: update.sortOrder }),
-      });
-    }
-    await loadTemplates({ preserveSelection: true });
-    setTemplatePanelMessage('Order updated.');
-    setTimeout(() => {
-      if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === 'Order updated.') {
-        setTemplatePanelMessage('');
-      }
-    }, 2500);
-  } catch (error) {
-    console.error(error);
-    if (Array.isArray(previousOrder)) {
-      const orderMap = new Map(previousOrder.map((id, idx) => [id, idx]));
-      templates.sort((a, b) => {
-        const aId = getTemplateId(a);
-        const bId = getTemplateId(b);
-        return (orderMap.get(aId) ?? 0) - (orderMap.get(bId) ?? 0);
-      });
-      templates.forEach((template, idx) => {
-        template.sort_order = idx + 1;
-        template.sortOrder = idx + 1;
-      });
-      renderTemplates();
-    }
-    if (error.status === 403) {
-      setTemplatePanelMessage('You do not have permission to reorder templates.', true);
-    } else {
-      setTemplatePanelMessage('Unable to save the new order. Please try again.', true);
-    }
-  } finally {
-    isPersistingTemplateOrder = false;
-  }
+  queueTemplateOrderSave(previousOrder);
 }
 
 async function loadPrograms() {
@@ -1967,6 +2226,7 @@ async function handleProgramAction(action) {
     programMessage.textContent = 'Select at least one program first.';
     return;
   }
+  await flushPendingTemplateAssociationChanges();
   const label = programActionLabels[action] || 'Update';
   programMessage.textContent = `${label} in progress…`;
   const ids = Array.from(selectedProgramIds);
@@ -2023,6 +2283,7 @@ async function handleTemplateAction(action) {
   }
   const payload = getTemplatePayload(action);
   if (!payload) return;
+  await flushPendingTemplateAssociationChanges();
   const label = templateActionLabels[action] || 'Update';
   templateMessage.textContent = `${label} in progress…`;
   const ids = Array.from(selectedTemplateIds);
@@ -2060,7 +2321,7 @@ async function handleTemplateAction(action) {
   templateMessage.textContent = `${label} complete — ${success} succeeded, ${failure} failed.`;
 }
 
-programTableBody.addEventListener('change', event => {
+programTableBody.addEventListener('change', async event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   const id = target.getAttribute('data-program-id');
@@ -2070,21 +2331,30 @@ programTableBody.addEventListener('change', event => {
     return;
   }
   const previousActiveId = selectedProgramId;
+  const nextSelectedIds = new Set(selectedProgramIds);
   if (target.checked) {
-    selectedProgramIds.add(id);
-    selectedProgramId = id;
+    nextSelectedIds.add(id);
   } else {
-    selectedProgramIds.delete(id);
-    if (selectedProgramId === id) {
-      const nextSelected = selectedProgramIds.values().next();
-      if (!nextSelected.done) {
-        selectedProgramId = nextSelected.value;
-      } else {
-        const fallback = programs.map(getProgramId).find(Boolean) || null;
-        selectedProgramId = fallback;
-      }
+    nextSelectedIds.delete(id);
+  }
+  let nextActiveId = previousActiveId;
+  if (target.checked) {
+    nextActiveId = id;
+  } else if (previousActiveId === id) {
+    const nextSelected = nextSelectedIds.values().next();
+    if (!nextSelected.done) {
+      nextActiveId = nextSelected.value;
+    } else {
+      const fallback = programs.map(getProgramId).find(Boolean) || null;
+      nextActiveId = fallback;
     }
   }
+  if (nextActiveId !== previousActiveId) {
+    await flushPendingTemplateAssociationChanges();
+  }
+  selectedProgramIds.clear();
+  nextSelectedIds.forEach(value => selectedProgramIds.add(value));
+  selectedProgramId = nextActiveId;
   updateProgramSelectionSummary();
   const displayed = getFilteredPrograms();
   updateProgramActionsState(displayed);
@@ -2094,7 +2364,7 @@ programTableBody.addEventListener('change', event => {
   }
 });
 
-programTableBody.addEventListener('click', event => {
+programTableBody.addEventListener('click', async event => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   if (target.closest('input[type="checkbox"]')) return;
@@ -2102,6 +2372,7 @@ programTableBody.addEventListener('click', event => {
   if (!row) return;
   const id = row.getAttribute('data-program-id');
   if (!id || selectedProgramId === id) return;
+  await flushPendingTemplateAssociationChanges();
   selectedProgramId = id;
   updateActiveProgramIndicators();
   loadTemplates();
@@ -2410,7 +2681,8 @@ templateActionsContainer.addEventListener('click', event => {
 });
 
 if (btnRefreshPrograms) {
-  btnRefreshPrograms.addEventListener('click', () => {
+  btnRefreshPrograms.addEventListener('click', async () => {
+    await flushPendingTemplateAssociationChanges();
     loadPrograms()
       .then(() => loadTemplates())
       .catch(() => {});
@@ -2418,7 +2690,8 @@ if (btnRefreshPrograms) {
 }
 
 if (btnRefreshTemplates) {
-  btnRefreshTemplates.addEventListener('click', () => {
+  btnRefreshTemplates.addEventListener('click', async () => {
+    await flushPendingTemplateAssociationChanges();
     loadTemplates();
   });
 }
