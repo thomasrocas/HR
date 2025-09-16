@@ -29,6 +29,8 @@ const policy: Record<string, Record<string, Role[]>> = {
     update: ['admin', 'manager'],
     publish: ['admin', 'manager'],
     deprecate: ['admin', 'manager'],
+    archive: ['admin'],
+    restore: ['admin'],
     delete: ['admin'],
     assignToUser: ['admin', 'manager'],
   },

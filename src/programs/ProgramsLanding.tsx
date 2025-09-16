@@ -1,61 +1,131 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   getPrograms,
-  createProgram,
   publishProgram,
   deprecateProgram,
-  deleteProgram,
+  archiveProgram,
   restoreProgram,
   getTemplates,
+  Program,
+  Template,
 } from '../api';
 import { can, User } from '../rbac';
 
+type TabKey = 'programs' | 'templates' | 'assignments';
+type FeedbackState = { type: 'success' | 'error'; message: string } | null;
+type ProgramAction = 'publish' | 'deprecate' | 'archive' | 'restore';
+
+const successMessages: Record<ProgramAction, string> = {
+  publish: 'Program published successfully.',
+  deprecate: 'Program deprecated successfully.',
+  archive: 'Program archived successfully.',
+  restore: 'Program restored successfully.',
+};
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Please try again.';
+
 export default function ProgramsLanding({ currentUser }: { currentUser: User }) {
-  const [tab, setTab] = useState<'programs' | 'templates' | 'assignments'>(() => {
+  const [tab, setTab] = useState<TabKey>(() => {
     if (typeof window === 'undefined') return 'programs';
     const initialTab = new URLSearchParams(window.location.search).get('tab');
-    return initialTab === 'templates' || initialTab === 'assignments' || initialTab === 'programs'
-      ? initialTab
+    return initialTab === 'templates' || initialTab === 'assignments'
+      ? (initialTab as TabKey)
       : 'programs';
   });
-  const [programs, setPrograms] = useState<any[]>([]);
-  const [templates, setTemplates] = useState<any[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
+
+  const refreshPrograms = useCallback(async () => {
+    const response = await getPrograms({});
+    setPrograms(response.data);
+  }, []);
+
+  const refreshTemplates = useCallback(async () => {
+    const response = await getTemplates({});
+    setTemplates(response.data);
+  }, []);
 
   useEffect(() => {
-    if (tab === 'programs') getPrograms({}).then(r => setPrograms(r.data));
-    if (tab === 'templates') getTemplates({}).then(r => setTemplates(r.data));
-  }, [tab]);
+    if (tab === 'programs') {
+      refreshPrograms().catch(error => {
+        setFeedback({
+          type: 'error',
+          message: `Unable to load programs. ${getErrorMessage(error)}`,
+        });
+      });
+    }
+    if (tab === 'templates') {
+      refreshTemplates().catch(error => {
+        setFeedback({
+          type: 'error',
+          message: `Unable to load templates. ${getErrorMessage(error)}`,
+        });
+      });
+    }
+  }, [tab, refreshPrograms, refreshTemplates]);
 
-  const navLinkBase =
-    'inline-flex items-center justify-center px-3 py-1.5 rounded-full border text-sm transition-colors';
-  const navLinkActive = 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]';
-  const navLinkInactive =
-    'bg-[var(--surface)] text-[var(--text-primary)] border-[var(--border)] hover:bg-[var(--surface-alt)]';
-  const navLinkClass = (isActive: boolean) =>
-    `${navLinkBase} ${isActive ? navLinkActive : navLinkInactive}`;
+  const handleProgramAction = async (program: Program, action: ProgramAction) => {
+    const actionKey = `${action}:${program.id}`;
+    const actionMap: Record<ProgramAction, (id: string) => Promise<unknown>> = {
+      publish: publishProgram,
+      deprecate: deprecateProgram,
+      archive: archiveProgram,
+      restore: restoreProgram,
+    };
+
+    setPendingAction(actionKey);
+    setFeedback(null);
+
+    try {
+      await actionMap[action](program.id);
+      await refreshPrograms();
+      setFeedback({ type: 'success', message: successMessages[action] });
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        message: `Unable to ${action} ${program.name}. ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setPendingAction(prev => (prev === actionKey ? null : prev));
+    }
+  };
+
   const isTemplatesView = tab === 'templates';
 
   return (
     <div className="p-8 space-y-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Programs & Templates</h1>
+          <h1 className="text-2xl font-bold">Programs &amp; Templates</h1>
           <p className="text-sm text-[var(--text-muted)]">
             Publish, template, and assign onboarding experiences for your teammates.
           </p>
         </div>
         <div className="flex flex-col items-start gap-3 md:items-end">
           <nav className="flex flex-wrap gap-2">
-            <a href="/admin/user-manager" className={navLinkClass(false)}>
+            <a href="/admin/user-manager" className="btn btn-outline">
               Users
             </a>
-            <a href="/admin/role-manager.html" className={navLinkClass(false)}>
+            <a href="/admin/role-manager.html" className="btn btn-outline">
               Roles &amp; Programs
             </a>
-            <a href="/programs" className={navLinkClass(!isTemplatesView)}>
+            <a
+              href="/programs"
+              className={`btn rounded-full ${
+                isTemplatesView ? 'btn-outline' : 'btn-primary'
+              }`}
+            >
               Programs
             </a>
-            <a href="/programs?tab=templates" className={navLinkClass(isTemplatesView)}>
+            <a
+              href="/programs?tab=templates"
+              className={`btn rounded-full ${
+                isTemplatesView ? 'btn-primary' : 'btn-outline'
+              }`}
+            >
               Templates
             </a>
           </nav>
@@ -65,103 +135,153 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
         </div>
       </header>
 
-      {/* Segmented Tabs */}
       <div className="flex gap-2">
-        {['programs', 'templates', 'assignments']
+        {(['programs', 'templates', 'assignments'] as TabKey[])
           .filter(t => (t === 'assignments' ? can(currentUser, 'assignToUser', 'program') : true))
           .map(t => (
             <button
               key={t}
-              onClick={() => setTab(t as any)}
-              className={`px-4 py-2 rounded-full text-sm ${
-                tab === t ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--surface-alt)]'
-              }`}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`btn rounded-full ${tab === t ? 'btn-primary' : 'btn-outline'}`}
             >
               {t[0].toUpperCase() + t.slice(1)}
             </button>
           ))}
       </div>
 
-      {/* Tab panels */}
+      {feedback && (
+        <div
+          className={`panel border-l-4 p-4 text-sm ${
+            feedback.type === 'success'
+              ? 'border-green-500 text-green-700'
+              : 'border-red-500 text-red-700'
+          }`}
+          role={feedback.type === 'error' ? 'alert' : 'status'}
+        >
+          {feedback.message}
+        </div>
+      )}
+
       {tab === 'programs' && (
         <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="Search programs"
-            />
+          <div className="panel flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+            <input className="form-field md:w-64" placeholder="Search programs" />
             {can(currentUser, 'create', 'program') && (
-              <button className="bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md">
+              <button type="button" className="btn btn-primary self-start md:self-auto">
                 New Program
               </button>
             )}
           </div>
 
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {programs.map(p => (
-              <div key={p.id} className="card p-4 space-y-2">
-                <h3 className="font-semibold">{p.name}</h3>
-                <p className="text-sm text-[var(--text-muted)]">v{p.version}</p>
-                <p className="text-sm">{p.status}</p>
-                <p className="text-sm">Owner: {p.owner}</p>
-                <p className="text-sm">Assigned: {p.assignedCount}</p>
-                <div className="flex gap-2 text-sm pt-2">
-                  {can(currentUser, 'update', 'program') && <button className="underline">Edit</button>}
-                  {p.status === 'draft' && can(currentUser, 'publish', 'program') && (
-                    <button className="underline" onClick={() => publishProgram(p.id)}>
-                      Publish
-                    </button>
-                  )}
-                  {p.status === 'published' && can(currentUser, 'deprecate', 'program') && (
-                    <button className="underline" onClick={() => deprecateProgram(p.id)}>
-                      Deprecate
-                    </button>
-                  )}
-                  {can(currentUser, 'delete', 'program') && p.status !== 'archived' && (
-                    <button className="underline" onClick={() => deleteProgram(p.id)}>
-                      Delete
-                    </button>
-                  )}
-                  {can(currentUser, 'delete', 'program') && p.status === 'archived' && (
-                    <button className="underline" onClick={() => restoreProgram(p.id)}>
-                      Restore
-                    </button>
-                  )}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {programs.map(program => {
+              const actionKeyBase = (action: ProgramAction) => `${action}:${program.id}`;
+              return (
+                <div key={program.id} className="panel space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold">{program.name}</h3>
+                      <p className="text-sm text-[var(--text-muted)]">v{program.version}</p>
+                    </div>
+                    <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                      {program.status}
+                    </span>
+                  </div>
+                  <p className="text-sm">Owner: {program.owner}</p>
+                  <p className="text-sm">Assigned: {program.assignedCount}</p>
+                  <p className="text-sm">Updated: {program.updatedAt}</p>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {can(currentUser, 'update', 'program') && (
+                      <button type="button" className="btn btn-outline text-sm">
+                        Edit
+                      </button>
+                    )}
+                    {program.status === 'draft' && can(currentUser, 'publish', 'program') && (
+                      <button
+                        type="button"
+                        className="btn btn-primary text-sm"
+                        onClick={() => handleProgramAction(program, 'publish')}
+                        disabled={pendingAction === actionKeyBase('publish')}
+                      >
+                        {pendingAction === actionKeyBase('publish') ? 'Publishing…' : 'Publish'}
+                      </button>
+                    )}
+                    {program.status === 'published' && can(currentUser, 'deprecate', 'program') && (
+                      <button
+                        type="button"
+                        className="btn btn-outline text-sm"
+                        onClick={() => handleProgramAction(program, 'deprecate')}
+                        disabled={pendingAction === actionKeyBase('deprecate')}
+                      >
+                        {pendingAction === actionKeyBase('deprecate') ? 'Deprecating…' : 'Deprecate'}
+                      </button>
+                    )}
+                    {program.status !== 'archived' && can(currentUser, 'archive', 'program') && (
+                      <button
+                        type="button"
+                        className="btn btn-outline text-sm"
+                        onClick={() => handleProgramAction(program, 'archive')}
+                        disabled={pendingAction === actionKeyBase('archive')}
+                      >
+                        {pendingAction === actionKeyBase('archive') ? 'Archiving…' : 'Archive'}
+                      </button>
+                    )}
+                    {program.status === 'archived' && can(currentUser, 'restore', 'program') && (
+                      <button
+                        type="button"
+                        className="btn btn-primary text-sm"
+                        onClick={() => handleProgramAction(program, 'restore')}
+                        disabled={pendingAction === actionKeyBase('restore')}
+                      >
+                        {pendingAction === actionKeyBase('restore') ? 'Restoring…' : 'Restore'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
 
       {tab === 'templates' && (
         <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="Search templates"
-            />
+          <div className="panel flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+            <input className="form-field md:w-64" placeholder="Search templates" />
             {can(currentUser, 'create', 'template') && (
-              <button className="bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md">
+              <button type="button" className="btn btn-primary self-start md:self-auto">
                 New Template
               </button>
             )}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
-            {templates.map(t => (
-              <div key={t.id} className="card p-4 space-y-2">
-                <h3 className="font-semibold">{t.name}</h3>
-                <p className="text-sm text-[var(--text-muted)]">{t.category}</p>
-                <p className="text-sm">Updated: {t.updatedAt || '--'}</p>
-                <div className="flex gap-2 text-sm pt-2">
-                  {can(currentUser, 'update', 'template') && (
-                    <button className="underline">Edit</button>
-                  )}
-                  {can(currentUser, 'delete', 'template') && (
-                    <button className="underline">Delete</button>
+          <div className="grid gap-4 md:grid-cols-3">
+            {templates.map(template => (
+              <div key={template.id} className="panel space-y-3 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold">{template.name}</h3>
+                    <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
+                  </div>
+                  {template.status && (
+                    <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                      {template.status}
+                    </span>
                   )}
                 </div>
-              }
+                <p className="text-sm">Updated: {template.updatedAt || '--'}</p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {can(currentUser, 'update', 'template') && (
+                    <button type="button" className="btn btn-outline text-sm">
+                      Edit
+                    </button>
+                  )}
+                  {can(currentUser, 'delete', 'template') && (
+                    <button type="button" className="btn btn-outline text-sm">
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -169,7 +289,7 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
       )}
 
       {tab === 'assignments' && (
-        <section>
+        <section className="panel p-4">
           <p className="text-[var(--text-muted)]">
             Bulk assignment UI goes here. Managers/Admins can assign programs to users.
           </p>
