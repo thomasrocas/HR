@@ -5,7 +5,7 @@ import {
   deprecateProgram,
   archiveProgram,
   restoreProgram,
-  getTemplates,
+  getProgramTemplates,
   Program,
   Template,
 } from '../api';
@@ -34,19 +34,40 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
       : 'programs';
   });
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
+  const selectedProgram = selectedProgramId
+    ? programs.find(program => program.id === selectedProgramId) ?? null
+    : null;
+
   const refreshPrograms = useCallback(async () => {
     const response = await getPrograms({});
     setPrograms(response.data);
+    setSelectedProgramId(prev => {
+      if (prev && response.data.some(program => program.id === prev)) {
+        return prev;
+      }
+      return response.data[0]?.id ?? null;
+    });
+    return response.data;
   }, []);
 
-  const refreshTemplates = useCallback(async () => {
-    const response = await getTemplates({});
-    setTemplates(response.data);
-  }, []);
+  const refreshTemplates = useCallback(
+    async (programId?: string) => {
+      const targetProgramId = programId ?? selectedProgramId;
+      if (!targetProgramId) {
+        setTemplates([]);
+        return [] as Template[];
+      }
+      const response = await getProgramTemplates(targetProgramId);
+      setTemplates(response.data);
+      return response.data;
+    },
+    [selectedProgramId],
+  );
 
   useEffect(() => {
     if (tab === 'programs') {
@@ -56,16 +77,32 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
           message: `Unable to load programs. ${getErrorMessage(error)}`,
         });
       });
-    }
-    if (tab === 'templates') {
-      refreshTemplates().catch(error => {
+    } else if (tab === 'templates' && programs.length === 0) {
+      refreshPrograms().catch(error => {
         setFeedback({
           type: 'error',
-          message: `Unable to load templates. ${getErrorMessage(error)}`,
+          message: `Unable to load programs. ${getErrorMessage(error)}`,
         });
       });
     }
-  }, [tab, refreshPrograms, refreshTemplates]);
+  }, [tab, programs.length, refreshPrograms]);
+
+  useEffect(() => {
+    if (tab !== 'templates') {
+      return;
+    }
+    if (!selectedProgramId) {
+      setTemplates([]);
+      return;
+    }
+
+    refreshTemplates(selectedProgramId).catch(error => {
+      setFeedback({
+        type: 'error',
+        message: `Unable to load templates. ${getErrorMessage(error)}`,
+      });
+    });
+  }, [tab, selectedProgramId, refreshTemplates]);
 
   const handleProgramAction = async (program: Program, action: ProgramAction) => {
     const actionKey = `${action}:${program.id}`;
@@ -248,43 +285,80 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
       {tab === 'templates' && (
         <section className="space-y-4">
           <div className="panel flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
-            <input className="form-field md:w-64" placeholder="Search templates" />
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+              <input className="form-field md:w-64" placeholder="Search templates" />
+              {programs.length > 0 ? (
+                <div className="flex flex-col text-sm">
+                  <label htmlFor="template-program-filter" className="text-[var(--text-muted)]">
+                    Program
+                  </label>
+                  <select
+                    id="template-program-filter"
+                    className="form-field md:w-64"
+                    value={selectedProgramId ?? ''}
+                    onChange={event => setSelectedProgramId(event.target.value || null)}
+                  >
+                    {programs.map(program => (
+                      <option key={program.id} value={program.id}>
+                        {program.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <span className="text-sm text-[var(--text-muted)]">
+                  Create a program to manage templates.
+                </span>
+              )}
+            </div>
             {can(currentUser, 'create', 'template') && (
-              <button type="button" className="btn btn-primary self-start md:self-auto">
+              <button
+                type="button"
+                className="btn btn-primary self-start md:self-auto"
+                disabled={!selectedProgramId}
+              >
                 New Template
               </button>
             )}
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {templates.map(template => (
-              <div key={template.id} className="panel space-y-3 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{template.name}</h3>
-                    <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
+          {templates.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              {templates.map(template => (
+                <div key={template.id} className="panel space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold">{template.name}</h3>
+                      <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
+                    </div>
+                    {template.status && (
+                      <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                        {template.status}
+                      </span>
+                    )}
                   </div>
-                  {template.status && (
-                    <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                      {template.status}
-                    </span>
-                  )}
+                  <p className="text-sm">Updated: {template.updatedAt || '--'}</p>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {can(currentUser, 'update', 'template') && (
+                      <button type="button" className="btn btn-outline text-sm">
+                        Edit
+                      </button>
+                    )}
+                    {can(currentUser, 'delete', 'template') && (
+                      <button type="button" className="btn btn-outline text-sm">
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="text-sm">Updated: {template.updatedAt || '--'}</p>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {can(currentUser, 'update', 'template') && (
-                    <button type="button" className="btn btn-outline text-sm">
-                      Edit
-                    </button>
-                  )}
-                  {can(currentUser, 'delete', 'template') && (
-                    <button type="button" className="btn btn-outline text-sm">
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="panel p-4 text-sm text-[var(--text-muted)]">
+              {programs.length === 0
+                ? 'Create a program to view its templates.'
+                : `No templates for ${selectedProgram?.name ?? 'this program'} yet.`}
+            </div>
+          )}
         </section>
       )}
 
