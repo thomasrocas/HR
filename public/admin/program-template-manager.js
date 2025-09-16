@@ -22,6 +22,7 @@ function createStatusBadge(status) {
     draft: 'badge badge-draft',
     deprecated: 'badge badge-deprecated',
     archived: 'badge badge-archived',
+    active: 'badge badge-published',
   }[normalized] || 'badge badge-draft';
   const label = normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : '—';
   return `<span class="${badgeClass}">${label}</span>`;
@@ -45,6 +46,36 @@ function getProgramId(program) {
 
 function getTemplateId(template) {
   return normalizeId(template?.id ?? template?.templateId ?? template?.template_id);
+}
+
+function getProgramTitle(program) {
+  return program?.title ?? program?.name ?? '';
+}
+
+function getProgramCreatedAt(program) {
+  return program?.created_at ?? program?.createdAt ?? program?.updated_at ?? program?.updatedAt ?? null;
+}
+
+function getProgramTotalWeeks(program) {
+  const raw = program?.total_weeks ?? program?.totalWeeks ?? null;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const asNumber = typeof raw === 'string' ? Number(raw) : raw;
+  return Number.isFinite(asNumber) ? asNumber : null;
+}
+
+function getProgramDescription(program) {
+  return program?.description ?? '';
+}
+
+function getProgramArchivedAt(program) {
+  return program?.deleted_at ?? program?.deletedAt ?? null;
+}
+
+function getProgramLifecycle(program) {
+  if (!program) return '';
+  const archivedAt = getProgramArchivedAt(program);
+  if (archivedAt) return 'archived';
+  return program?.status ?? program?.lifecycle ?? program?.state ?? 'active';
 }
 
 const meResponse = await fetch(`${API}/me`, { credentials: 'include' });
@@ -101,8 +132,20 @@ function getFilteredPrograms() {
   const term = (programSearchInput?.value || '').trim().toLowerCase();
   if (!term) return [...programs];
   return programs.filter(p => {
-    return [p.name, p.status, p.owner, p.version]
-      .filter(Boolean)
+    const values = [
+      getProgramTitle(p),
+      getProgramLifecycle(p),
+      getProgramDescription(p),
+      getProgramId(p),
+    ];
+    const totalWeeks = getProgramTotalWeeks(p);
+    if (Number.isFinite(totalWeeks)) values.push(String(totalWeeks));
+    const createdAt = getProgramCreatedAt(p);
+    if (createdAt) values.push(String(createdAt));
+    const archivedAt = getProgramArchivedAt(p);
+    if (archivedAt) values.push(String(archivedAt));
+    return values
+      .filter(value => value !== null && value !== undefined && value !== '')
       .some(value => value.toString().toLowerCase().includes(term));
   });
 }
@@ -217,16 +260,21 @@ function renderPrograms() {
       if (programId && selectedProgramId === programId) {
         rowAttrs.push('data-active-program="true"');
       }
-      const assigned = typeof program.assignedCount === 'number' ? program.assignedCount : '—';
+      const title = getProgramTitle(program) || '—';
+      const lifecycle = getProgramLifecycle(program);
+      const totalWeeks = getProgramTotalWeeks(program);
+      const createdAt = getProgramCreatedAt(program);
+      const archivedAt = getProgramArchivedAt(program);
+      const description = getProgramDescription(program) || '—';
       return `
         <tr ${rowAttrs.join(' ')}>
           <td><input type="checkbox" data-program-id="${programId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
-          <td class="font-medium">${program.name || '—'}</td>
-          <td>${createStatusBadge(program.status)}</td>
-          <td>${program.version || '—'}</td>
-          <td>${program.owner || '—'}</td>
-          <td>${formatDate(program.updatedAt)}</td>
-          <td class="text-right">${assigned}</td>
+          <td class="font-medium">${title}</td>
+          <td>${createStatusBadge(lifecycle)}</td>
+          <td>${Number.isFinite(totalWeeks) ? totalWeeks : '—'}</td>
+          <td>${description}</td>
+          <td>${formatDate(createdAt)}</td>
+          <td class="text-right">${formatDate(archivedAt)}</td>
         </tr>
       `;
     }).join('');

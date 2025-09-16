@@ -203,7 +203,7 @@
       <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <label class="space-y-1">
           <span class="label-text">Search programs</span>
-          <input id="programSearch" class="input" placeholder="Search by name, status, or owner…">
+          <input id="programSearch" class="input" placeholder="Search by title, lifecycle, or description…">
         </label>
         <div id="programSelectionSummary" class="text-xs text-slate-500 md:text-right">No programs selected.</div>
       </div>
@@ -216,12 +216,12 @@
                 <th class="w-10">
                   <input type="checkbox" id="programSelectAll" class="rounded border-slate-300">
                 </th>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Version</th>
-                <th>Owner</th>
-                <th>Updated</th>
-                <th class="text-right">Assigned</th>
+                <th>Title</th>
+                <th>Lifecycle</th>
+                <th>Weeks</th>
+                <th>Description</th>
+                <th>Created</th>
+                <th class="text-right">Archived</th>
               </tr>
             </thead>
             <tbody id="programTableBody" class="bg-white text-sm"></tbody>
