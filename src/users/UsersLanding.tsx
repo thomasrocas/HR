@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   getUsers,
   createUser,
@@ -11,6 +11,31 @@ import {
 } from '../api';
 import { can, hasRole, Role, User } from '../rbac';
 
+const ALL_ROLES: Role[] = ['admin', 'manager', 'viewer', 'trainee'];
+const MANAGER_EDITABLE_ROLES: Role[] = ['viewer', 'trainee'];
+
+const sortRoles = (roles: Role[]): Role[] =>
+  ALL_ROLES.filter(role => roles.includes(role));
+
+const ROLE_DETAILS: Record<Role, { label: string; description: string }> = {
+  admin: {
+    label: 'Admin',
+    description: 'Full access to user, program, and template management.',
+  },
+  manager: {
+    label: 'Manager',
+    description: 'Can manage programs and assignments for their teams.',
+  },
+  viewer: {
+    label: 'Viewer',
+    description: 'Read-only access to dashboards and records.',
+  },
+  trainee: {
+    label: 'Trainee',
+    description: 'Can view their own onboarding tasks.',
+  },
+};
+
 /**
  * Landing page for managing users.
  * Provides search, filters, table, and modals/drawers for user lifecycle actions.
@@ -21,9 +46,86 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  const canManageRoles = can(currentUser, 'manageRoles', 'user');
+  const managerOnly = hasRole(currentUser, 'manager') && !hasRole(currentUser, 'admin');
+
+  const [roleModalUser, setRoleModalUser] = useState<User | null>(null);
+  const [roleModalRoles, setRoleModalRoles] = useState<Role[]>([]);
+  const [roleModalError, setRoleModalError] = useState('');
+  const [isSavingRoles, setIsSavingRoles] = useState(false);
+
+  const selectedUserName = useMemo(() => {
+    if (!roleModalUser) return '';
+    return roleModalUser.name || roleModalUser.email || 'this user';
+  }, [roleModalUser]);
+
+  const rolesChanged = useMemo(() => {
+    if (!roleModalUser) return false;
+    const originalRoles = new Set<Role>(roleModalUser.roles);
+    const selectedRoles = new Set<Role>(roleModalRoles);
+    return ALL_ROLES.some(
+      role => selectedRoles.has(role) !== originalRoles.has(role),
+    );
+  }, [roleModalRoles, roleModalUser]);
+
   useEffect(() => {
     getUsers({ query, role: roleFilter, status: statusFilter }).then(r => setUsers(r.data));
   }, [query, roleFilter, statusFilter]);
+
+  const openRoleModal = (user: User) => {
+    if (!canManageRoles) return;
+    setRoleModalUser(user);
+    setRoleModalRoles(sortRoles(user.roles));
+    setRoleModalError('');
+  };
+
+  const closeRoleModal = () => {
+    if (isSavingRoles) return;
+    setRoleModalUser(null);
+    setRoleModalRoles([]);
+    setRoleModalError('');
+  };
+
+  const handleRoleToggle = (role: Role) => {
+    if (!roleModalUser) return;
+    if (managerOnly && !MANAGER_EDITABLE_ROLES.includes(role)) return;
+    setRoleModalRoles(prev => {
+      const next = prev.includes(role)
+        ? prev.filter(r => r !== role)
+        : [...prev, role];
+      return sortRoles(next);
+    });
+  };
+
+  const handleRolesSave = async () => {
+    if (!roleModalUser) return;
+    setIsSavingRoles(true);
+    setRoleModalError('');
+    try {
+      const editableSelection = managerOnly
+        ? roleModalRoles.filter(role => MANAGER_EDITABLE_ROLES.includes(role))
+        : roleModalRoles;
+      const lockedRoles = managerOnly
+        ? roleModalUser.roles.filter(role => !MANAGER_EDITABLE_ROLES.includes(role))
+        : [];
+      const combinedRoles = managerOnly
+        ? [...editableSelection, ...lockedRoles]
+        : editableSelection;
+      const rolesToPersist = sortRoles(Array.from(new Set<Role>(combinedRoles)));
+      await updateUserRoles(roleModalUser.id, rolesToPersist);
+      setUsers(prev =>
+        prev.map(user =>
+          user.id === roleModalUser.id ? { ...user, roles: rolesToPersist } : user,
+        ),
+      );
+      setRoleModalUser(null);
+      setRoleModalRoles([]);
+    } catch (_err) {
+      setRoleModalError('Failed to update roles. Please try again.');
+    } finally {
+      setIsSavingRoles(false);
+    }
+  };
 
   /* ------------------------- Modal handlers ------------------------- */
   const [showCreate, setShowCreate] = useState(false);
@@ -137,8 +239,10 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
                   <button className="text-sm underline" disabled={!can(currentUser, 'update', 'user')}>
                     Edit
                   </button>
-                  {can(currentUser, 'manageRoles', 'user') && (
-                    <button className="text-sm underline">Roles</button>
+                  {canManageRoles && (
+                    <button className="text-sm underline" onClick={() => openRoleModal(u)}>
+                      Roles
+                    </button>
                   )}
                   {can(currentUser, 'assignPrograms', 'user') && (
                     <button className="text-sm underline">Assign</button>
@@ -205,6 +309,87 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
                 onClick={handleInvite}
               >
                 Send Invite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {roleModalUser && (
+        <div
+          className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="roles-dialog-title"
+          onClick={closeRoleModal}
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-lg shadow-xl p-6 space-y-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <header className="space-y-1">
+              <h2 id="roles-dialog-title" className="text-lg font-semibold">
+                Manage roles
+              </h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Update access for {selectedUserName}.
+                {managerOnly
+                  ? ' Managers can only assign viewer or trainee roles.'
+                  : ''}
+              </p>
+            </header>
+
+            <fieldset className="space-y-3">
+              <legend className="sr-only">Roles</legend>
+              {ALL_ROLES.map(role => {
+                const disabled =
+                  (managerOnly && !MANAGER_EDITABLE_ROLES.includes(role)) || isSavingRoles;
+                const detail = ROLE_DETAILS[role];
+                return (
+                  <label
+                    key={role}
+                    className={`flex items-start justify-between gap-4 rounded-md border border-[var(--border)] px-3 py-2 text-sm ${
+                      disabled ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <span>
+                      <span className="block font-medium">{detail.label}</span>
+                      <span className="block text-xs text-[var(--text-muted)]">
+                        {detail.description}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={roleModalRoles.includes(role)}
+                      onChange={() => handleRoleToggle(role)}
+                      disabled={disabled}
+                    />
+                  </label>
+                );
+              })}
+            </fieldset>
+
+            {roleModalError && (
+              <div className="text-sm text-red-600" role="alert">
+                {roleModalError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-3 py-2 text-sm"
+                onClick={closeRoleModal}
+                disabled={isSavingRoles}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-3 py-2 text-sm bg-[var(--brand-primary)] text-white rounded-md disabled:opacity-60"
+                onClick={handleRolesSave}
+                disabled={!rolesChanged || isSavingRoles}
+              >
+                {isSavingRoles ? 'Saving…' : 'Save changes'}
               </button>
             </div>
           </div>
