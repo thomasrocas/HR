@@ -65,6 +65,25 @@
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
     }
 
+    .textarea {
+      width: 100%;
+      border-radius: 0.75rem;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      padding: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--ink);
+      transition: box-shadow 0.15s ease, border-color 0.15s ease;
+      min-height: 6rem;
+      resize: vertical;
+    }
+
+    .textarea:focus {
+      outline: none;
+      border-color: var(--brand-primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -116,6 +135,91 @@
     .btn:disabled {
       cursor: not-allowed;
       opacity: 0.55;
+    }
+
+    .btn-danger {
+      border-color: #dc2626;
+      background-color: #dc2626;
+      color: #fff;
+    }
+
+    .btn-danger:hover {
+      border-color: #b91c1c;
+      background-color: #b91c1c;
+    }
+
+    .btn-danger-outline {
+      border-color: #ef4444;
+      background-color: var(--surface);
+      color: #b91c1c;
+    }
+
+    .btn-danger-outline:hover {
+      background-color: #fef2f2;
+      color: #991b1b;
+    }
+
+    body.modal-open {
+      overflow: hidden;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background-color: rgba(15, 23, 42, 0.5);
+      z-index: 50;
+    }
+
+    .modal-overlay.is-open {
+      display: flex;
+    }
+
+    .modal-overlay-confirm {
+      z-index: 60;
+    }
+
+    .modal {
+      width: 100%;
+      max-width: 36rem;
+      border-radius: 1rem;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      box-shadow: 0 32px 64px -24px rgba(15, 23, 42, 0.5);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-sm {
+      max-width: 28rem;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-body {
+      padding: 1.25rem;
+      max-height: min(70vh, 600px);
+      overflow-y: auto;
+    }
+
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
     }
 
     .table {
@@ -195,7 +299,9 @@
           <h2 class="text-xl font-semibold">Programs</h2>
           <p class="text-sm text-slate-500">Select programs to publish, deprecate, archive, or restore.</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap justify-end">
+          <button id="btnNewProgram" class="btn btn-primary text-sm">New Program</button>
+          <button id="btnEditProgram" class="btn btn-outline text-sm" disabled>Edit Program</button>
           <button id="btnRefreshPrograms" class="btn btn-outline text-sm">Refresh</button>
         </div>
       </div>
@@ -286,9 +392,85 @@
           <button class="btn btn-outline" data-template-action="deprecate">Deprecate</button>
         </div>
         <div id="templateActionHint" class="text-xs text-slate-500">Select one or more templates to enable status changes.</div>
-        <div id="templateMessage" class="text-xs text-slate-500"></div>
+      <div id="templateMessage" class="text-xs text-slate-500"></div>
       </div>
     </section>
+  </div>
+
+  <div id="programModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="programModalTitle" hidden>
+    <div class="modal" role="document">
+      <div class="modal-header">
+        <h3 id="programModalTitle" class="text-lg font-semibold">New Program</h3>
+        <button type="button" class="btn btn-ghost" aria-label="Close" data-modal-close="programModal">✕</button>
+      </div>
+      <form id="programForm" class="flex flex-col gap-0">
+        <div class="modal-body space-y-4">
+          <div>
+            <label for="programFormTitle" class="label-text mb-1">Title</label>
+            <input id="programFormTitle" name="title" class="input" placeholder="Program title" required>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="label-text">Total weeks</span>
+              <input id="programFormWeeks" name="total_weeks" type="number" min="1" class="input" placeholder="e.g. 12">
+            </label>
+            <div class="space-y-1">
+              <span class="label-text">Lifecycle</span>
+              <div class="text-sm text-slate-500">Programs start as drafts until published.</div>
+            </div>
+          </div>
+          <div>
+            <label for="programFormDescription" class="label-text mb-1">Description</label>
+            <textarea id="programFormDescription" name="description" class="textarea" placeholder="Add an overview for collaborators..."></textarea>
+          </div>
+          <p id="programFormMessage" class="text-sm text-slate-500 hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <div class="flex items-center gap-2" id="programModalDangerZone">
+            <button type="button" id="programModalArchiveTrigger" class="btn btn-danger-outline text-sm hidden">Archive</button>
+            <button type="button" id="programModalDeleteTrigger" class="btn btn-danger text-sm hidden">Delete</button>
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <button type="button" class="btn btn-ghost" data-modal-close="programModal">Cancel</button>
+            <button type="submit" id="programFormSubmit" class="btn btn-primary">Create Program</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="archiveProgramModal" class="modal-overlay modal-overlay-confirm" role="dialog" aria-modal="true" aria-labelledby="archiveProgramModalTitle" hidden>
+    <div class="modal modal-sm" role="document">
+      <div class="modal-header">
+        <h3 id="archiveProgramModalTitle" class="text-base font-semibold">Archive program?</h3>
+        <button type="button" class="btn btn-ghost" aria-label="Close" data-modal-close="archiveProgramModal">✕</button>
+      </div>
+      <div class="modal-body space-y-3">
+        <p id="archiveProgramModalDescription" class="text-sm text-slate-600">Are you sure you want to archive this program?</p>
+        <p id="archiveProgramModalMessage" class="text-sm text-red-600 hidden"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-modal-close="archiveProgramModal">Cancel</button>
+        <button type="button" id="confirmArchiveProgram" class="btn btn-danger-outline">Archive Program</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="deleteProgramModal" class="modal-overlay modal-overlay-confirm" role="dialog" aria-modal="true" aria-labelledby="deleteProgramModalTitle" hidden>
+    <div class="modal modal-sm" role="document">
+      <div class="modal-header">
+        <h3 id="deleteProgramModalTitle" class="text-base font-semibold">Delete program?</h3>
+        <button type="button" class="btn btn-ghost" aria-label="Close" data-modal-close="deleteProgramModal">✕</button>
+      </div>
+      <div class="modal-body space-y-3">
+        <p id="deleteProgramModalDescription" class="text-sm text-slate-600">This action cannot be undone.</p>
+        <p id="deleteProgramModalMessage" class="text-sm text-red-600 hidden"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-modal-close="deleteProgramModal">Cancel</button>
+        <button type="button" id="confirmDeleteProgram" class="btn btn-danger">Delete Program</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="./program-template-manager.js"></script>
