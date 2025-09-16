@@ -661,6 +661,8 @@ app.post('/programs/:program_id/restore', ensurePerm('program.delete'), async (r
   }
 });
 
+const TEMPLATE_STATUSES = new Set(['draft', 'published', 'deprecated']);
+
 app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (req, res) => {
   try {
     const { program_id } = req.params;
@@ -680,11 +682,26 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
   try {
     const { program_id } = req.params;
     const { week_number = null, label, notes = null, sort_order = null } = req.body || {};
+    let status = null;
+    if (typeof req.body?.status === 'string') {
+      const normalized = req.body.status.toLowerCase();
+      if (!TEMPLATE_STATUSES.has(normalized)) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      status = normalized;
+    }
     const sql = `
-      insert into public.program_task_templates (program_id, week_number, label, notes, sort_order)
-      values ($1,$2,$3,$4,$5)
+      insert into public.program_task_templates (program_id, week_number, label, notes, sort_order, status)
+      values ($1,$2,$3,$4,$5,$6)
       returning *;`;
-    const { rows } = await pool.query(sql, [program_id, week_number, label, notes, sort_order]);
+    const { rows } = await pool.query(sql, [
+      program_id,
+      week_number,
+      label,
+      notes,
+      sort_order,
+      status ?? 'draft',
+    ]);
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error('POST /programs/:id/templates error', err);
@@ -702,9 +719,19 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
     }
     const fields = [];
     const vals = [];
-    for (const key of ['week_number', 'label', 'notes', 'sort_order']) {
-      if (key in req.body) {
-        vals.push(req.body[key]);
+    const updates = req.body || {};
+    for (const key of ['week_number', 'label', 'notes', 'sort_order', 'status']) {
+      if (key in updates) {
+        let value = updates[key];
+        if (key === 'status') {
+          if (typeof value !== 'string') return res.status(400).json({ error: 'invalid_status' });
+          const normalized = value.toLowerCase();
+          if (!TEMPLATE_STATUSES.has(normalized)) {
+            return res.status(400).json({ error: 'invalid_status' });
+          }
+          value = normalized;
+        }
+        vals.push(value);
         fields.push(`${key} = $${vals.length}`);
       }
     }
@@ -1147,6 +1174,7 @@ create table if not exists public.program_task_templates (
   label       text not null,
   notes       text,
   sort_order  int,
+  status      text default 'draft',
   deleted_at  timestamp
 );
 

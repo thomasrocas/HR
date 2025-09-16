@@ -207,18 +207,32 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
         data: seed.templates.filter(t => t.programId === programId),
       } as any;
     }
-    case /^\/programs\/[^/]+\/templates$/.test(url) && method === 'POST':
+    case /^\/programs\/[^/]+\/templates$/.test(url) && method === 'POST': {
+      const programId = url.split('/')[2];
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      const requestedStatus = typeof payload.status === 'string' ? payload.status.toLowerCase() : 'draft';
+      const status = ['draft', 'published', 'deprecated'].includes(requestedStatus)
+        ? requestedStatus
+        : 'draft';
       return {
-        ...opts?.body && JSON.parse(opts.body.toString()),
+        ...payload,
         id: 'tmpl-new',
-        programId: url.split('/')[2],
+        programId,
+        status,
       } as any;
-    case /^\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && method === 'PATCH':
+    }
+    case /^\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && method === 'PATCH': {
+      const programId = url.split('/')[2];
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      if (payload.status) {
+        payload.status = String(payload.status).toLowerCase();
+      }
       return {
-        ...opts?.body && JSON.parse(opts.body.toString()),
+        ...payload,
         id: url.split('/').at(-1),
-        programId: url.split('/')[2],
+        programId,
       } as any;
+    }
     case /^\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && method === 'DELETE':
       return { deleted: true } as any;
     case /^\/programs\/[^/]+\/templates\/[^/]+\/restore$/.test(url) && method === 'POST':
@@ -234,16 +248,6 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
     case /^\/api\/programs\/[^/]+$/.test(url) && method === 'DELETE':
       return { deleted: true } as any;
     case /^\/api\/programs\/[^/]+\/restore$/.test(url) && method === 'POST':
-      return { restored: true } as any;
-    case url.startsWith('/api/templates?'):
-      return { data: seed.templates } as any;
-    case url === '/api/templates' && method === 'POST':
-      return { ...opts?.body && JSON.parse(opts.body.toString()), id: 'tmpl-new' } as any;
-    case /^\/api\/templates\/[^/]+$/.test(url) && method === 'PATCH':
-      return { ...opts?.body && JSON.parse(opts.body.toString()), id: url.split('/').at(-1) } as any;
-    case /^\/api\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && method === 'DELETE':
-      return { deleted: true } as any;
-    case /^\/api\/programs\/[^/]+\/templates\/[^/]+\/restore$/.test(url) && method === 'POST':
       return { restored: true } as any;
     case url.startsWith('/api/audit'):
       return seed.audit as any;
