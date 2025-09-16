@@ -130,8 +130,6 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
     }
   };
 
-  const isTemplatesView = tab === 'templates';
-
   return (
     <div className="p-8 space-y-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -143,27 +141,17 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
         </div>
         <div className="flex flex-col items-start gap-3 md:items-end">
           <nav className="flex flex-wrap gap-2">
-            <a href="/admin/user-manager" className="btn btn-outline">
+            <a href="/admin/user-manager" className="btn btn-outline text-sm">
               Users
             </a>
-            <a href="/admin/role-manager.html" className="btn btn-outline">
+            <a href="/admin/role-manager.html" className="btn btn-outline text-sm">
               Roles &amp; Programs
             </a>
             <a
-              href="/programs"
-              className={`btn rounded-full ${
-                isTemplatesView ? 'btn-outline' : 'btn-primary'
-              }`}
+              href="/admin/program-template-manager.html"
+              className="btn btn-primary text-sm"
             >
-              Programs
-            </a>
-            <a
-              href="/programs?tab=templates"
-              className={`btn rounded-full ${
-                isTemplatesView ? 'btn-primary' : 'btn-outline'
-              }`}
-            >
-              Templates
+              Program Templates
             </a>
           </nav>
           <a href="/" className="text-sm text-[var(--brand-primary)] underline">
