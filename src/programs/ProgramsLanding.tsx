@@ -4,7 +4,8 @@ import {
   createProgram,
   publishProgram,
   deprecateProgram,
-  archiveProgram,
+  deleteProgram,
+  restoreProgram,
   getTemplates,
 } from '../api';
 import { can, User } from '../rbac';
@@ -116,9 +117,14 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                       Deprecate
                     </button>
                   )}
-                  {can(currentUser, 'archive', 'program') && (
-                    <button className="underline" onClick={() => archiveProgram(p.id)}>
-                      Archive
+                  {can(currentUser, 'delete', 'program') && p.status !== 'archived' && (
+                    <button className="underline" onClick={() => deleteProgram(p.id)}>
+                      Delete
+                    </button>
+                  )}
+                  {can(currentUser, 'delete', 'program') && p.status === 'archived' && (
+                    <button className="underline" onClick={() => restoreProgram(p.id)}>
+                      Restore
                     </button>
                   )}
                 </div>
@@ -151,8 +157,8 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                   {can(currentUser, 'update', 'template') && (
                     <button className="underline">Edit</button>
                   )}
-                  {can(currentUser, 'archive', 'template') && (
-                    <button className="underline">Archive</button>
+                  {can(currentUser, 'delete', 'template') && (
+                    <button className="underline">Delete</button>
                   )}
                 </div>
               }

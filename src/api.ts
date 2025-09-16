@@ -86,8 +86,11 @@ export const publishProgram = (id: string) =>
 export const deprecateProgram = (id: string) =>
   apiFetch(`/api/programs/${id}/deprecate`, { method: 'POST' });
 
-export const archiveProgram = (id: string) =>
-  apiFetch(`/api/programs/${id}/archive`, { method: 'POST' });
+export const deleteProgram = (id: string) =>
+  apiFetch(`/api/programs/${id}`, { method: 'DELETE' });
+
+export const restoreProgram = (id: string) =>
+  apiFetch(`/api/programs/${id}/restore`, { method: 'POST' });
 
 export const cloneProgram = (id: string) =>
   apiFetch<Program>(`/api/programs/${id}/clone`, { method: 'POST' });
@@ -101,8 +104,11 @@ export const createTemplate = (payload: any) =>
 export const patchTemplate = (id: string, payload: any) =>
   apiFetch(`/api/templates/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
 
-export const archiveTemplate = (id: string) =>
-  apiFetch(`/api/templates/${id}/archive`, { method: 'POST' });
+export const deleteTemplate = (programId: string, templateId: string) =>
+  apiFetch(`/api/programs/${programId}/templates/${templateId}`, { method: 'DELETE' });
+
+export const restoreTemplate = (programId: string, templateId: string) =>
+  apiFetch(`/api/programs/${programId}/templates/${templateId}/restore`, { method: 'POST' });
 
 export const bulkAssign = (
   assignments: { userId: string; programId: string; startDate: string; dueDate: string }[],
@@ -124,6 +130,14 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { ...opts?.body && JSON.parse(opts.body.toString()), id: 'u-new' } as any;
     case url.startsWith('/api/programs?'):
       return { data: p, meta: { total: p.length, page: 1 } } as any;
+    case /^\/api\/programs\/[^/]+$/.test(url) && opts?.method === 'DELETE':
+      return { deleted: true } as any;
+    case /^\/api\/programs\/[^/]+\/restore$/.test(url) && opts?.method === 'POST':
+      return { restored: true } as any;
+    case /^\/api\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && opts?.method === 'DELETE':
+      return { deleted: true } as any;
+    case /^\/api\/programs\/[^/]+\/templates\/[^/]+\/restore$/.test(url) && opts?.method === 'POST':
+      return { restored: true } as any;
     case url.startsWith('/api/audit'):
       return seed.audit as any;
     default:
