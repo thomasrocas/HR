@@ -1769,7 +1769,9 @@ useEffect(() => {
                   Refresh Programs
                 </button>
                 {me.roles?.includes('admin') && (
-                  <a href="/admin/role-manager.html" className="btn btn-outline w-full">Role Manager</a>
+                <button className="btn-outline w-full" onClick={() => window.location.href = '/admin/role-manager.html'}>
+					      Role Manager
+				        </button>
                 )}
                 <button className="btn btn-outline w-full" disabled>
                   Clear Cache (coming soon)
