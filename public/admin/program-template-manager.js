@@ -82,9 +82,9 @@ function getTemplateId(template) {
 
 function getTemplateName(template) {
   const value = [
+    template?.label,
     template?.name,
     template?.title,
-    template?.label,
     template?.template?.name,
     template?.template?.title,
     template?.template?.label,
