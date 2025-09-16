@@ -10,7 +10,13 @@ import {
 import { can, User } from '../rbac';
 
 export default function ProgramsLanding({ currentUser }: { currentUser: User }) {
-  const [tab, setTab] = useState<'programs' | 'templates' | 'assignments'>('programs');
+  const [tab, setTab] = useState<'programs' | 'templates' | 'assignments'>(() => {
+    if (typeof window === 'undefined') return 'programs';
+    const initialTab = new URLSearchParams(window.location.search).get('tab');
+    return initialTab === 'templates' || initialTab === 'assignments' || initialTab === 'programs'
+      ? initialTab
+      : 'programs';
+  });
   const [programs, setPrograms] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
 
