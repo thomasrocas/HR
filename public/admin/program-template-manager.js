@@ -309,10 +309,10 @@ const confirmDeleteProgramButton = document.getElementById('confirmDeleteProgram
 const templateModal = document.getElementById('templateModal');
 const templateModalTitle = document.getElementById('templateModalTitle');
 const templateForm = document.getElementById('templateForm');
-const templateFormNameInput = document.getElementById('templateFormName');
-const templateFormCategoryInput = document.getElementById('templateFormCategory');
-const templateFormStatusSelect = document.getElementById('templateFormStatus');
-const templateFormDescriptionInput = document.getElementById('templateFormDescription');
+const templateFormWeekInput = document.getElementById('templateFormWeek');
+const templateFormSortInput = document.getElementById('templateFormSort');
+const templateFormLabelInput = document.getElementById('templateFormLabel');
+const templateFormNotesInput = document.getElementById('templateFormNotes');
 const templateFormMessage = document.getElementById('templateFormMessage');
 const templateFormSubmit = document.getElementById('templateFormSubmit');
 const templateModalDeleteTrigger = document.getElementById('templateModalDeleteTrigger');
@@ -1076,9 +1076,17 @@ function resetTemplateForm() {
   if (templateForm) {
     templateForm.reset();
   }
-  if (templateFormStatusSelect) {
-    const defaultStatus = 'draft';
-    templateFormStatusSelect.value = defaultStatus;
+  if (templateFormWeekInput) {
+    templateFormWeekInput.value = '1';
+  }
+  if (templateFormSortInput) {
+    templateFormSortInput.value = '1';
+  }
+  if (templateFormLabelInput) {
+    templateFormLabelInput.value = '';
+  }
+  if (templateFormNotesInput) {
+    templateFormNotesInput.value = '';
   }
   setTemplateFormMessage('');
 }
@@ -1207,27 +1215,39 @@ function openTemplateModal(mode = 'create', templateId = null) {
   if (isEdit) {
     if (templateModalTitle) templateModalTitle.textContent = 'Edit Template';
     if (templateFormSubmit) templateFormSubmit.textContent = 'Save Changes';
-    if (templateFormNameInput) templateFormNameInput.value = getTemplateName(template) || '';
-    if (templateFormCategoryInput) templateFormCategoryInput.value = getTemplateCategory(template) || '';
-    if (templateFormStatusSelect) {
-      const status = (getTemplateStatus(template) || 'draft').toString().toLowerCase();
-      const allowedStatuses = new Set(['draft', 'published', 'deprecated', 'archived']);
-      templateFormStatusSelect.value = allowedStatuses.has(status) ? status : 'draft';
+    if (templateFormWeekInput) {
+      const weekNumber = getTemplateWeekNumber(template);
+      templateFormWeekInput.value = weekNumber !== null && weekNumber !== undefined && weekNumber !== ''
+        ? String(weekNumber)
+        : '1';
     }
-    if (templateFormDescriptionInput) {
-      templateFormDescriptionInput.value = getTemplateDescription(template) || '';
+    if (templateFormSortInput) {
+      const sortValue = getTemplateSortValue(template, 1);
+      templateFormSortInput.value = Number.isFinite(sortValue) ? String(sortValue) : '1';
+    }
+    if (templateFormLabelInput) {
+      templateFormLabelInput.value = getTemplateName(template) || '';
+    }
+    if (templateFormNotesInput) {
+      const notes = template?.notes ?? '';
+      templateFormNotesInput.value = notes;
     }
   } else {
     if (templateModalTitle) templateModalTitle.textContent = 'New Template';
     if (templateFormSubmit) templateFormSubmit.textContent = 'Create Template';
+    if (templateFormSortInput) {
+      const sortValues = templates.map(item => getTemplateSortValue(item, 0));
+      const maxSort = sortValues.length ? Math.max(...sortValues) : 0;
+      templateFormSortInput.value = String(maxSort + 1);
+    }
   }
   setTemplateFormMessage('');
   openModal(templateModal);
-  if (templateFormNameInput) {
+  if (templateFormWeekInput) {
     requestAnimationFrame(() => {
-      templateFormNameInput.focus();
+      templateFormWeekInput.focus();
       if (isEdit) {
-        templateFormNameInput.select?.();
+        templateFormWeekInput.select?.();
       }
     });
   }
@@ -1345,31 +1365,52 @@ async function submitTemplateForm(event) {
   if (templateFormSubmit) {
     templateFormSubmit.disabled = true;
   }
-  const nameValue = (templateFormNameInput?.value || '').trim();
-  if (!nameValue) {
-    setTemplateFormMessage('Template name is required.', true);
+  const fallbackSubmitLabel = isEdit ? 'Save Changes' : 'Create Template';
+  const weekRawValue = templateFormWeekInput?.value ?? '';
+  const weekNumber = Number(weekRawValue);
+  if (weekRawValue === '' || !Number.isFinite(weekNumber) || weekNumber <= 0) {
+    setTemplateFormMessage('Week number must be a positive number.', true);
     if (templateFormSubmit) {
       templateFormSubmit.disabled = false;
-      templateFormSubmit.textContent = initialSubmitLabel || (isEdit ? 'Save Changes' : 'Create Template');
+      templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
     }
-    templateFormNameInput?.focus();
+    templateFormWeekInput?.focus();
+    templateFormWeekInput?.select?.();
     return;
   }
-  const categoryValue = (templateFormCategoryInput?.value || '').trim();
-  let statusValue = templateFormStatusSelect?.value || 'draft';
-  if (statusValue) {
-    statusValue = statusValue.toString().toLowerCase();
+  const labelValue = (templateFormLabelInput?.value || '').trim();
+  if (!labelValue) {
+    setTemplateFormMessage('Label is required.', true);
+    if (templateFormSubmit) {
+      templateFormSubmit.disabled = false;
+      templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
+    }
+    templateFormLabelInput?.focus();
+    return;
   }
-  const allowedStatuses = new Set(['draft', 'published', 'deprecated', 'archived']);
-  if (!allowedStatuses.has(statusValue)) {
-    statusValue = 'draft';
+  const sortRawValue = templateFormSortInput?.value ?? '';
+  let sortNumber = null;
+  if (sortRawValue !== '') {
+    const parsedSort = Number(sortRawValue);
+    if (!Number.isFinite(parsedSort) || parsedSort <= 0) {
+      setTemplateFormMessage('Sort order must be a positive number.', true);
+      if (templateFormSubmit) {
+        templateFormSubmit.disabled = false;
+        templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
+      }
+      templateFormSortInput?.focus();
+      templateFormSortInput?.select?.();
+      return;
+    }
+    sortNumber = parsedSort;
   }
-  const descriptionValue = (templateFormDescriptionInput?.value || '').trim();
+  const notesRawValue = templateFormNotesInput?.value ?? '';
+  const notesValue = notesRawValue.trim();
   const payload = {
-    name: nameValue,
-    category: categoryValue || null,
-    status: statusValue || 'draft',
-    description: descriptionValue ? descriptionValue : null,
+    week_number: weekNumber,
+    label: labelValue,
+    notes: notesValue ? notesValue : null,
+    sort_order: sortNumber ?? null,
   };
   const encodedProgramId = encodeURIComponent(selectedProgramId);
   const encodedTemplateId = targetId ? encodeURIComponent(targetId) : null;
@@ -1390,13 +1431,11 @@ async function submitTemplateForm(event) {
     });
     const resultId = result && typeof result === 'object' ? getTemplateId(result) : null;
     closeTemplateModal();
-    await loadTemplates();
     const idToSelect = resultId || targetId || null;
     if (idToSelect) {
-      selectedTemplateIds.clear();
-      selectedTemplateIds.add(idToSelect);
-      selectedTemplateId = idToSelect;
-      renderTemplates();
+      await loadTemplates({ focusTemplateId: idToSelect });
+    } else {
+      await loadTemplates();
     }
     templateMessage.textContent = isEdit
       ? 'Template updated successfully.'
@@ -1413,7 +1452,7 @@ async function submitTemplateForm(event) {
   } finally {
     if (templateFormSubmit) {
       templateFormSubmit.disabled = false;
-      templateFormSubmit.textContent = initialSubmitLabel || (isEdit ? 'Save Changes' : 'Create Template');
+      templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
     }
   }
 }
