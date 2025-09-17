@@ -4,18 +4,33 @@
 begin;
 
 do $$
+declare
+  template_id_type text;
 begin
+  select format_type(a.atttypid, a.atttypmod)
+  into template_id_type
+  from pg_attribute a
+  where a.attrelid = 'public.program_task_templates'::regclass
+    and a.attname = 'template_id';
+
+  if template_id_type is null then
+    raise exception 'Could not determine type for program_task_templates.template_id';
+  end if;
+
   if not exists (
     select 1
     from information_schema.tables
     where table_schema = 'public'
       and table_name = 'program_template_links'
   ) then
-    create table public.program_template_links (
-      template_id public.program_task_templates.template_id%TYPE not null,
-      program_id  text not null,
-      created_at  timestamptz not null default now(),
-      primary key (template_id, program_id)
+    execute format(
+      'create table public.program_template_links (
+         template_id %1$s not null,
+         program_id  text not null,
+         created_at  timestamptz not null default now(),
+         primary key (template_id, program_id)
+       )',
+      template_id_type
     );
   end if;
 end
@@ -29,14 +44,33 @@ alter table public.program_template_links
   drop constraint if exists program_template_links_program_id_fkey,
   drop constraint if exists program_template_links_pkey;
 
-alter table public.program_template_links
-  alter column template_id type public.program_task_templates.template_id%TYPE
-    using trim(template_id::text)::public.program_task_templates.template_id%TYPE,
-  alter column template_id set not null,
-  alter column program_id type text,
-  alter column program_id set not null,
-  alter column created_at type timestamptz using created_at::timestamptz,
-  alter column created_at set default now();
+do $$
+declare
+  template_id_type text;
+begin
+  select format_type(a.atttypid, a.atttypmod)
+  into template_id_type
+  from pg_attribute a
+  where a.attrelid = 'public.program_task_templates'::regclass
+    and a.attname = 'template_id';
+
+  if template_id_type is null then
+    raise exception 'Could not determine type for program_task_templates.template_id';
+  end if;
+
+  execute format(
+    'alter table public.program_template_links
+       alter column template_id type %1$s
+         using trim(template_id::text)::%1$s,
+       alter column template_id set not null,
+       alter column program_id type text,
+       alter column program_id set not null,
+       alter column created_at type timestamptz using created_at::timestamptz,
+       alter column created_at set default now()',
+    template_id_type
+  );
+end
+$$;
 
 alter table public.program_template_links
   add constraint program_template_links_pkey primary key (template_id, program_id);
