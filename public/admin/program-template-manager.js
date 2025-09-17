@@ -313,6 +313,7 @@ const templateFormWeekInput = document.getElementById('templateFormWeek');
 const templateFormSortInput = document.getElementById('templateFormSort');
 const templateFormLabelInput = document.getElementById('templateFormLabel');
 const templateFormNotesInput = document.getElementById('templateFormNotes');
+const templateFormTagsInput = document.getElementById('templateFormTags');
 const templateFormMessage = document.getElementById('templateFormMessage');
 const templateFormSubmit = document.getElementById('templateFormSubmit');
 const templateModalDeleteTrigger = document.getElementById('templateModalDeleteTrigger');
@@ -379,6 +380,7 @@ const pendingReorderState = {
   successMessage: 'Order updated.',
 };
 let tagifyInstance = null;
+let templateTagsTagify = null;
 let suppressTagifyEventsFlag = false;
 const pendingAttach = new Set();
 const pendingAttachState = new Map();
@@ -442,6 +444,8 @@ if (!CAN_MANAGE_TEMPLATES) {
   }
   if (confirmDeleteTemplateButton) confirmDeleteTemplateButton.disabled = false;
 }
+
+syncTemplateTagsReadonly();
 
 updateProgramEditorButtons(programs);
 updateTemplateEditorButtons(templates);
@@ -791,6 +795,143 @@ function ensurePanelReadOnlyHint() {
   if (!current) {
     setTemplatePanelMessage('Read-only mode — assignments are view only for your role.');
   }
+}
+
+function syncTemplateTagsReadonly() {
+  const shouldBeReadonly = !CAN_MANAGE_TEMPLATES;
+  if (templateFormTagsInput) {
+    if (shouldBeReadonly) {
+      templateFormTagsInput.setAttribute('readonly', 'readonly');
+    } else {
+      templateFormTagsInput.removeAttribute('readonly');
+    }
+  }
+  if (templateTagsTagify) {
+    if (typeof templateTagsTagify.setReadonly === 'function') {
+      templateTagsTagify.setReadonly(shouldBeReadonly);
+    }
+    if (templateTagsTagify.settings && typeof templateTagsTagify.settings === 'object') {
+      templateTagsTagify.settings.readonly = shouldBeReadonly;
+    }
+  }
+}
+
+function destroyTemplateTagsTagify() {
+  if (templateTagsTagify && typeof templateTagsTagify.destroy === 'function') {
+    try {
+      templateTagsTagify.destroy();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  templateTagsTagify = null;
+  if (templateFormTagsInput) {
+    templateFormTagsInput.value = '';
+  }
+  syncTemplateTagsReadonly();
+}
+
+function initTemplateTagsTagify() {
+  if (!templateFormTagsInput) return null;
+  if (templateTagsTagify) return templateTagsTagify;
+  const TagifyConstructor = window?.Tagify;
+  if (typeof TagifyConstructor !== 'function') {
+    syncTemplateTagsReadonly();
+    return null;
+  }
+  templateTagsTagify = new TagifyConstructor(templateFormTagsInput, {
+    duplicates: false,
+    editTags: 1,
+    dropdown: {
+      enabled: 0,
+    },
+  });
+  syncTemplateTagsReadonly();
+  return templateTagsTagify;
+}
+
+function normalizeTemplateTagSource(source) {
+  if (source === null || source === undefined) return [];
+  const queue = Array.isArray(source) ? [...source] : [source];
+  const seen = new Set();
+  const result = [];
+  while (queue.length) {
+    const entry = queue.shift();
+    if (entry === null || entry === undefined) continue;
+    if (Array.isArray(entry)) {
+      queue.push(...entry);
+      continue;
+    }
+    if (typeof entry === 'object') {
+      if (Array.isArray(entry.tags)) queue.push(...entry.tags);
+      if (Array.isArray(entry.items)) queue.push(...entry.items);
+      const candidate = entry.value ?? entry.name ?? entry.label ?? entry.text ?? entry.tag;
+      if (candidate !== undefined && candidate !== null) {
+        queue.push(candidate);
+      }
+      continue;
+    }
+    const value = typeof entry === 'string' ? entry : String(entry);
+    if (!value) continue;
+    const parts = value.split(/[\n,;/]/);
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+function getTemplateTagsFromTemplate(template) {
+  if (!template) return [];
+  const candidates = [
+    template?.tags,
+    template?.tag_list,
+    template?.tagList,
+    template?.tag_names,
+    template?.tagNames,
+    template?.template?.tags,
+    template?.template?.tag_list,
+    template?.template?.tagList,
+    template?.template?.tag_names,
+    template?.template?.tagNames,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null) return [];
+    const normalized = normalizeTemplateTagSource(candidate);
+    if (normalized.length) return normalized;
+  }
+  return [];
+}
+
+function setTemplateFormTags(tags) {
+  const normalized = normalizeTemplateTagSource(tags);
+  if (templateTagsTagify) {
+    try {
+      if (typeof templateTagsTagify.removeAllTags === 'function') {
+        templateTagsTagify.removeAllTags();
+      }
+      if (normalized.length && typeof templateTagsTagify.addTags === 'function') {
+        templateTagsTagify.addTags(normalized);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  } else if (templateFormTagsInput) {
+    templateFormTagsInput.value = normalized.join(', ');
+  }
+}
+
+function collectTemplateFormTags() {
+  if (templateTagsTagify) {
+    return normalizeTemplateTagSource(templateTagsTagify.value);
+  }
+  if (!templateFormTagsInput) return [];
+  return normalizeTemplateTagSource(templateFormTagsInput.value || '');
 }
 
 function withTagifySuppressed(callback) {
@@ -1678,6 +1819,8 @@ function resetTemplateForm() {
   if (templateFormNotesInput) {
     templateFormNotesInput.value = '';
   }
+  setTemplateFormTags([]);
+  syncTemplateTagsReadonly();
   setTemplateFormMessage('');
 }
 
@@ -1769,6 +1912,7 @@ function closeTemplateModal() {
   templateModalMode = 'create';
   templateModalTemplateId = null;
   resetTemplateForm();
+  destroyTemplateTagsTagify();
   if (templateModalDeleteTrigger) {
     templateModalDeleteTrigger.classList.add('hidden');
     if (CAN_MANAGE_TEMPLATES) {
@@ -1802,6 +1946,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
   templateModalMode = normalizedMode;
   templateModalTemplateId = isEdit ? targetId : null;
   resetTemplateForm();
+  initTemplateTagsTagify();
   const templateStatus = template ? getTemplateStatus(template) : '';
   const isTemplateArchived = (templateStatus || '').toLowerCase() === 'archived';
   const isDeleteVisible = isEdit && CAN_MANAGE_TEMPLATES && !isTemplateArchived;
@@ -1830,6 +1975,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
       const notes = template?.notes ?? '';
       templateFormNotesInput.value = notes;
     }
+    setTemplateFormTags(getTemplateTagsFromTemplate(template));
   } else {
     if (templateModalTitle) templateModalTitle.textContent = 'New Template';
     if (templateFormSubmit) templateFormSubmit.textContent = 'Create Template';
@@ -1838,6 +1984,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
       const maxSort = sortValues.length ? Math.max(...sortValues) : 0;
       templateFormSortInput.value = String(maxSort + 1);
     }
+    setTemplateFormTags([]);
   }
   setTemplateFormMessage('');
   openModal(templateModal);
@@ -2101,11 +2248,13 @@ async function submitTemplateForm(event) {
   }
   const notesRawValue = templateFormNotesInput?.value ?? '';
   const notesValue = notesRawValue.trim();
+  const tagsValue = collectTemplateFormTags();
   const payload = {
     week_number: weekNumber,
     label: labelValue,
     notes: notesValue ? notesValue : null,
     sort_order: sortNumber ?? null,
+    tags: tagsValue.length ? tagsValue : [],
   };
   const encodedProgramId = encodeURIComponent(selectedProgramId);
   const encodedTemplateId = targetId ? encodeURIComponent(targetId) : null;
