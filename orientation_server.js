@@ -667,9 +667,19 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
   try {
     const { program_id } = req.params;
     const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
-    const sql = `select * from public.program_task_templates
-                 where program_id = $1${includeDeleted ? '' : ' and deleted_at is null'}
-                 order by week_number, sort_order, template_id`;
+    const sql = `select t.template_id,
+                        l.program_id,
+                        t.week_number,
+                        t.label,
+                        t.notes,
+                        t.sort_order,
+                        t.status,
+                        t.deleted_at
+                 from public.program_task_templates t
+                 join public.program_template_links l
+                   on l.template_id = t.template_id
+                 where l.program_id = $1${includeDeleted ? '' : ' and t.deleted_at is null'}
+                 order by t.week_number, t.sort_order, t.template_id`;
     const { rows } = await pool.query(sql, [program_id]);
     res.json(rows);
   } catch (err) {
@@ -691,16 +701,32 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
       status = normalized;
     }
     const sql = `
-      insert into public.program_task_templates (program_id, week_number, label, notes, sort_order, status)
-      values ($1,$2,$3,$4,$5,$6)
-      returning *;`;
+      with inserted as (
+        insert into public.program_task_templates (week_number, label, notes, sort_order, status)
+        values ($1,$2,$3,$4,$5)
+        returning template_id, week_number, label, notes, sort_order, status, deleted_at
+      ), linked as (
+        insert into public.program_template_links (template_id, program_id)
+        select template_id, $6 from inserted
+        returning template_id, program_id
+      )
+      select i.template_id,
+             l.program_id,
+             i.week_number,
+             i.label,
+             i.notes,
+             i.sort_order,
+             i.status,
+             i.deleted_at
+      from inserted i
+      join linked l on l.template_id = i.template_id;`;
     const { rows } = await pool.query(sql, [
-      program_id,
       week_number,
       label,
       notes,
       sort_order,
       status ?? 'draft',
+      program_id,
     ]);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -739,12 +765,31 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
 
     vals.push(program_id);
     vals.push(template_id);
-    const sql = `update public.program_task_templates
-                 set ${fields.join(', ')}
-                 where program_id = $${vals.length-1} and template_id = $${vals.length}
-                   and deleted_at is null
-                 returning *;`;
-    const { rows } = await pool.query(sql, vals);
+    const updateSql = `update public.program_task_templates
+                         set ${fields.join(', ')}
+                       from public.program_template_links l
+                       where public.program_task_templates.template_id = $${vals.length}
+                         and l.template_id = public.program_task_templates.template_id
+                         and l.program_id = $${vals.length-1}
+                         and public.program_task_templates.deleted_at is null;`;
+    const result = await pool.query(updateSql, vals);
+    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
+
+    const { rows } = await pool.query(
+      `select t.template_id,
+              l.program_id,
+              t.week_number,
+              t.label,
+              t.notes,
+              t.sort_order,
+              t.status,
+              t.deleted_at
+         from public.program_task_templates t
+         join public.program_template_links l on l.template_id = t.template_id
+        where t.template_id = $1
+          and l.program_id = $2`,
+      [template_id, program_id]
+    );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (err) {
@@ -763,11 +808,15 @@ app.delete('/programs/:program_id/templates/:template_id', ensurePerm('template.
     }
     const result = await pool.query(
       `update public.program_task_templates
-         set deleted_at = now()
-       where program_id = $1 and template_id = $2 and deleted_at is null`,
+          set deleted_at = now()
+        from public.program_template_links l
+        where public.program_task_templates.template_id = $2
+          and l.template_id = public.program_task_templates.template_id
+          and l.program_id = $1
+          and public.program_task_templates.deleted_at is null`,
       [program_id, template_id]
     );
-    if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
     console.error('DELETE /programs/:id/templates/:template_id error', err);
@@ -785,9 +834,12 @@ app.post('/programs/:program_id/templates/:template_id/restore', ensurePerm('tem
     }
     const result = await pool.query(
       `update public.program_task_templates
-         set deleted_at = null
-       where program_id = $1 and template_id = $2 and deleted_at is not null
-       returning *;`,
+          set deleted_at = null
+        from public.program_template_links l
+        where public.program_task_templates.template_id = $2
+          and l.template_id = public.program_task_templates.template_id
+          and l.program_id = $1
+          and public.program_task_templates.deleted_at is not null`,
       [program_id, template_id]
     );
     if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
@@ -806,15 +858,16 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
 const sql = `
   insert into public.orientation_tasks
     (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
+  select $1, $2, t.label, null, false, l.program_id, t.week_number, t.notes
   from public.program_task_templates t
+  join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
     on ot.user_id = $1
-   and ot.program_id = t.program_id
+   and ot.program_id = l.program_id
    and ot.label = t.label
    and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
    and ot.deleted = false
-  where t.program_id = $3
+  where l.program_id = $3
     and t.deleted_at is null
     and ot.task_id is null
   order by t.week_number, t.sort_order
@@ -867,15 +920,16 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
 const copySql = `
   insert into public.orientation_tasks
     (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
+  select $1, $2, t.label, null, false, l.program_id, t.week_number, t.notes
   from public.program_task_templates t
+  join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
     on ot.user_id = $1
-   and ot.program_id = t.program_id
+   and ot.program_id = l.program_id
    and ot.label = t.label
    and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
    and ot.deleted = false
-  where t.program_id = $3
+  where l.program_id = $3
     and t.deleted_at is null
     and ot.task_id is null
   order by t.week_number, t.sort_order
@@ -1169,7 +1223,6 @@ create table if not exists public.programs (
 
 create table if not exists public.program_task_templates (
   template_id uuid primary key default gen_random_uuid(),
-  program_id  text references public.programs(program_id) on delete cascade,
   week_number int,
   label       text not null,
   notes       text,
@@ -1177,6 +1230,14 @@ create table if not exists public.program_task_templates (
   status      text default 'draft',
   deleted_at  timestamp
 );
+
+create table if not exists public.program_template_links (
+  template_id uuid references public.program_task_templates(template_id) on delete cascade,
+  program_id  text references public.programs(program_id) on delete cascade,
+  created_at  timestamptz default now(),
+  primary key (template_id, program_id)
+);
+create index if not exists idx_program_template_links_program on public.program_template_links(program_id);
 
 -- Tasks: add user_id (owning user)
 alter table public.orientation_tasks
