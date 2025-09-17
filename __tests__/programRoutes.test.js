@@ -51,17 +51,16 @@ describe('program routes', () => {
         description text,
         created_by uuid,
         created_at timestamptz default now(),
-        deleted_at timestamp,
-        tags jsonb default '[]'::jsonb
+        deleted_at timestamp
       );
-      create table public.template_catalog (
+      create table public.program_task_templates (
         template_id uuid primary key,
+        program_id text,
+        week_number int,
         label text not null,
         notes text,
-        week_number int,
         sort_order int,
         status text default 'draft',
-        tags jsonb default '[]'::jsonb,
         deleted_at timestamp
       );
       create table public.user_roles (
@@ -102,7 +101,7 @@ describe('program routes', () => {
   });
 
   afterEach(async () => {
-    await pool.query('delete from public.template_catalog');
+    await pool.query('delete from public.program_task_templates');
     await pool.query('delete from public.orientation_tasks');
     await pool.query('delete from public.program_memberships');
     await pool.query('delete from public.user_preferences');
@@ -189,6 +188,53 @@ describe('program routes', () => {
     expect(rows[0].deleted_at).not.toBeNull();
   });
 
+  test('manager with template delete permission can soft delete managed template', async () => {
+    await pool.query(
+      "insert into public.role_permissions(role_id, perm_key) select role_id, 'template.delete' from public.roles where role_key='manager'"
+    );
+
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+      managerId,
+      'mgr-template-delete',
+      hash,
+      'local'
+    ]);
+    await pool.query("insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'", [
+      managerId
+    ]);
+
+    const progId = 'managed_template_prog';
+    await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [
+      progId,
+      'Template Delete',
+      managerId
+    ]);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [
+      managerId,
+      progId,
+      'manager'
+    ]);
+
+    const tmplId = crypto.randomUUID();
+    await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [
+      tmplId,
+      progId,
+      1,
+      'Delete Template'
+    ]);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'mgr-template-delete', password: 'passpass' }).expect(200);
+
+    await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
+
+    const { rows } = await pool.query('select deleted_at from public.program_task_templates where template_id=$1', [tmplId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].deleted_at).not.toBeNull();
+  });
+
   test('patch updates program fields', async () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
@@ -221,11 +267,16 @@ describe('program routes', () => {
 
     const progId = 'prog2';
     await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'TBD', userId]);
+    await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [crypto.randomUUID(), progId, 1, 't1']);
+    await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [crypto.randomUUID(), progId, 2, 't2']);
+
     await agent.delete(`/programs/${progId}`).expect(200, { deleted: true });
 
     let progRows = await pool.query('select deleted_at from public.programs where program_id=$1', [progId]);
     expect(progRows.rowCount).toBe(1);
     expect(progRows.rows[0].deleted_at).not.toBeNull();
+    const tmplRows = await pool.query('select 1 from public.program_task_templates where program_id=$1', [progId]);
+    expect(tmplRows.rowCount).toBe(2);
 
     let res = await agent.get('/programs').expect(200);
     expect(res.body.find(p => p.program_id === progId)).toBeUndefined();
@@ -246,7 +297,177 @@ describe('program routes', () => {
     expect(restored.deleted_at).toBeNull();
   });
 
-test('instantiate creates tasks for tag-matching templates', async () => {
+test('patch updates template fields', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user3', password: 'passpass' }).expect(200);
+
+  const progId = 'prog3';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label, notes, sort_order) values ($1,$2,$3,$4,$5,$6)', [tmplId, progId, 1, 'old', 'n1', 1]);
+
+  const res = await agent
+    .patch(`/programs/${progId}/templates/${tmplId}`)
+    .send({ week_number: 2, label: 'new', notes: 'n2', sort_order: 5 })
+    .expect(200);
+
+  expect(res.body.week_number).toBe(2);
+  expect(res.body.label).toBe('new');
+  expect(res.body.notes).toBe('n2');
+  expect(res.body.sort_order).toBe(5);
+
+  const { rows } = await pool.query('select week_number, label, notes, sort_order from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows[0]).toEqual({ week_number: 2, label: 'new', notes: 'n2', sort_order: 5 });
+});
+
+test('patch updates template status', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3c', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user3c', password: 'passpass' }).expect(200);
+
+  const progId = 'prog3c';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label, status) values ($1,$2,$3,$4,$5)', [
+    tmplId,
+    progId,
+    1,
+    'status-old',
+    'draft',
+  ]);
+
+  const res = await agent
+    .patch(`/programs/${progId}/templates/${tmplId}`)
+    .send({ status: 'published' })
+    .expect(200);
+
+  expect(res.body.status).toBe('published');
+
+  const { rows } = await pool.query('select status from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows[0].status).toBe('published');
+});
+
+test('patch rejects invalid template status', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3d', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user3d', password: 'passpass' }).expect(200);
+
+  const progId = 'prog3d';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [
+    tmplId,
+    progId,
+    1,
+    'status-invalid',
+  ]);
+
+  const res = await agent
+    .patch(`/programs/${progId}/templates/${tmplId}`)
+    .send({ status: 'archived' })
+    .expect(400);
+
+  expect(res.body.error).toBe('invalid_status');
+
+  const { rows } = await pool.query('select status from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows[0].status).toBe('draft');
+});
+
+test('patch fails for soft deleted template', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user3b', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user3b', password: 'passpass' }).expect(200);
+
+  const progId = 'prog3b';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label, notes, sort_order) values ($1,$2,$3,$4,$5,$6)', [tmplId, progId, 1, 'old', 'n1', 1]);
+
+  await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
+
+  await agent
+    .patch(`/programs/${progId}/templates/${tmplId}`)
+    .send({ label: 'new' })
+    .expect(404);
+});
+
+test('delete soft deletes template row', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user4', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user4', password: 'passpass' }).expect(200);
+
+  const progId = 'prog4';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [tmplId, progId, 1, 'tmp']);
+
+  await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
+
+  const { rows } = await pool.query('select deleted_at from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].deleted_at).not.toBeNull();
+
+  let res = await agent.get(`/programs/${progId}/templates`).expect(200);
+  expect(res.body).toHaveLength(0);
+
+  res = await agent
+    .get(`/programs/${progId}/templates`)
+    .query({ include_deleted: 'true' })
+    .expect(200);
+  expect(res.body).toHaveLength(1);
+  expect(res.body[0].template_id).toBe(tmplId);
+  expect(res.body[0].deleted_at).toBeTruthy();
+});
+
+test('soft deleted template can be restored', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [userId, 'user4b', hash, 'local']);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user4b', password: 'passpass' }).expect(200);
+
+  const progId = 'prog4b';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [tmplId, progId, 1, 'tmp']);
+
+  await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
+
+  await agent.post(`/programs/${progId}/templates/${tmplId}/restore`).expect(200, { restored: true });
+
+  const { rows } = await pool.query('select deleted_at from public.program_task_templates where template_id=$1', [tmplId]);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].deleted_at).toBeNull();
+
+  const res = await agent.get(`/programs/${progId}/templates`).expect(200);
+  expect(res.body).toHaveLength(1);
+  expect(res.body[0].template_id).toBe(tmplId);
+});
+
+test('instantiate skips soft deleted templates', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
   await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [userId, 'user4c', hash, 'local', 'Test User']);
@@ -256,81 +477,20 @@ test('instantiate creates tasks for tag-matching templates', async () => {
   await agent.post('/auth/local/login').send({ username: 'user4c', password: 'passpass' }).expect(200);
 
   const progId = 'prog4c';
-  await pool.query('insert into public.programs(program_id, title, created_by, tags) values ($1,$2,$3,$4::jsonb)', [
-    progId,
-    'title',
-    userId,
-    JSON.stringify(['engineering', 'welcome'])
-  ]);
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const activeId = crypto.randomUUID();
+  const deletedId = crypto.randomUUID();
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [activeId, progId, 1, 'active']);
+  await pool.query('insert into public.program_task_templates(template_id, program_id, week_number, label) values ($1,$2,$3,$4)', [deletedId, progId, 2, 'deleted']);
 
-  await pool.query('insert into public.template_catalog(template_id, label, week_number, tags, status) values ($1,$2,$3,$4::jsonb,$5)', [
-    crypto.randomUUID(),
-    'Engineering Checklist',
-    1,
-    JSON.stringify(['engineering']),
-    'published'
-  ]);
-  await pool.query('insert into public.template_catalog(template_id, label, week_number, tags, status) values ($1,$2,$3,$4::jsonb,$5)', [
-    crypto.randomUUID(),
-    'Design Intro',
-    2,
-    JSON.stringify(['design']),
-    'published'
-  ]);
-  await pool.query('insert into public.template_catalog(template_id, label, week_number, tags, status, deleted_at) values ($1,$2,$3,$4::jsonb,$5, now())', [
-    crypto.randomUUID(),
-    'Old Engineering Template',
-    3,
-    JSON.stringify(['engineering']),
-    'published'
-  ]);
-  await pool.query('insert into public.template_catalog(template_id, label, week_number, tags, status) values ($1,$2,$3,$4::jsonb,$5)', [
-    crypto.randomUUID(),
-    'Draft Engineering Template',
-    4,
-    JSON.stringify(['engineering']),
-    'draft'
-  ]);
+  await agent.delete(`/programs/${progId}/templates/${deletedId}`).expect(200, { deleted: true });
 
   const res = await agent.post(`/programs/${progId}/instantiate`).expect(200);
   expect(res.body.created).toBe(1);
 
   const { rows } = await pool.query('select label from public.orientation_tasks where user_id=$1', [userId]);
   expect(rows).toHaveLength(1);
-  expect(rows[0].label).toBe('Engineering Checklist');
-});
-
-test('instantiate does not duplicate existing tasks', async () => {
-  const userId = crypto.randomUUID();
-  const hash = await bcrypt.hash('passpass', 1);
-  await pool.query('insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)', [userId, 'user4d', hash, 'local', 'Repeat User']);
-  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [userId, 'admin']);
-
-  const agent = request.agent(app);
-  await agent.post('/auth/local/login').send({ username: 'user4d', password: 'passpass' }).expect(200);
-
-  const progId = 'prog4d';
-  await pool.query('insert into public.programs(program_id, title, created_by, tags) values ($1,$2,$3,$4::jsonb)', [
-    progId,
-    'title',
-    userId,
-    JSON.stringify(['engineering'])
-  ]);
-
-  await pool.query('insert into public.template_catalog(template_id, label, week_number, tags, status) values ($1,$2,$3,$4::jsonb,$5)', [
-    crypto.randomUUID(),
-    'Engineering Checklist',
-    1,
-    JSON.stringify(['engineering']),
-    'published'
-  ]);
-
-  await agent.post(`/programs/${progId}/instantiate`).expect(200, { created: 1 });
-  await agent.post(`/programs/${progId}/instantiate`).expect(200, { created: 0 });
-
-  const { rows } = await pool.query('select label from public.orientation_tasks where user_id=$1', [userId]);
-  expect(rows).toHaveLength(1);
-  expect(rows[0].label).toBe('Engineering Checklist');
+  expect(rows[0].label).toBe('active');
 });
 
 test('deleted task can be restored', async () => {
