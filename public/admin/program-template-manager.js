@@ -244,23 +244,6 @@ function getProgramDescription(program) {
   return program?.description ?? '';
 }
 
-function getProgramTags(program) {
-  if (!program) return [];
-  const candidates = [
-    program?.tags,
-    program?.tag_list,
-    program?.tagList,
-    program?.tag_names,
-    program?.tagNames,
-  ];
-  for (const candidate of candidates) {
-    if (candidate === null) return [];
-    const normalized = normalizeTemplateTagSource(candidate);
-    if (normalized.length) return normalized;
-  }
-  return [];
-}
-
 function getProgramArchivedAt(program) {
   return program?.deleted_at ?? program?.deletedAt ?? null;
 }
@@ -311,7 +294,6 @@ const programForm = document.getElementById('programForm');
 const programFormTitleInput = document.getElementById('programFormTitle');
 const programFormWeeksInput = document.getElementById('programFormWeeks');
 const programFormDescriptionInput = document.getElementById('programFormDescription');
-const programFormTagsInput = document.getElementById('programFormTags');
 const programFormMessage = document.getElementById('programFormMessage');
 const programFormSubmit = document.getElementById('programFormSubmit');
 const programModalArchiveTrigger = document.getElementById('programModalArchiveTrigger');
@@ -398,14 +380,12 @@ const pendingReorderState = {
   successMessage: 'Order updated.',
 };
 let tagifyInstance = null;
-let programTagsTagify = null;
 let templateTagsTagify = null;
 let suppressTagifyEventsFlag = false;
 const pendingAttach = new Set();
 const pendingAttachState = new Map();
 let attachSaveTimeout = null;
 let attachInFlightPromise = null;
-let sharedTagSuggestions = [];
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -466,7 +446,6 @@ if (!CAN_MANAGE_TEMPLATES) {
 }
 
 syncTemplateTagsReadonly();
-syncProgramTagsReadonly();
 
 updateProgramEditorButtons(programs);
 updateTemplateEditorButtons(templates);
@@ -699,7 +678,6 @@ function upsertProgram(program, { makeActive = false } = {}) {
     selectedProgramIds.add(id);
     selectedProgramId = id;
   }
-  refreshSharedTagSuggestions();
 }
 
 function removeProgramFromList(programId) {
@@ -713,7 +691,6 @@ function removeProgramFromList(programId) {
     const fallback = programs.map(getProgramId).find(Boolean) || null;
     selectedProgramId = fallback;
   }
-  refreshSharedTagSuggestions();
 }
 
 function setProgramFormMessage(text, isError = false) {
@@ -745,88 +722,6 @@ function clearProgramWeeksValidationState() {
   }
 }
 
-function syncProgramTagsReadonly() {
-  const shouldBeReadonly = !CAN_MANAGE_PROGRAMS;
-  if (programFormTagsInput) {
-    if (shouldBeReadonly) {
-      programFormTagsInput.setAttribute('readonly', 'readonly');
-    } else {
-      programFormTagsInput.removeAttribute('readonly');
-    }
-  }
-  if (programTagsTagify) {
-    if (typeof programTagsTagify.setReadonly === 'function') {
-      programTagsTagify.setReadonly(shouldBeReadonly);
-    }
-    if (programTagsTagify.settings && typeof programTagsTagify.settings === 'object') {
-      programTagsTagify.settings.readonly = shouldBeReadonly;
-    }
-  }
-}
-
-function destroyProgramTagsTagify() {
-  if (programTagsTagify && typeof programTagsTagify.destroy === 'function') {
-    try {
-      programTagsTagify.destroy();
-    } catch (error) {
-      console.error(error);
-    }
-  }
-  programTagsTagify = null;
-  if (programFormTagsInput) {
-    programFormTagsInput.value = '';
-  }
-  syncProgramTagsReadonly();
-}
-
-function initProgramTagsTagify() {
-  if (!programFormTagsInput) return null;
-  if (programTagsTagify) return programTagsTagify;
-  const TagifyConstructor = window?.Tagify;
-  if (typeof TagifyConstructor !== 'function') {
-    syncProgramTagsReadonly();
-    return null;
-  }
-  programTagsTagify = new TagifyConstructor(programFormTagsInput, {
-    duplicates: false,
-    editTags: 1,
-    dropdown: {
-      enabled: 0,
-      maxItems: 20,
-    },
-    whitelist: sharedTagSuggestions,
-  });
-  applySharedTagWhitelist(programTagsTagify);
-  syncProgramTagsReadonly();
-  return programTagsTagify;
-}
-
-function setProgramFormTags(tags) {
-  const normalized = normalizeTemplateTagSource(tags);
-  if (programTagsTagify) {
-    try {
-      if (typeof programTagsTagify.removeAllTags === 'function') {
-        programTagsTagify.removeAllTags();
-      }
-      if (normalized.length && typeof programTagsTagify.addTags === 'function') {
-        programTagsTagify.addTags(normalized);
-      }
-    } catch (error) {
-      console.error(error);
-    }
-  } else if (programFormTagsInput) {
-    programFormTagsInput.value = normalized.join(', ');
-  }
-}
-
-function collectProgramFormTags() {
-  if (programTagsTagify) {
-    return normalizeTemplateTagSource(programTagsTagify.value);
-  }
-  if (!programFormTagsInput) return [];
-  return normalizeTemplateTagSource(programFormTagsInput.value || '');
-}
-
 function validateProgramWeeks(value) {
   const rawValue = value ?? '';
   const normalized = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue).trim();
@@ -850,8 +745,6 @@ function resetProgramForm() {
     programFormSubmit.disabled = false;
     programFormSubmit.textContent = getProgramSubmitDefaultLabel();
   }
-  setProgramFormTags([]);
-  syncProgramTagsReadonly();
   setProgramFormMessage('');
 }
 
@@ -951,11 +844,8 @@ function initTemplateTagsTagify() {
     editTags: 1,
     dropdown: {
       enabled: 0,
-      maxItems: 20,
     },
-    whitelist: sharedTagSuggestions,
   });
-  applySharedTagWhitelist(templateTagsTagify);
   syncTemplateTagsReadonly();
   return templateTagsTagify;
 }
@@ -1042,44 +932,6 @@ function collectTemplateFormTags() {
   }
   if (!templateFormTagsInput) return [];
   return normalizeTemplateTagSource(templateFormTagsInput.value || '');
-}
-
-function applySharedTagWhitelist(tagify) {
-  if (!tagify || !Array.isArray(sharedTagSuggestions)) return;
-  const whitelist = [...sharedTagSuggestions];
-  if (tagify.settings && typeof tagify.settings === 'object') {
-    tagify.settings.whitelist = whitelist;
-  }
-  tagify.whitelist = whitelist;
-  if (tagify.dropdown && typeof tagify.dropdown.refilter === 'function') {
-    try {
-      tagify.dropdown.refilter();
-    } catch (error) {
-      console.error(error);
-    }
-  }
-}
-
-function refreshSharedTagSuggestions() {
-  const sources = [];
-  if (Array.isArray(programs) && programs.length) {
-    programs.forEach(program => {
-      sources.push(getProgramTags(program));
-    });
-  }
-  if (Array.isArray(templates) && templates.length) {
-    templates.forEach(template => {
-      sources.push(getTemplateTagsFromTemplate(template));
-    });
-  }
-  if (Array.isArray(templateLibrary) && templateLibrary.length) {
-    templateLibrary.forEach(template => {
-      sources.push(getTemplateTagsFromTemplate(template));
-    });
-  }
-  sharedTagSuggestions = normalizeTemplateTagSource(sources);
-  applySharedTagWhitelist(programTagsTagify);
-  applySharedTagWhitelist(templateTagsTagify);
 }
 
 function withTagifySuppressed(callback) {
@@ -1976,7 +1828,6 @@ function closeProgramModal() {
   programModalMode = 'create';
   programModalProgramId = null;
   resetProgramForm();
-  destroyProgramTagsTagify();
   if (programModalArchiveTrigger) {
     programModalArchiveTrigger.classList.add('hidden');
   }
@@ -2003,7 +1854,6 @@ function openProgramModal(mode = 'create', programId = null) {
   if (programForm) {
     programForm.reset();
   }
-  initProgramTagsTagify();
   clearProgramTitleValidationState();
   clearProgramWeeksValidationState();
   if (programFormSubmit) {
@@ -2037,7 +1887,6 @@ function openProgramModal(mode = 'create', programId = null) {
     if (programFormDescriptionInput) {
       programFormDescriptionInput.value = getProgramDescription(program) || '';
     }
-    setProgramFormTags(getProgramTags(program));
     if (programModalArchiveTrigger) {
       const archivedAt = getProgramArchivedAt(program);
       programModalArchiveTrigger.disabled = Boolean(archivedAt);
@@ -2046,7 +1895,6 @@ function openProgramModal(mode = 'create', programId = null) {
   } else {
     if (programModalTitle) programModalTitle.textContent = 'New Program';
     if (programFormSubmit) programFormSubmit.textContent = 'Create Program';
-    setProgramFormTags([]);
   }
   setProgramFormMessage('');
   openModal(programModal);
@@ -2240,12 +2088,10 @@ async function submitProgramForm(event) {
   const totalWeeks = weeksValidation.value;
   clearProgramWeeksValidationState();
   const descriptionValue = (programFormDescriptionInput?.value || '').trim();
-  const tagsValue = collectProgramFormTags();
   const payload = {
     title,
     total_weeks: totalWeeks,
     description: descriptionValue ? descriptionValue : null,
-    tags: tagsValue.length ? tagsValue : [],
   };
   const encodedId = targetId ? encodeURIComponent(targetId) : null;
   const url = isEdit && encodedId ? `${API}/programs/${encodedId}` : `${API}/programs`;
@@ -3204,7 +3050,6 @@ async function loadPrograms() {
     }
     selectedProgramIds.clear();
     renderPrograms();
-    refreshSharedTagSuggestions();
     programMessage.textContent = '';
   } catch (error) {
     console.error(error);
@@ -3213,7 +3058,6 @@ async function loadPrograms() {
     selectedProgramId = null;
     lastLoadedTemplateProgramId = null;
     renderPrograms();
-    refreshSharedTagSuggestions();
     if (error.status === 403) {
       programMessage.textContent = 'You do not have permission to load programs.';
     } else {
@@ -3335,7 +3179,6 @@ async function loadTemplates(options = {}) {
       : 'No programs available.';
     setTemplatePanelMessage('');
     updatePanelAddButtonState();
-    refreshSharedTagSuggestions();
     return;
   }
   try {
@@ -3396,7 +3239,6 @@ async function loadTemplates(options = {}) {
       }
     }
 
-    refreshSharedTagSuggestions();
     renderTemplates();
     templateMessage.textContent = '';
     setTemplatePanelMessage('');
@@ -3413,7 +3255,6 @@ async function loadTemplates(options = {}) {
     lastLoadedTemplateProgramId = null;
     destroyTagifyInstance();
     renderTemplates();
-    refreshSharedTagSuggestions();
     if (error.status === 403) {
       templateMessage.textContent = 'You do not have permission to load templates for this program.';
       setTemplatePanelMessage('You do not have permission to view assignments for this program.', true);
