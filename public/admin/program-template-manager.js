@@ -1,4 +1,5 @@
 const API = window.location.origin;
+const TEMPLATE_API = `${API}/api/templates`;
 
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, { credentials: 'include', ...options });
@@ -1937,8 +1938,8 @@ async function submitTemplateForm(event) {
   };
   const encodedTemplateId = targetId ? encodeURIComponent(targetId) : null;
   const url = isEdit && encodedTemplateId
-    ? `${API}/templates/${encodedTemplateId}`
-    : `${API}/templates`;
+    ? `${TEMPLATE_API}/${encodedTemplateId}`
+    : TEMPLATE_API;
   const method = isEdit ? 'PATCH' : 'POST';
   if (templateFormSubmit) {
     templateFormSubmit.textContent = isEdit ? 'Saving…' : 'Creating…';
@@ -2766,7 +2767,7 @@ async function loadTemplates(options = {}) {
     }
     params.set('include_deleted', 'true');
     const search = params.toString();
-    const url = search ? `${API}/templates?${search}` : `${API}/templates`;
+    const url = search ? `${TEMPLATE_API}?${search}` : TEMPLATE_API;
     const data = await fetchJson(url);
     let fetched = [];
     if (Array.isArray(data?.data)) {
@@ -3110,7 +3111,7 @@ async function handleTemplateAction(action) {
   let failure = 0;
   for (const id of ids) {
     try {
-      const res = await fetch(`${API}/templates/${encodeURIComponent(id)}`, {
+      const res = await fetch(`${TEMPLATE_API}/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
