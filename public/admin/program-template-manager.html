@@ -67,14 +67,6 @@
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
     }
 
-    .input:invalid,
-    .input[aria-invalid="true"],
-    .textarea:invalid,
-    .textarea[aria-invalid="true"] {
-      border-color: #dc2626;
-      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
-    }
-
     .textarea {
       width: 100%;
       border-radius: 0.75rem;
@@ -452,8 +444,8 @@
           </div>
           <div class="grid gap-3 md:grid-cols-2">
             <label class="space-y-1">
-              <span class="label-text">Total weeks <span class="text-red-600" aria-hidden="true">*</span><span class="sr-only">Required</span></span>
-              <input id="programFormWeeks" name="total_weeks" type="number" min="1" class="input" placeholder="e.g. 12" required>
+              <span class="label-text">Total weeks</span>
+              <input id="programFormWeeks" name="total_weeks" type="number" min="1" class="input" placeholder="e.g. 12">
             </label>
             <div class="space-y-1">
               <span class="label-text">Lifecycle</span>

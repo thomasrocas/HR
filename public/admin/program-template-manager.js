@@ -358,7 +358,6 @@ let reorderInFlightPromise = null;
 let metadataSaveTimeout = null;
 let reorderSaveTimeout = null;
 const METADATA_SAVE_DELAY_MS = 600;
-let programWeeksInvalidInputHandler = null;
 const REORDER_SAVE_DELAY_MS = 400;
 const ATTACH_SAVE_DELAY_MS = 600;
 const pendingMetadataState = {
@@ -690,42 +689,9 @@ function setProgramFormMessage(text, isError = false) {
   setModalMessage(programFormMessage, text, isError);
 }
 
-function getProgramSubmitDefaultLabel() {
-  return programModalMode === 'edit' ? 'Save Changes' : 'Create Program';
-}
-
-function clearProgramWeeksValidationState() {
-  if (programFormWeeksInput) {
-    programFormWeeksInput.setCustomValidity('');
-    programFormWeeksInput.removeAttribute('aria-invalid');
-    if (programWeeksInvalidInputHandler) {
-      programFormWeeksInput.removeEventListener('input', programWeeksInvalidInputHandler);
-      programWeeksInvalidInputHandler = null;
-    }
-  }
-}
-
-function validateProgramWeeks(value) {
-  const rawValue = value ?? '';
-  const normalized = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue).trim();
-  if (!normalized) {
-    return { valid: false, message: 'Total weeks is required.' };
-  }
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
-    return { valid: false, message: 'Total weeks must be a positive whole number.' };
-  }
-  return { valid: true, value: parsed };
-}
-
 function resetProgramForm() {
   if (programForm) {
     programForm.reset();
-  }
-  clearProgramWeeksValidationState();
-  if (programFormSubmit) {
-    programFormSubmit.disabled = false;
-    programFormSubmit.textContent = getProgramSubmitDefaultLabel();
   }
   setProgramFormMessage('');
 }
@@ -1675,10 +1641,6 @@ function openProgramModal(mode = 'create', programId = null) {
   if (programForm) {
     programForm.reset();
   }
-  clearProgramWeeksValidationState();
-  if (programFormSubmit) {
-    programFormSubmit.disabled = false;
-  }
   const isDangerVisible = isEdit && CAN_MANAGE_PROGRAMS;
   if (programModalArchiveTrigger) {
     programModalArchiveTrigger.classList.toggle('hidden', !isDangerVisible);
@@ -1827,62 +1789,38 @@ async function submitProgramForm(event) {
     return;
   }
   const initialSubmitLabel = programFormSubmit ? programFormSubmit.textContent : '';
-  const defaultSubmitLabel = initialSubmitLabel || getProgramSubmitDefaultLabel();
   if (programFormSubmit) {
     programFormSubmit.disabled = true;
-    programFormSubmit.textContent = defaultSubmitLabel;
   }
   const title = (programFormTitleInput?.value || '').trim();
   if (!title) {
     setProgramFormMessage('Program title is required.', true);
     if (programFormSubmit) {
       programFormSubmit.disabled = false;
-      programFormSubmit.textContent = defaultSubmitLabel;
+      programFormSubmit.textContent = initialSubmitLabel;
     }
     programFormTitleInput?.focus();
     return;
   }
-  const weeksValue = programFormWeeksInput?.value ?? '';
-  const weeksValidation = validateProgramWeeks(weeksValue);
-  if (!weeksValidation.valid) {
-    const message = weeksValidation.message;
-    setProgramFormMessage(message, true);
-    if (programFormWeeksInput) {
-      programFormWeeksInput.setCustomValidity(message);
-      programFormWeeksInput.setAttribute('aria-invalid', 'true');
-      if (!programWeeksInvalidInputHandler) {
-        programWeeksInvalidInputHandler = () => {
-          if (!programFormWeeksInput) return;
-          const nextValidation = validateProgramWeeks(programFormWeeksInput.value);
-          if (nextValidation.valid) {
-            clearProgramWeeksValidationState();
-            setProgramFormMessage('');
-            if (programFormSubmit) {
-              programFormSubmit.disabled = false;
-              programFormSubmit.textContent = defaultSubmitLabel;
-            }
-          } else {
-            programFormWeeksInput.setCustomValidity(nextValidation.message);
-            programFormWeeksInput.setAttribute('aria-invalid', 'true');
-            setProgramFormMessage(nextValidation.message, true);
-          }
-        };
-        programFormWeeksInput.addEventListener('input', programWeeksInvalidInputHandler);
+  const weeksValue = programFormWeeksInput?.value || '';
+  let totalWeeks = null;
+  if (weeksValue !== '') {
+    const parsed = Number(weeksValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setProgramFormMessage('Total weeks must be a positive number.', true);
+      if (programFormSubmit) {
+        programFormSubmit.disabled = false;
+        programFormSubmit.textContent = initialSubmitLabel;
       }
-      programFormWeeksInput.reportValidity?.();
-      programFormWeeksInput.focus();
-    } else if (programFormSubmit) {
-      programFormSubmit.disabled = false;
-      programFormSubmit.textContent = defaultSubmitLabel;
+      programFormWeeksInput?.focus();
+      return;
     }
-    return;
+    totalWeeks = parsed;
   }
-  const totalWeeks = weeksValidation.value;
-  clearProgramWeeksValidationState();
   const descriptionValue = (programFormDescriptionInput?.value || '').trim();
   const payload = {
     title,
-    total_weeks: totalWeeks,
+    total_weeks: totalWeeks === null ? null : totalWeeks,
     description: descriptionValue ? descriptionValue : null,
   };
   const encodedId = targetId ? encodeURIComponent(targetId) : null;
