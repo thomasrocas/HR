@@ -311,6 +311,13 @@ function getProgramTags(program) {
   return [];
 }
 
+function getProgramTagsById(programId = selectedProgramId) {
+  if (!programId) return [];
+  const program = getProgramById(programId);
+  if (!program) return [];
+  return getProgramTags(program);
+}
+
 function getProgramArchivedAt(program) {
   return program?.deleted_at ?? program?.deletedAt ?? null;
 }
@@ -2165,8 +2172,13 @@ function openTemplateModal(mode = 'create', templateId = null) {
   }
   templateModalMode = normalizedMode;
   templateModalTemplateId = isEdit ? targetId : null;
+  const initialTemplateTags = isEdit
+    ? getTemplateTagsFromTemplate(template)
+    : getProgramTagsById(selectedProgramId);
   resetTemplateForm();
+  setTemplateFormTags(initialTemplateTags);
   initTemplateTagsTagify();
+  setTemplateFormTags(initialTemplateTags);
   const templateStatus = template ? getTemplateStatus(template) : '';
   const isTemplateArchived = (templateStatus || '').toLowerCase() === 'archived';
   const isDeleteVisible = isEdit && CAN_MANAGE_TEMPLATES && !isTemplateArchived;
@@ -2195,7 +2207,6 @@ function openTemplateModal(mode = 'create', templateId = null) {
       const notes = template?.notes ?? '';
       templateFormNotesInput.value = notes;
     }
-    setTemplateFormTags(getTemplateTagsFromTemplate(template));
   } else {
     if (templateModalTitle) templateModalTitle.textContent = 'New Template';
     if (templateFormSubmit) templateFormSubmit.textContent = 'Create Template';
@@ -2204,7 +2215,6 @@ function openTemplateModal(mode = 'create', templateId = null) {
       const maxSort = sortValues.length ? Math.max(...sortValues) : 0;
       templateFormSortInput.value = String(maxSort + 1);
     }
-    setTemplateFormTags([]);
   }
   setTemplateFormMessage('');
   openModal(templateModal);
