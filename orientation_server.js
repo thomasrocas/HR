@@ -1232,9 +1232,9 @@ create table if not exists public.program_task_templates (
 );
 
 create table if not exists public.program_template_links (
-  template_id bigint references public.program_task_templates(template_id) on delete cascade,
-  program_id  text references public.programs(program_id) on delete cascade,
-  created_at  timestamptz default now(),
+  template_id bigint not null references public.program_task_templates(template_id) on delete cascade,
+  program_id  text not null references public.programs(program_id) on delete cascade,
+  created_at  timestamptz not null default now(),
   primary key (template_id, program_id)
 );
 create index if not exists idx_program_template_links_program on public.program_template_links(program_id);
