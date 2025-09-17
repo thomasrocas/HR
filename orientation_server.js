@@ -554,7 +554,231 @@ app.patch('/rbac/users/:id/roles', async (req, res) => {
   }
 });
 
-// ==== 8) API: programs & templates ====
+// ==== 8) API: programs & template catalog ====
+
+function normalizeTagList(input) {
+  const seen = new Set();
+  const result = [];
+  const enqueue = value => {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      value.forEach(enqueue);
+      return;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          enqueue(parsed);
+          return;
+        } catch (_err) {
+          // treat as literal string if parsing fails
+        }
+      }
+      if (trimmed.includes(',')) {
+        trimmed.split(',').forEach(part => enqueue(part));
+        return;
+      }
+      const normalized = trimmed.toLowerCase();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        result.push(normalized);
+      }
+      return;
+    }
+    if (typeof value === 'object') {
+      if (Array.isArray(value.value)) {
+        enqueue(value.value);
+        return;
+      }
+      if ('value' in value) {
+        enqueue(value.value);
+      }
+      if ('tag' in value) {
+        enqueue(value.tag);
+      }
+      if ('name' in value) {
+        enqueue(value.name);
+      }
+      if ('tags' in value) {
+        enqueue(value.tags);
+      }
+      return;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return;
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  };
+  enqueue(input);
+  return result;
+}
+
+function formatProgramRow(row = {}) {
+  if (!row || typeof row !== 'object') return row;
+  const formatted = { ...row };
+  formatted.tags = normalizeTagList(row.tags);
+  return formatted;
+}
+
+function buildTemplateKey(label, weekNumber) {
+  const normalizedLabel = (label || '').trim().toLowerCase();
+  const normalizedWeek = weekNumber === null || weekNumber === undefined || Number.isNaN(Number(weekNumber))
+    ? ''
+    : String(Number(weekNumber));
+  return `${normalizedLabel}:::${normalizedWeek}`;
+}
+
+function shareAnyTag(sourceTags = [], candidateTags = []) {
+  if (!Array.isArray(sourceTags) || !sourceTags.length) return false;
+  if (!Array.isArray(candidateTags) || !candidateTags.length) return false;
+  const set = new Set(normalizeTagList(sourceTags));
+  for (const tag of normalizeTagList(candidateTags)) {
+    if (set.has(tag)) return true;
+  }
+  return false;
+}
+
+function isTemplateActive(template = {}) {
+  if (template.deleted_at) return false;
+  const status = typeof template.status === 'string' ? template.status.trim().toLowerCase() : '';
+  if (!status) return true;
+  return status === 'published' || status === 'active';
+}
+
+async function loadTemplateCatalog({ includeDeleted = false } = {}) {
+  const sql = `select template_id, label, notes, week_number, sort_order, status, tags, deleted_at
+               from public.template_catalog`;
+  const { rows } = await pool.query(sql);
+  return rows
+    .filter(row => includeDeleted || !row.deleted_at)
+    .map(row => ({ ...row, tags: normalizeTagList(row.tags) }));
+}
+
+async function resolveTemplatesForProgram(programTags = []) {
+  const normalizedTags = normalizeTagList(programTags);
+  if (!normalizedTags.length) return [];
+  const catalog = await loadTemplateCatalog({ includeDeleted: false });
+  return catalog
+    .filter(isTemplateActive)
+    .filter(template => shareAnyTag(normalizedTags, template.tags))
+    .map(template => {
+      const label = typeof template.label === 'string' ? template.label.trim() : '';
+      const weekRaw = template.week_number;
+      const weekNumber = Number.isFinite(Number(weekRaw)) ? Number(weekRaw) : null;
+      const sortRaw = template.sort_order;
+      const sortOrder = Number.isFinite(Number(sortRaw)) ? Number(sortRaw) : null;
+      const notes = typeof template.notes === 'string' && template.notes.trim().length
+        ? template.notes
+        : null;
+      return {
+        label,
+        week_number: weekNumber,
+        sort_order: sortOrder,
+        notes
+      };
+    })
+    .filter(template => template.label)
+    .sort((a, b) => {
+      const weekA = a.week_number ?? Number.MAX_SAFE_INTEGER;
+      const weekB = b.week_number ?? Number.MAX_SAFE_INTEGER;
+      if (weekA !== weekB) return weekA - weekB;
+      const sortA = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+      const sortB = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+      if (sortA !== sortB) return sortA - sortB;
+      return a.label.localeCompare(b.label);
+    });
+}
+
+async function insertTemplatesForUser({ templates, targetUserId, trainee, programId }) {
+  if (!Array.isArray(templates) || !templates.length) return 0;
+
+  const { rows: existingRows } = await pool.query(
+    `select label, week_number
+       from public.orientation_tasks
+      where user_id = $1
+        and program_id = $2
+        and deleted = false`,
+    [targetUserId, programId]
+  );
+  const existingKeys = new Set(
+    existingRows.map(row => buildTemplateKey(row.label, row.week_number))
+  );
+
+  const deduped = [];
+  const seen = new Set();
+  for (const template of templates) {
+    const label = typeof template.label === 'string' ? template.label.trim() : '';
+    if (!label) continue;
+    const weekNumber = template.week_number === null || template.week_number === undefined
+      ? null
+      : (Number.isFinite(Number(template.week_number)) ? Number(template.week_number) : null);
+    const key = buildTemplateKey(label, weekNumber);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (existingKeys.has(key)) continue;
+    const notes = typeof template.notes === 'string' && template.notes.trim().length
+      ? template.notes
+      : null;
+    const sortOrder = template.sort_order === null || template.sort_order === undefined
+      ? null
+      : (Number.isFinite(Number(template.sort_order)) ? Number(template.sort_order) : null);
+    deduped.push({ label, week_number: weekNumber, notes, sort_order: sortOrder });
+  }
+
+  if (!deduped.length) return 0;
+
+  deduped.sort((a, b) => {
+    const weekA = a.week_number ?? Number.MAX_SAFE_INTEGER;
+    const weekB = b.week_number ?? Number.MAX_SAFE_INTEGER;
+    if (weekA !== weekB) return weekA - weekB;
+    const sortA = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const sortB = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+    if (sortA !== sortB) return sortA - sortB;
+    return a.label.localeCompare(b.label);
+  });
+
+  const values = [];
+  const params = [];
+  let index = 0;
+  for (const entry of deduped) {
+    params.push(targetUserId, trainee, entry.label, programId, entry.week_number, entry.notes);
+    values.push(`($${index + 1}, $${index + 2}, $${index + 3}, null, false, $${index + 4}, $${index + 5}, $${index + 6})`);
+    index += 6;
+  }
+
+  const insertSql = `
+    insert into public.orientation_tasks
+      (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
+    values ${values.join(', ')}
+    returning task_id;`;
+  const { rowCount } = await pool.query(insertSql, params);
+  return rowCount;
+}
+
+async function instantiateProgramForUser({ userId, programId, trainee }) {
+  const { rows } = await pool.query(
+    'select tags from public.programs where program_id = $1 and deleted_at is null',
+    [programId]
+  );
+  const program = rows[0];
+  if (!program) {
+    return { created: 0, programNotFound: true };
+  }
+  const programTags = normalizeTagList(program.tags);
+  const templates = await resolveTemplatesForProgram(programTags);
+  const created = await insertTemplatesForUser({
+    templates,
+    targetUserId: userId,
+    trainee,
+    programId
+  });
+  return { created, programNotFound: false };
+}
 
 app.get('/programs', ensurePerm('program.read'), async (req, res) => {
   try {
@@ -565,7 +789,7 @@ app.get('/programs', ensurePerm('program.read'), async (req, res) => {
     if (conds.length) sql += ` where ${conds.join(' and ')}`;
     sql += ' order by created_at desc';
     const { rows } = await pool.query(sql);
-    res.json(rows);
+    res.json(rows.map(formatProgramRow));
   } catch (err) {
     console.error('GET /programs error', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -575,12 +799,20 @@ app.get('/programs', ensurePerm('program.read'), async (req, res) => {
 app.post('/programs', ensurePerm('program.create'), async (req, res) => {
   try {
     const { program_id = crypto.randomUUID(), title, total_weeks = null, description = null } = req.body || {};
+    const tags = normalizeTagList(req.body?.tags);
     const sql = `
-      insert into public.programs (program_id, title, total_weeks, description, created_by)
-      values ($1,$2,$3,$4,$5)
+      insert into public.programs (program_id, title, total_weeks, description, created_by, tags)
+      values ($1,$2,$3,$4,$5,$6::jsonb)
       returning *;`;
-    const { rows } = await pool.query(sql, [program_id, title, total_weeks, description, req.user.id]);
-    res.status(201).json(rows[0]);
+    const { rows } = await pool.query(sql, [
+      program_id,
+      title,
+      total_weeks,
+      description,
+      req.user.id,
+      JSON.stringify(tags)
+    ]);
+    res.status(201).json(formatProgramRow(rows[0]));
   } catch (err) {
     console.error('POST /programs error', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -603,15 +835,21 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
         fields.push(`${key} = $${vals.length}`);
       }
     }
+
+    if ('tags' in req.body) {
+      vals.push(JSON.stringify(normalizeTagList(req.body.tags)));
+      fields.push(`tags = $${vals.length}::jsonb`);
+    }
+
     if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
 
-    vals.push(program_id); // for program_id
+    vals.push(program_id);
     const sql = `update public.programs set ${fields.join(', ')}
                  where program_id = $${vals.length} and deleted_at is null
                  returning *;`;
     const { rows } = await pool.query(sql, vals);
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    res.json(formatProgramRow(rows[0]));
   } catch (err) {
     console.error('PATCH /programs/:program_id error', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -661,188 +899,37 @@ app.post('/programs/:program_id/restore', ensurePerm('program.delete'), async (r
   }
 });
 
-const TEMPLATE_STATUSES = new Set(['draft', 'published', 'deprecated']);
-
-app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (req, res) => {
-  try {
-    const { program_id } = req.params;
-    const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
-    const sql = `select * from public.program_task_templates
-                 where program_id = $1${includeDeleted ? '' : ' and deleted_at is null'}
-                 order by week_number, sort_order, template_id`;
-    const { rows } = await pool.query(sql, [program_id]);
-    res.json(rows);
-  } catch (err) {
-    console.error('GET /programs/:id/templates error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/programs/:program_id/templates', ensurePerm('template.create'), async (req, res) => {
-  try {
-    const { program_id } = req.params;
-    const { week_number = null, label, notes = null, sort_order = null } = req.body || {};
-    let status = null;
-    if (typeof req.body?.status === 'string') {
-      const normalized = req.body.status.toLowerCase();
-      if (!TEMPLATE_STATUSES.has(normalized)) {
-        return res.status(400).json({ error: 'invalid_status' });
-      }
-      status = normalized;
-    }
-    const sql = `
-      insert into public.program_task_templates (program_id, week_number, label, notes, sort_order, status)
-      values ($1,$2,$3,$4,$5,$6)
-      returning *;`;
-    const { rows } = await pool.query(sql, [
-      program_id,
-      week_number,
-      label,
-      notes,
-      sort_order,
-      status ?? 'draft',
-    ]);
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error('POST /programs/:id/templates error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.update'), async (req, res) => {
-  try {
-    const { program_id, template_id } = req.params;
-    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
-    if (!req.roles.includes('admin')) {
-      const ok = await userManagesProgram(req.user.id, program_id);
-      if (!ok) return res.status(403).json({ error: 'forbidden' });
-    }
-    const fields = [];
-    const vals = [];
-    const updates = req.body || {};
-    for (const key of ['week_number', 'label', 'notes', 'sort_order', 'status']) {
-      if (key in updates) {
-        let value = updates[key];
-        if (key === 'status') {
-          if (typeof value !== 'string') return res.status(400).json({ error: 'invalid_status' });
-          const normalized = value.toLowerCase();
-          if (!TEMPLATE_STATUSES.has(normalized)) {
-            return res.status(400).json({ error: 'invalid_status' });
-          }
-          value = normalized;
-        }
-        vals.push(value);
-        fields.push(`${key} = $${vals.length}`);
-      }
-    }
-    if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
-
-    vals.push(program_id);
-    vals.push(template_id);
-    const sql = `update public.program_task_templates
-                 set ${fields.join(', ')}
-                 where program_id = $${vals.length-1} and template_id = $${vals.length}
-                   and deleted_at is null
-                 returning *;`;
-    const { rows } = await pool.query(sql, vals);
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('PATCH /programs/:id/templates/:template_id error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.delete('/programs/:program_id/templates/:template_id', ensurePerm('template.delete'), async (req, res) => {
-  try {
-    const { program_id, template_id } = req.params;
-    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
-    if (!req.roles.includes('admin')) {
-      const ok = await userManagesProgram(req.user.id, program_id);
-      if (!ok) return res.status(403).json({ error: 'forbidden' });
-    }
-    const result = await pool.query(
-      `update public.program_task_templates
-         set deleted_at = now()
-       where program_id = $1 and template_id = $2 and deleted_at is null`,
-      [program_id, template_id]
-    );
-    if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ deleted: true });
-  } catch (err) {
-    console.error('DELETE /programs/:id/templates/:template_id error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/programs/:program_id/templates/:template_id/restore', ensurePerm('template.delete'), async (req, res) => {
-  try {
-    const { program_id, template_id } = req.params;
-    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
-    if (!req.roles.includes('admin')) {
-      const ok = await userManagesProgram(req.user.id, program_id);
-      if (!ok) return res.status(403).json({ error: 'forbidden' });
-    }
-    const result = await pool.query(
-      `update public.program_task_templates
-         set deleted_at = null
-       where program_id = $1 and template_id = $2 and deleted_at is not null
-       returning *;`,
-      [program_id, template_id]
-    );
-    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
-    res.json({ restored: true });
-  } catch (err) {
-    console.error('POST /programs/:id/templates/:template_id/restore error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
   try {
     const { program_id } = req.params;
     const trainee = req.user.full_name || '';
-    
-const sql = `
-  insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
-  from public.program_task_templates t
-  left join public.orientation_tasks ot
-    on ot.user_id = $1
-   and ot.program_id = t.program_id
-   and ot.label = t.label
-   and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
-   and ot.deleted = false
-  where t.program_id = $3
-    and t.deleted_at is null
-    and ot.task_id is null
-  order by t.week_number, t.sort_order
-  returning *;`;
+    const result = await instantiateProgramForUser({
+      userId: req.user.id,
+      programId: program_id,
+      trainee
+    });
+    if (result.programNotFound) {
+      return res.status(404).json({ error: 'program_not_found' });
+    }
 
-    const { rows } = await pool.query(sql, [req.user.id, trainee, program_id]);
+    await pool.query(`
+      insert into public.user_preferences (user_id, program_id, updated_at)
+      values ($1, $2, now())
+      on conflict (user_id) do update
+        set program_id = excluded.program_id, updated_at = now()
+    `, [req.user.id, program_id]);
 
-// Remember this program as the user's current preference
-await pool.query(`
-  insert into public.user_preferences (user_id, program_id, updated_at)
-  values ($1, $2, now())
-  on conflict (user_id) do update
-    set program_id = excluded.program_id, updated_at = now()
-`, [req.user.id, program_id]);
-
-    res.json({ created: rows.length });
+    res.json({ created: result.created });
   } catch (err) {
     console.error('POST /programs/:id/instantiate error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Preload a program's templates into another user's tasks (admin or manager of the program)
 app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
   try {
     const { id: targetUserId, program_id } = req.params;
 
-    // Permission: admin OR manager of this program
     const roles = Array.isArray(req.roles) ? req.roles : [];
     const isAdmin = roles.includes('admin');
     const hasManagerRole = roles.includes('manager');
@@ -853,7 +940,6 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     }
     if (!canManage) return res.status(403).json({ error: 'forbidden' });
 
-    // Get target user's display name for the "trainee" field
     const { rows: urows } = await pool.query(
       'select id, full_name from public.users where id=$1',
       [targetUserId]
@@ -861,29 +947,15 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     if (!urows.length) return res.status(404).json({ error: 'user_not_found' });
 
     const trainee = urows[0].full_name || '';
+    const result = await instantiateProgramForUser({
+      userId: targetUserId,
+      programId: program_id,
+      trainee
+    });
+    if (result.programNotFound) {
+      return res.status(404).json({ error: 'program_not_found' });
+    }
 
-    // Copy program templates to target user's orientation_tasks
-    
-const copySql = `
-  insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, t.program_id, t.week_number, t.notes
-  from public.program_task_templates t
-  left join public.orientation_tasks ot
-    on ot.user_id = $1
-   and ot.program_id = t.program_id
-   and ot.label = t.label
-   and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
-   and ot.deleted = false
-  where t.program_id = $3
-    and t.deleted_at is null
-    and ot.task_id is null
-  order by t.week_number, t.sort_order
-  returning task_id;`;
-
-    const { rowCount } = await pool.query(copySql, [targetUserId, trainee, program_id]);
-
-    // Make this program the target user's current program preference (so their UI opens on it)
     await pool.query(`
       insert into public.user_preferences (user_id, program_id, updated_at)
       values ($1, $2, now())
@@ -891,7 +963,7 @@ const copySql = `
         set program_id = excluded.program_id, updated_at = now()
     `, [targetUserId, program_id]);
 
-    res.json({ ok: true, created: rowCount });
+    res.json({ ok: true, created: result.created });
   } catch (err) {
     console.error('POST /rbac/users/:id/programs/:program_id/instantiate error', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -1156,7 +1228,7 @@ create table if not exists public.user_preferences (
   updated_at timestamptz default now()
 );
 
--- Programs and task templates
+-- Programs and template catalog
 create table if not exists public.programs (
   program_id   text primary key,
   title        text not null,
@@ -1164,17 +1236,18 @@ create table if not exists public.programs (
   description  text,
   created_by   uuid references public.users(id),
   created_at   timestamptz default now(),
-  deleted_at   timestamp
+  deleted_at   timestamp,
+  tags         jsonb default '[]'::jsonb
 );
 
-create table if not exists public.program_task_templates (
+create table if not exists public.template_catalog (
   template_id uuid primary key default gen_random_uuid(),
-  program_id  text references public.programs(program_id) on delete cascade,
-  week_number int,
   label       text not null,
   notes       text,
+  week_number int,
   sort_order  int,
   status      text default 'draft',
+  tags        jsonb default '[]'::jsonb,
   deleted_at  timestamp
 );
 
