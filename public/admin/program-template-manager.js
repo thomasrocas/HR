@@ -326,8 +326,8 @@ const programTemplatePanelDescription = document.getElementById('programTemplate
 const programTemplatePanelMessage = document.getElementById('programTemplatePanelMessage');
 const programTemplatePanelEmpty = document.getElementById('programTemplatePanelEmpty');
 const programTemplateList = document.getElementById('programTemplateList');
-const templateAttachInput = document.getElementById('templateAttachTagify');
-const btnAttachTags = document.getElementById('btnAttachTags');
+const templateAttachInput = document.getElementById('programTemplateAttachInput');
+const btnAttachTags = document.getElementById('btnPanelAttachTemplate');
 const templateVisibilityOptions = document.getElementById('templateVisibilityOptions');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
