@@ -21,6 +21,14 @@ from (
 ) sub
 where t.template_id = sub.template_id;
 
+drop index if exists idx_program_template_links_program;
+drop index if exists idx_program_template_links_template;
+
+alter table if exists public.program_template_links
+  drop constraint if exists program_template_links_template_id_fkey,
+  drop constraint if exists program_template_links_program_id_fkey,
+  drop constraint if exists program_template_links_pkey;
+
 drop table if exists public.program_template_links;
 
 commit;

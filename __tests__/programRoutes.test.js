@@ -5,7 +5,7 @@ const { newDb } = require('pg-mem');
 
 const nextTemplateId = (() => {
   let value = 1000;
-  return () => `${++value}`;
+  return () => ++value;
 })();
 
 // Mock pg to use pg-mem
@@ -68,9 +68,9 @@ describe('program routes', () => {
         deleted_at timestamp
       );
       create table public.program_template_links (
-        template_id bigint,
-        program_id text,
-        created_at timestamptz default now(),
+        template_id bigint not null references public.program_task_templates(template_id) on delete cascade,
+        program_id text not null references public.programs(program_id) on delete cascade,
+        created_at timestamptz not null default now(),
         primary key (template_id, program_id)
       );
       create table public.user_roles (
@@ -481,7 +481,7 @@ test('delete soft deletes template row', async () => {
     .query({ include_deleted: 'true' })
     .expect(200);
   expect(res.body).toHaveLength(1);
-  expect(String(res.body[0].template_id)).toBe(tmplId);
+  expect(String(res.body[0].template_id)).toBe(String(tmplId));
   expect(res.body[0].deleted_at).toBeTruthy();
 });
 
@@ -514,7 +514,7 @@ test('soft deleted template can be restored', async () => {
 
   const res = await agent.get(`/programs/${progId}/templates`).expect(200);
   expect(res.body).toHaveLength(1);
-  expect(String(res.body[0].template_id)).toBe(tmplId);
+  expect(String(res.body[0].template_id)).toBe(String(tmplId));
 });
 
 test('instantiate skips soft deleted templates', async () => {
