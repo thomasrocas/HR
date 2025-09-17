@@ -50,6 +50,15 @@
       color: var(--ink-muted);
     }
 
+    .required-indicator {
+      display: inline-block;
+      margin-left: 0.25rem;
+      color: #dc2626;
+      font-weight: 600;
+      font-size: 0.85em;
+      line-height: 1;
+    }
+
     .input {
       width: 100%;
       border-radius: 0.75rem;
@@ -447,12 +456,14 @@
       <form id="programForm" class="flex flex-col gap-0">
         <div class="modal-body space-y-4">
           <div>
-            <label for="programFormTitle" class="label-text mb-1">Title</label>
+            <label for="programFormTitle" class="label-text mb-1">
+              Title <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">Required</span>
+            </label>
             <input id="programFormTitle" name="title" class="input" placeholder="Program title" required>
           </div>
           <div class="grid gap-3 md:grid-cols-2">
             <label class="space-y-1">
-              <span class="label-text">Total weeks <span class="text-red-600" aria-hidden="true">*</span><span class="sr-only">Required</span></span>
+              <span class="label-text">Total weeks <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">Required</span></span>
               <input id="programFormWeeks" name="total_weeks" type="number" min="1" class="input" placeholder="e.g. 12" required>
             </label>
             <div class="space-y-1">
@@ -524,7 +535,7 @@
         <div class="modal-body space-y-4">
           <div class="grid gap-3 md:grid-cols-2">
             <label class="space-y-1">
-              <span class="label-text">Week number</span>
+              <span class="label-text">Week number <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">Required</span></span>
               <input id="templateFormWeek" name="week_number" type="number" min="1" step="1" class="input" placeholder="e.g. 1" required>
             </label>
             <label class="space-y-1">
@@ -533,7 +544,9 @@
             </label>
           </div>
           <div>
-            <label for="templateFormLabel" class="label-text mb-1">Label</label>
+            <label for="templateFormLabel" class="label-text mb-1">
+              Label <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">Required</span>
+            </label>
             <input id="templateFormLabel" name="label" class="input" placeholder="Template label" required>
           </div>
           <div>
