@@ -225,56 +225,6 @@ function normalizeTemplateAssociation(raw, index = 0) {
   return normalized;
 }
 
-function dedupeTemplatesById(entries) {
-  if (!Array.isArray(entries)) return [];
-  const unique = new Map();
-  const fallback = [];
-  for (const entry of entries) {
-    if (!entry || typeof entry !== 'object') continue;
-    const id = getTemplateId(entry);
-    if (id) {
-      if (!unique.has(id)) {
-        unique.set(id, entry);
-      }
-      continue;
-    }
-    fallback.push(entry);
-  }
-  return [...unique.values(), ...fallback];
-}
-
-function syncTemplateLibraryFromCatalog(entries = allTemplatesCatalog) {
-  const source = Array.isArray(entries) ? entries : [];
-  templateLibrary = [...source];
-  templateLibraryIndex.clear();
-  if (source === allTemplatesCatalog && allTemplatesCatalogIndex.size) {
-    allTemplatesCatalogIndex.forEach((value, key) => {
-      templateLibraryIndex.set(key, value);
-    });
-    return;
-  }
-  source.forEach(item => {
-    const id = getTemplateId(item);
-    if (id) {
-      templateLibraryIndex.set(id, item);
-    }
-  });
-}
-
-function setAllTemplatesCatalog(entries) {
-  const deduped = dedupeTemplatesById(entries);
-  allTemplatesCatalog = deduped;
-  allTemplatesCatalogIndex.clear();
-  deduped.forEach(item => {
-    const id = getTemplateId(item);
-    if (id) {
-      allTemplatesCatalogIndex.set(id, item);
-    }
-  });
-  syncTemplateLibraryFromCatalog(deduped);
-  refreshSharedTagSuggestions();
-}
-
 function getProgramTitle(program) {
   return program?.title ?? program?.name ?? '';
 }
@@ -407,11 +357,6 @@ let programs = [];
 let templates = [];
 let templateLibrary = [];
 const templateLibraryIndex = new Map();
-let allTemplatesCatalog = [];
-const allTemplatesCatalogIndex = new Map();
-let allTags = [];
-let templateCatalogLoadPromise = null;
-let isTagDerivedTemplateList = false;
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
 let selectedProgramId = null;
@@ -460,6 +405,7 @@ const pendingAttach = new Set();
 const pendingAttachState = new Map();
 let attachSaveTimeout = null;
 let attachInFlightPromise = null;
+let sharedTagSuggestions = [];
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -848,7 +794,7 @@ function initProgramTagsTagify() {
       enabled: 0,
       maxItems: 20,
     },
-    whitelist: allTags,
+    whitelist: sharedTagSuggestions,
   });
   applySharedTagWhitelist(programTagsTagify);
   syncProgramTagsReadonly();
@@ -919,29 +865,18 @@ function setTemplatePanelMessage(text, isError = false) {
 
 function updatePanelAddButtonState() {
   const hasProgram = Boolean(selectedProgramId);
-  const autoManaged = hasProgram && isTagDerivedTemplateList;
-  const canManage = CAN_MANAGE_TEMPLATES && hasProgram && !autoManaged;
+  const canManage = CAN_MANAGE_TEMPLATES && hasProgram;
 
   if (templateAttachInput) {
     const placeholder = !CAN_MANAGE_TEMPLATES
       ? 'Read-only access — attachments disabled.'
-      : autoManaged
-        ? 'Templates are associated automatically based on shared tags.'
-        : hasProgram
-          ? 'Search templates to attach…'
-          : 'Select a program to attach templates.';
+      : hasProgram
+        ? 'Search templates to attach…'
+        : 'Select a program to attach templates.';
     templateAttachInput.setAttribute('placeholder', placeholder);
     templateAttachInput.disabled = !canManage;
     if (tagifyInstance) {
       tagifyInstance.setReadonly(!canManage);
-      if (!canManage) {
-        try {
-          tagifyInstance.removeAllTags?.();
-          tagifyInstance.dropdown?.hide?.();
-        } catch (error) {
-          console.error(error);
-        }
-      }
     }
   }
 
@@ -952,9 +887,6 @@ function updatePanelAddButtonState() {
     } else if (!hasProgram) {
       btnAttachTags.disabled = true;
       btnAttachTags.title = 'Select a program to attach templates.';
-    } else if (autoManaged) {
-      btnAttachTags.disabled = true;
-      btnAttachTags.title = 'Templates are automatically associated with this program based on tags.';
     } else {
       btnAttachTags.disabled = pendingAttach.size === 0;
       btnAttachTags.title = pendingAttach.size === 0 ? 'Select templates to attach first.' : '';
@@ -1021,7 +953,7 @@ function initTemplateTagsTagify() {
       enabled: 0,
       maxItems: 20,
     },
-    whitelist: allTags,
+    whitelist: sharedTagSuggestions,
   });
   applySharedTagWhitelist(templateTagsTagify);
   syncTemplateTagsReadonly();
@@ -1113,8 +1045,8 @@ function collectTemplateFormTags() {
 }
 
 function applySharedTagWhitelist(tagify) {
-  if (!tagify || !Array.isArray(allTags)) return;
-  const whitelist = [...allTags];
+  if (!tagify || !Array.isArray(sharedTagSuggestions)) return;
+  const whitelist = [...sharedTagSuggestions];
   if (tagify.settings && typeof tagify.settings === 'object') {
     tagify.settings.whitelist = whitelist;
   }
@@ -1135,17 +1067,17 @@ function refreshSharedTagSuggestions() {
       sources.push(getProgramTags(program));
     });
   }
-  if (Array.isArray(allTemplatesCatalog) && allTemplatesCatalog.length) {
-    allTemplatesCatalog.forEach(template => {
-      sources.push(getTemplateTagsFromTemplate(template));
-    });
-  }
   if (Array.isArray(templates) && templates.length) {
     templates.forEach(template => {
       sources.push(getTemplateTagsFromTemplate(template));
     });
   }
-  allTags = normalizeTemplateTagSource(sources);
+  if (Array.isArray(templateLibrary) && templateLibrary.length) {
+    templateLibrary.forEach(template => {
+      sources.push(getTemplateTagsFromTemplate(template));
+    });
+  }
+  sharedTagSuggestions = normalizeTemplateTagSource(sources);
   applySharedTagWhitelist(programTagsTagify);
   applySharedTagWhitelist(templateTagsTagify);
 }
@@ -1207,7 +1139,7 @@ function initTagifyForProgram(programId) {
   }
   destroyTagifyInstance();
   updatePanelAddButtonState();
-  if (!programId || isTagDerivedTemplateList) {
+  if (!programId) {
     return;
   }
   const TagifyConstructor = window?.Tagify;
@@ -2973,19 +2905,11 @@ function renderTemplateAssignmentsPanel() {
   programTemplatePanel.classList.remove('hidden');
   const program = getProgramById(selectedProgramId);
   const programTitle = getProgramTitle(program) || 'this program';
-  const programTags = getProgramTags(program);
-  const hasProgramTags = programTags.length > 0;
   if (programTemplatePanelTitle) {
     programTemplatePanelTitle.textContent = `Templates for ${programTitle}`;
   }
   if (programTemplatePanelDescription) {
-    if (isTagDerivedTemplateList) {
-      programTemplatePanelDescription.textContent = hasProgramTags
-        ? 'Templates that share at least one tag with this program are shown automatically. Update tags to adjust this list.'
-        : 'Add tags to this program to automatically surface templates that share those tags.';
-    } else {
-      programTemplatePanelDescription.textContent = 'Adjust due offsets, requirements, visibility, and notes for each assignment.';
-    }
+    programTemplatePanelDescription.textContent = 'Adjust due offsets, requirements, visibility, and notes for each assignment.';
   }
 
   const ordered = templates.slice().sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
@@ -2999,38 +2923,19 @@ function renderTemplateAssignmentsPanel() {
   }
 
   if (programTemplatePanelEmpty) {
-    if (!ordered.length) {
-      const emptyMessage = isTagDerivedTemplateList
-        ? (hasProgramTags
-          ? 'No templates currently share tags with this program.'
-          : 'This program has no tags yet. Add tags to surface matching templates.')
-        : '';
-      if (emptyMessage) {
-        programTemplatePanelEmpty.textContent = emptyMessage;
-      }
-      programTemplatePanelEmpty.classList.remove('hidden');
-    } else {
-      programTemplatePanelEmpty.classList.add('hidden');
-    }
+    programTemplatePanelEmpty.classList.toggle('hidden', Boolean(ordered.length));
   }
 
   if (!ordered.length) {
     if (!hasErrorMessage) {
-      if (isTagDerivedTemplateList) {
-        const message = hasProgramTags
-          ? 'No templates share tags with this program yet. Update program or template tags to see matches.'
-          : 'Add tags to this program to automatically surface matching templates.';
-        setTemplatePanelMessage(message);
-      } else if (CAN_MANAGE_TEMPLATES) {
+      if (CAN_MANAGE_TEMPLATES) {
         setTemplatePanelMessage('Use the search above to attach templates to this program.');
       } else {
         ensurePanelReadOnlyHint();
       }
     }
   } else if (!hasErrorMessage && !programTemplatePanelMessage?.textContent?.trim()) {
-    if (isTagDerivedTemplateList) {
-      setTemplatePanelMessage('Templates with overlapping tags are listed below. Update tags to change this list.');
-    } else if (CAN_MANAGE_TEMPLATES) {
+    if (CAN_MANAGE_TEMPLATES) {
       setTemplatePanelMessage('');
     } else {
       ensurePanelReadOnlyHint();
@@ -3051,17 +2956,14 @@ function createTemplateAssignmentListItem(template, index, total) {
   const requiredValue = requiredRaw === null || requiredRaw === undefined ? 'inherit' : (requiredRaw ? 'true' : 'false');
   const visibilityValue = template?.visibility ?? '';
   const notesValue = template?.notes ?? '';
-  const metadataDisabled = !CAN_MANAGE_TEMPLATES || isTagDerivedTemplateList;
-  const reorderDisabled = metadataDisabled || isTagDerivedTemplateList;
-  const disableUp = reorderDisabled || index === 0;
-  const disableDown = reorderDisabled || index === total - 1;
-  const disableRemove = metadataDisabled || isArchived;
+  const disableControls = !CAN_MANAGE_TEMPLATES;
+  const disableUp = disableControls || index === 0;
+  const disableDown = disableControls || index === total - 1;
+  const disableRemove = disableControls || isArchived;
   const removeButtonTitle = disableRemove
-    ? (isTagDerivedTemplateList
-      ? 'Templates shown here are determined by tags and cannot be removed manually.'
-      : (isArchived
-        ? 'Archived templates cannot be removed.'
-        : 'Only admins or managers can remove templates.'))
+    ? (isArchived
+      ? 'Archived templates cannot be removed.'
+      : 'Only admins or managers can remove templates.')
     : 'Remove template';
   const requiredOptions = [
     { value: 'inherit', label: 'Inherit program setting' },
@@ -3086,15 +2988,10 @@ function createTemplateAssignmentListItem(template, index, total) {
   if (isActive) {
     itemClasses.push('ring-2', 'ring-sky-200');
   }
-  const dragHandleClasses = reorderDisabled
+  const dragHandleClasses = disableControls
     ? 'inline-flex h-7 w-7 items-center justify-center rounded text-slate-300 select-none'
     : 'inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-slate-50 text-slate-400 select-none cursor-move';
-  const dragHandleTitle = reorderDisabled
-    ? (isTagDerivedTemplateList
-      ? 'Reordering is disabled for tag-based associations.'
-      : 'Only admins or managers can reorder templates.')
-    : 'Drag to reorder';
-  const dragHandleHtml = `<span class="${dragHandleClasses}" data-assignment-handle title="${dragHandleTitle}" aria-hidden="true">☰</span>`;
+  const dragHandleHtml = `<span class="${dragHandleClasses}" data-assignment-handle title="Drag to reorder" aria-hidden="true">☰</span>`;
 
   return `
     <li class="${itemClasses.join(' ')}" data-template-id="${templateId}" data-order-index="${index}">
@@ -3113,20 +3010,20 @@ function createTemplateAssignmentListItem(template, index, total) {
       <div class="grid gap-3 md:grid-cols-2">
         <label class="space-y-1">
           <span class="label-text">Due offset (days)</span>
-          <input type="number" class="input" data-association-field="dueOffsetDays" placeholder="e.g. 7" value="${escapeHtml(dueOffsetValue)}" ${metadataDisabled ? 'disabled' : ''}>
+          <input type="number" class="input" data-association-field="dueOffsetDays" placeholder="e.g. 7" value="${escapeHtml(dueOffsetValue)}" ${disableControls ? 'disabled' : ''}>
         </label>
         <label class="space-y-1">
           <span class="label-text">Required</span>
-          <select class="input" data-association-field="required" ${metadataDisabled ? 'disabled' : ''}>${requiredSelect}</select>
+          <select class="input" data-association-field="required" ${disableControls ? 'disabled' : ''}>${requiredSelect}</select>
         </label>
         <label class="space-y-1 md:col-span-2">
           <span class="label-text">Visibility</span>
-          <input class="input" data-association-field="visibility" list="templateVisibilityOptions" placeholder="inherit" value="${escapeHtml(visibilityValue)}" ${metadataDisabled ? 'disabled' : ''}>
+          <input class="input" data-association-field="visibility" list="templateVisibilityOptions" placeholder="inherit" value="${escapeHtml(visibilityValue)}" ${disableControls ? 'disabled' : ''}>
         </label>
       </div>
       <label class="space-y-1 block">
         <span class="label-text">Notes</span>
-        <textarea class="textarea" data-association-field="notes" rows="3" ${metadataDisabled ? 'disabled' : ''}>${notesEscaped}</textarea>
+        <textarea class="textarea" data-association-field="notes" rows="3" ${disableControls ? 'disabled' : ''}>${notesEscaped}</textarea>
       </label>
     </li>
   `;
@@ -3298,11 +3195,6 @@ async function loadPrograms() {
     } else {
       programs = [];
     }
-    try {
-      await ensureTemplateCatalogLoaded({ force: !allTemplatesCatalog.length });
-    } catch (catalogError) {
-      console.error(catalogError);
-    }
     const validIds = programs.map(getProgramId).filter(Boolean);
     if (selectedProgramId && !validIds.includes(selectedProgramId)) {
       selectedProgramId = null;
@@ -3419,101 +3311,6 @@ function extractTemplateLibraryFromResponse(payload) {
   return [];
 }
 
-function extractTemplatesFromCatalogResponse(payload, seen = new Set()) {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  if (!payload || typeof payload !== 'object') {
-    return [];
-  }
-  if (seen.has(payload)) {
-    return [];
-  }
-  seen.add(payload);
-  const candidateKeys = [
-    'templates',
-    'catalog',
-    'data',
-    'items',
-    'results',
-    'records',
-    'rows',
-    'available_templates',
-    'availableTemplates',
-    'library',
-  ];
-  for (const key of candidateKeys) {
-    if (!(key in payload)) continue;
-    const value = payload[key];
-    if (Array.isArray(value)) {
-      return value;
-    }
-    if (value && typeof value === 'object') {
-      const nested = extractTemplatesFromCatalogResponse(value, seen);
-      if (nested.length) {
-        return nested;
-      }
-    }
-  }
-  for (const value of Object.values(payload)) {
-    if (Array.isArray(value)) {
-      return value;
-    }
-    if (value && typeof value === 'object') {
-      const nested = extractTemplatesFromCatalogResponse(value, seen);
-      if (nested.length) {
-        return nested;
-      }
-    }
-  }
-  return [];
-}
-
-async function ensureTemplateCatalogLoaded({ force = false } = {}) {
-  if (!force && allTemplatesCatalog.length && !templateCatalogLoadPromise) {
-    return allTemplatesCatalog;
-  }
-  if (templateCatalogLoadPromise) {
-    return templateCatalogLoadPromise;
-  }
-  templateCatalogLoadPromise = (async () => {
-    let entries = [];
-    let loadSucceeded = false;
-    let primaryError = null;
-    try {
-      const catalogPayload = await fetchJson(`${API}/templates/catalog?include_deleted=true`);
-      entries = extractTemplatesFromCatalogResponse(catalogPayload);
-      entries = Array.isArray(entries) ? entries : [];
-      loadSucceeded = true;
-    } catch (error) {
-      primaryError = error;
-    }
-    if (!loadSucceeded) {
-      try {
-        const fallbackPayload = await fetchJson(`${API}/templates?include_deleted=true`);
-        entries = extractTemplatesFromCatalogResponse(fallbackPayload);
-        entries = Array.isArray(entries) ? entries : [];
-        loadSucceeded = true;
-      } catch (fallbackError) {
-        if (primaryError) {
-          throw primaryError;
-        }
-        throw fallbackError;
-      }
-    }
-    if (!loadSucceeded) {
-      throw primaryError || new Error('Unable to load template catalog.');
-    }
-    setAllTemplatesCatalog(entries);
-    return allTemplatesCatalog;
-  })();
-  try {
-    return await templateCatalogLoadPromise;
-  } finally {
-    templateCatalogLoadPromise = null;
-  }
-}
-
 async function loadTemplates(options = {}) {
   const { focusTemplateId = null, preserveSelection = false } = options;
   if (attachInFlightPromise) {
@@ -3526,15 +3323,15 @@ async function loadTemplates(options = {}) {
   const activeProgramId = selectedProgramId;
   if (!activeProgramId) {
     templates = [];
-    syncTemplateLibraryFromCatalog();
+    templateLibrary = [];
+    templateLibraryIndex.clear();
     selectedTemplateIds.clear();
     selectedTemplateId = null;
     lastLoadedTemplateProgramId = null;
     destroyTagifyInstance();
     renderTemplates();
-    isTagDerivedTemplateList = false;
     templateMessage.textContent = programs.length
-      ? 'Select a program to view matching templates.'
+      ? 'Select a program to view its templates.'
       : 'No programs available.';
     setTemplatePanelMessage('');
     updatePanelAddButtonState();
@@ -3549,48 +3346,31 @@ async function loadTemplates(options = {}) {
         selectedTemplateId = null;
       }
     }
-    const catalog = await ensureTemplateCatalogLoaded({ force: true }).catch(error => {
-      throw error;
-    });
-    const program = getProgramById(activeProgramId);
-    const programTagList = getProgramTags(program);
-    const programTagSet = new Set(programTagList);
-    const hasProgramTags = programTagSet.size > 0;
-    const catalogEntries = Array.isArray(catalog) ? catalog : [];
-    syncTemplateLibraryFromCatalog(catalogEntries);
-    const matchedTemplates = hasProgramTags
-      ? catalogEntries.filter(template => {
-        const templateTags = getTemplateTagsFromTemplate(template);
-        if (!templateTags.length) return false;
-        return templateTags.some(tag => programTagSet.has(tag));
-      })
-      : [];
-    const normalized = matchedTemplates.map((item, index) => normalizeTemplateAssociation({
-      template: item,
-      template_id: getTemplateId(item),
-    }, index));
-    normalized.sort((a, b) => {
-      const nameA = getTemplateName(a) || '';
-      const nameB = getTemplateName(b) || '';
-      if (nameA && nameB) {
-        const comparison = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
-        if (comparison !== 0) return comparison;
+    const encodedProgramId = encodeURIComponent(activeProgramId);
+    const data = await fetchJson(`${API}/programs/${encodedProgramId}/templates?include_deleted=true`);
+    const fetchedTemplates = extractAssignmentsFromResponse(data);
+    let fetchedLibrary = Array.isArray(data) ? [] : extractTemplateLibraryFromResponse(data);
+    if (fetchedLibrary === fetchedTemplates) {
+      fetchedLibrary = Array.isArray(fetchedLibrary) ? [...fetchedLibrary] : [];
+    }
+    templateLibrary = Array.isArray(fetchedLibrary) ? fetchedLibrary : [];
+    templateLibraryIndex.clear();
+    templateLibrary.forEach(template => {
+      const id = getTemplateId(template);
+      if (id) {
+        templateLibraryIndex.set(id, template);
       }
-      const idA = getTemplateId(a) || '';
-      const idB = getTemplateId(b) || '';
-      if (idA && idB) {
-        const comparison = idA.localeCompare(idB);
-        if (comparison !== 0) return comparison;
-      }
-      return getTemplateSortValue(a) - getTemplateSortValue(b);
     });
-    normalized.forEach((entry, index) => {
-      entry.sort_order = index + 1;
-      entry.sortOrder = index + 1;
-    });
+    const normalized = fetchedTemplates.map((item, index) => normalizeTemplateAssociation(item, index));
+    normalized.sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
     templates = normalized;
     lastLoadedTemplateProgramId = activeProgramId;
-    isTagDerivedTemplateList = true;
+    templates.forEach(template => {
+      const id = getTemplateId(template);
+      if (id && !templateLibraryIndex.has(id)) {
+        templateLibraryIndex.set(id, template);
+      }
+    });
 
     if (preserveSelection) {
       const validIds = new Set(templates.map(getTemplateId).filter(Boolean));
@@ -3618,21 +3398,14 @@ async function loadTemplates(options = {}) {
 
     refreshSharedTagSuggestions();
     renderTemplates();
-    if (!hasProgramTags) {
-      templateMessage.textContent = 'Add tags to this program to automatically surface matching templates.';
-      setTemplatePanelMessage('Add tags to this program to automatically surface matching templates.');
-    } else if (!templates.length) {
-      templateMessage.textContent = 'No templates share tags with this program yet. Adjust tags to find matches.';
-      setTemplatePanelMessage('No templates share tags with this program yet. Update program or template tags to see matches.');
-    } else {
-      templateMessage.textContent = '';
-      setTemplatePanelMessage('Templates with overlapping tags are listed below. Update tags to change this list.');
-    }
+    templateMessage.textContent = '';
+    setTemplatePanelMessage('');
     initTagifyForProgram(activeProgramId);
   } catch (error) {
     console.error(error);
     templates = [];
-    syncTemplateLibraryFromCatalog();
+    templateLibrary = [];
+    templateLibraryIndex.clear();
     if (!preserveSelection) {
       selectedTemplateIds.clear();
       selectedTemplateId = null;
@@ -3640,14 +3413,13 @@ async function loadTemplates(options = {}) {
     lastLoadedTemplateProgramId = null;
     destroyTagifyInstance();
     renderTemplates();
-    isTagDerivedTemplateList = false;
     refreshSharedTagSuggestions();
     if (error.status === 403) {
-      templateMessage.textContent = 'You do not have permission to view templates for this program.';
-      setTemplatePanelMessage('You do not have permission to view matching templates for this program.', true);
+      templateMessage.textContent = 'You do not have permission to load templates for this program.';
+      setTemplatePanelMessage('You do not have permission to view assignments for this program.', true);
     } else {
-      templateMessage.textContent = 'Unable to load matching templates. Please try again later.';
-      setTemplatePanelMessage('Unable to load templates for this program right now. Please try again.', true);
+      templateMessage.textContent = 'Unable to load templates. Please try again later.';
+      setTemplatePanelMessage('Unable to load template assignments right now. Please try again.', true);
     }
   }
 }
