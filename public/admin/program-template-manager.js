@@ -326,7 +326,8 @@ const programTemplatePanelDescription = document.getElementById('programTemplate
 const programTemplatePanelMessage = document.getElementById('programTemplatePanelMessage');
 const programTemplatePanelEmpty = document.getElementById('programTemplatePanelEmpty');
 const programTemplateList = document.getElementById('programTemplateList');
-const btnPanelAddTemplate = document.getElementById('btnPanelAddTemplate');
+const templateAttachInput = document.getElementById('templateAttachTagify');
+const btnAttachTags = document.getElementById('btnAttachTags');
 const templateVisibilityOptions = document.getElementById('templateVisibilityOptions');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
@@ -335,6 +336,8 @@ if (!programTableBody || !templateTableBody || !programActionsContainer || !temp
 
 let programs = [];
 let templates = [];
+let templateLibrary = [];
+const templateLibraryIndex = new Map();
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
 let selectedProgramId = null;
@@ -356,6 +359,7 @@ let metadataSaveTimeout = null;
 let reorderSaveTimeout = null;
 const METADATA_SAVE_DELAY_MS = 600;
 const REORDER_SAVE_DELAY_MS = 400;
+const ATTACH_SAVE_DELAY_MS = 600;
 const pendingMetadataState = {
   programId: null,
   updates: new Map(),
@@ -370,6 +374,12 @@ const pendingReorderState = {
   savingMessage: 'Saving order…',
   successMessage: 'Order updated.',
 };
+let tagifyInstance = null;
+let suppressTagifyEventsFlag = false;
+const pendingAttach = new Set();
+const pendingAttachState = new Map();
+let attachSaveTimeout = null;
+let attachInFlightPromise = null;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -695,18 +705,33 @@ function setTemplatePanelMessage(text, isError = false) {
 }
 
 function updatePanelAddButtonState() {
-  if (!btnPanelAddTemplate) return;
-  if (!CAN_MANAGE_TEMPLATES) {
-    btnPanelAddTemplate.disabled = true;
-    btnPanelAddTemplate.title = 'Only admins or managers can add templates.';
-    return;
+  const hasProgram = Boolean(selectedProgramId);
+  const canManage = CAN_MANAGE_TEMPLATES && hasProgram;
+
+  if (templateAttachInput) {
+    const placeholder = !CAN_MANAGE_TEMPLATES
+      ? 'Read-only access — attachments disabled.'
+      : hasProgram
+        ? 'Search templates to attach…'
+        : 'Select a program to attach templates.';
+    templateAttachInput.setAttribute('placeholder', placeholder);
+    templateAttachInput.disabled = !canManage;
+    if (tagifyInstance) {
+      tagifyInstance.setReadonly(!canManage);
+    }
   }
-  if (!selectedProgramId) {
-    btnPanelAddTemplate.disabled = true;
-    btnPanelAddTemplate.title = 'Select a program to add templates.';
-  } else {
-    btnPanelAddTemplate.disabled = false;
-    btnPanelAddTemplate.title = '';
+
+  if (btnAttachTags) {
+    if (!CAN_MANAGE_TEMPLATES) {
+      btnAttachTags.disabled = true;
+      btnAttachTags.title = 'Only admins or managers can attach templates.';
+    } else if (!hasProgram) {
+      btnAttachTags.disabled = true;
+      btnAttachTags.title = 'Select a program to attach templates.';
+    } else {
+      btnAttachTags.disabled = pendingAttach.size === 0;
+      btnAttachTags.title = pendingAttach.size === 0 ? 'Select templates to attach first.' : '';
+    }
   }
 }
 
@@ -717,6 +742,500 @@ function ensurePanelReadOnlyHint() {
   const current = (programTemplatePanelMessage.textContent || '').trim();
   if (!current) {
     setTemplatePanelMessage('Read-only mode — assignments are view only for your role.');
+  }
+}
+
+function withTagifySuppressed(callback) {
+  if (typeof callback !== 'function') return;
+  const previous = suppressTagifyEventsFlag;
+  suppressTagifyEventsFlag = true;
+  try {
+    callback();
+  } finally {
+    suppressTagifyEventsFlag = previous;
+  }
+}
+
+function destroyTagifyInstance() {
+  if (tagifyInstance && typeof tagifyInstance.destroy === 'function') {
+    try {
+      tagifyInstance.destroy();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  tagifyInstance = null;
+  suppressTagifyEventsFlag = false;
+  pendingAttach.clear();
+  pendingAttachState.clear();
+  if (attachSaveTimeout) {
+    clearTimeout(attachSaveTimeout);
+    attachSaveTimeout = null;
+  }
+  if (templateAttachInput) {
+    templateAttachInput.value = '';
+  }
+  updatePanelAddButtonState();
+}
+
+function getTagifyOptionFromTemplate(template, { isAssigned = false } = {}) {
+  const templateId = getTemplateId(template);
+  if (!templateId) return null;
+  const name = getTemplateName(template) || `Template ${templateId}`;
+  const status = getTemplateStatus(template) || '';
+  const option = {
+    value: templateId,
+    name,
+    label: name,
+    status,
+    isAssigned,
+  };
+  if (template && typeof template === 'object') {
+    option.template = template;
+  }
+  return option;
+}
+
+function initTagifyForProgram(programId) {
+  if (!templateAttachInput) {
+    return;
+  }
+  destroyTagifyInstance();
+  updatePanelAddButtonState();
+  if (!programId) {
+    return;
+  }
+  const TagifyConstructor = window?.Tagify;
+  if (typeof TagifyConstructor !== 'function') {
+    console.warn('Tagify library is not available.');
+    return;
+  }
+
+  const assignedTags = templates
+    .map(template => getTagifyOptionFromTemplate(template, { isAssigned: true }))
+    .filter(Boolean);
+  const assignedIds = new Set(assignedTags.map(tag => tag.value).filter(Boolean));
+  const availableTags = (Array.isArray(templateLibrary) ? templateLibrary : [])
+    .map(template => getTagifyOptionFromTemplate(template))
+    .filter(option => option && !assignedIds.has(option.value));
+
+  tagifyInstance = new TagifyConstructor(templateAttachInput, {
+    enforceWhitelist: true,
+    skipInvalid: true,
+    dropdown: {
+      enabled: 0,
+      maxItems: 20,
+      closeOnSelect: false,
+      searchKeys: ['name', 'label', 'value'],
+    },
+    whitelist: availableTags,
+    templates: {
+      tag(tagData) {
+        const label = escapeHtml(tagData?.name || tagData?.label || tagData?.value || '');
+        const status = tagData?.status ? createStatusBadge(tagData.status) : '';
+        return `
+          <tag title="${label}"
+               contenteditable="false"
+               spellcheck="false"
+               class="tagify__tag">
+            <x title="" class="tagify__tag__removeBtn" role="button" aria-label="remove tag"></x>
+            <div class="tagify__tag-text-wrapper flex items-center gap-2">
+              <span class="tagify__tag-text">${label}</span>
+              ${status ? `<span class="shrink-0">${status}</span>` : ''}
+            </div>
+          </tag>
+        `;
+      },
+      dropdownItem(tagData) {
+        const label = escapeHtml(tagData?.name || tagData?.label || tagData?.value || '');
+        const status = tagData?.status ? createStatusBadge(tagData.status) : '';
+        return `
+          <div ${this.getAttributes(tagData)}
+               class="tagify__dropdown__item flex items-center justify-between gap-2">
+            <span class="truncate">${label}</span>
+            ${status ? `<span class="shrink-0">${status}</span>` : ''}
+          </div>
+        `;
+      },
+    },
+  });
+
+  withTagifySuppressed(() => {
+    if (!tagifyInstance) return;
+    const settings = tagifyInstance.settings || {};
+    const previousEnforce = Object.prototype.hasOwnProperty.call(settings, 'enforceWhitelist')
+      ? settings.enforceWhitelist
+      : undefined;
+    try {
+      if (typeof previousEnforce !== 'undefined') {
+        settings.enforceWhitelist = false;
+      }
+      if (assignedTags.length) {
+        tagifyInstance.addTags(assignedTags);
+      }
+    } finally {
+      if (typeof previousEnforce !== 'undefined') {
+        settings.enforceWhitelist = previousEnforce;
+      }
+    }
+  });
+  tagifyInstance.on('add', handleTagifyAdd);
+  tagifyInstance.on('remove', handleTagifyRemove);
+  updatePanelAddButtonState();
+}
+
+function schedulePendingTemplateAttachments({ immediate = false } = {}) {
+  if (!pendingAttach.size && !immediate) {
+    return;
+  }
+  if (attachSaveTimeout) {
+    clearTimeout(attachSaveTimeout);
+    attachSaveTimeout = null;
+  }
+  if (immediate) {
+    flushPendingTemplateAttachments({ immediate: true }).catch(error => {
+      console.error(error);
+    });
+    return;
+  }
+  attachSaveTimeout = setTimeout(() => {
+    attachSaveTimeout = null;
+    flushPendingTemplateAttachments({ immediate: true }).catch(error => {
+      console.error(error);
+    });
+  }, ATTACH_SAVE_DELAY_MS);
+}
+
+async function flushPendingTemplateAttachments({ immediate = false } = {}) {
+  if (attachInFlightPromise) {
+    try {
+      await attachInFlightPromise;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  if (!pendingAttach.size) {
+    if (immediate && attachSaveTimeout) {
+      clearTimeout(attachSaveTimeout);
+      attachSaveTimeout = null;
+    }
+    return false;
+  }
+  if (!selectedProgramId) {
+    pendingAttach.clear();
+    pendingAttachState.clear();
+    if (attachSaveTimeout) {
+      clearTimeout(attachSaveTimeout);
+      attachSaveTimeout = null;
+    }
+    return false;
+  }
+  if (!immediate && attachSaveTimeout) {
+    return false;
+  }
+  if (immediate && attachSaveTimeout) {
+    clearTimeout(attachSaveTimeout);
+    attachSaveTimeout = null;
+  }
+
+  const programId = selectedProgramId;
+  const entries = Array.from(pendingAttach).map(id => ({ id, state: pendingAttachState.get(id) }));
+  pendingAttach.clear();
+  entries.forEach(({ id }) => pendingAttachState.delete(id));
+  if (!entries.length) {
+    updatePanelAddButtonState();
+    return false;
+  }
+
+  const payloadTemplates = entries.map(({ id, state }) => {
+    const basePayload = state?.payload && typeof state.payload === 'object' ? state.payload : {};
+    return { template_id: id, ...basePayload };
+  });
+  const revertFns = entries.map(({ state }) => state?.revert).filter(fn => typeof fn === 'function');
+  const tagDataToRestore = entries.map(({ state }) => state?.tagData).filter(Boolean);
+
+  const perform = (async () => {
+    try {
+      if (selectedProgramId === programId) {
+        setTemplatePanelMessage('Attaching templates…');
+      }
+      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templates: payloadTemplates }),
+      });
+      if (selectedProgramId === programId) {
+        setTemplatePanelMessage('Templates attached.');
+        if (tagifyInstance) {
+          withTagifySuppressed(() => {
+            tagifyInstance.removeAllTags?.();
+            tagifyInstance.dropdown?.hide?.();
+          });
+        }
+        updatePanelAddButtonState();
+        setTimeout(() => {
+          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === 'Templates attached.') {
+            setTemplatePanelMessage('');
+          }
+        }, 2500);
+        await loadTemplates({ preserveSelection: true });
+      }
+      return true;
+    } catch (error) {
+      console.error(error);
+      entries.forEach(({ id, state }) => {
+        pendingAttach.add(id);
+        if (state) {
+          pendingAttachState.set(id, state);
+        }
+      });
+      revertFns.forEach(fn => {
+        try {
+          fn();
+        } catch (revertError) {
+          console.error(revertError);
+        }
+      });
+      if (selectedProgramId === programId) {
+        const message = error.status === 403
+          ? 'You do not have permission to attach templates.'
+          : 'Unable to attach templates. Please try again.';
+        setTemplatePanelMessage(message, true);
+        if (tagifyInstance && tagDataToRestore.length) {
+          const existingValues = Array.isArray(tagifyInstance.value)
+            ? new Set(tagifyInstance.value.map(item => normalizeId(item?.value ?? item?.id)))
+            : new Set();
+          const missingTags = tagDataToRestore.filter(tag => {
+            const value = normalizeId(tag?.value ?? tag?.id);
+            return value && !existingValues.has(value);
+          });
+          if (missingTags.length) {
+            withTagifySuppressed(() => {
+              tagifyInstance.addTags(missingTags);
+            });
+          }
+        }
+        renderTemplates();
+      }
+      return false;
+    } finally {
+      attachInFlightPromise = null;
+      updatePanelAddButtonState();
+    }
+  })();
+
+  attachInFlightPromise = perform;
+  return perform;
+}
+
+function handleTagifyAdd(event) {
+  if (suppressTagifyEventsFlag) return;
+  const data = event?.detail?.data || {};
+  const templateId = normalizeId(data?.value ?? data?.id);
+  if (!templateId) return;
+
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    if (tagifyInstance) {
+      withTagifySuppressed(() => {
+        if (typeof tagifyInstance.removeTags === 'function') {
+          tagifyInstance.removeTags(templateId, true);
+        } else if (event?.detail?.tag && typeof tagifyInstance.removeTag === 'function') {
+          tagifyInstance.removeTag(event.detail.tag, true);
+        }
+      });
+    }
+    return;
+  }
+  if (!selectedProgramId) {
+    setTemplatePanelMessage('Select a program before attaching templates.', true);
+    if (tagifyInstance) {
+      withTagifySuppressed(() => {
+        if (typeof tagifyInstance.removeTags === 'function') {
+          tagifyInstance.removeTags(templateId, true);
+        } else if (event?.detail?.tag && typeof tagifyInstance.removeTag === 'function') {
+          tagifyInstance.removeTag(event.detail.tag, true);
+        }
+      });
+    }
+    return;
+  }
+  if (pendingAttach.has(templateId)) {
+    updatePanelAddButtonState();
+    return;
+  }
+
+  const previousSelection = new Set(selectedTemplateIds);
+  const previousPrimary = selectedTemplateId;
+  let templateData = templateLibraryIndex.get(templateId)
+    || getTemplateById(templateId)
+    || data?.template
+    || data?.templateRef
+    || null;
+  if (!templateData) {
+    templateData = {
+      id: templateId,
+      name: data?.name || data?.label || data?.text || templateId,
+      status: data?.status || 'draft',
+    };
+  }
+  if (templateData && !templateLibraryIndex.has(templateId)) {
+    templateLibraryIndex.set(templateId, templateData);
+  }
+  const alreadyExists = templates.some(template => getTemplateId(template) === templateId);
+  if (!alreadyExists) {
+    const optimisticTemplate = normalizeTemplateAssociation({ template: templateData, template_id: templateId }, templates.length);
+    templates.push(optimisticTemplate);
+  }
+  renderTemplates();
+
+  const revert = () => {
+    templates = templates.filter(template => getTemplateId(template) !== templateId);
+    selectedTemplateIds.clear();
+    previousSelection.forEach(id => selectedTemplateIds.add(id));
+    selectedTemplateId = previousPrimary;
+    renderTemplates();
+  };
+
+  pendingAttach.add(templateId);
+  pendingAttachState.set(templateId, {
+    revert,
+    tagData: { ...data },
+    templateData,
+    payload: {},
+  });
+  updatePanelAddButtonState();
+  schedulePendingTemplateAttachments();
+}
+
+function handleTagifyRemove(event) {
+  if (suppressTagifyEventsFlag) return;
+  const data = event?.detail?.data || {};
+  const templateId = normalizeId(data?.value ?? data?.id);
+  if (!templateId) return;
+
+  if (pendingAttach.has(templateId)) {
+    const state = pendingAttachState.get(templateId);
+    pendingAttach.delete(templateId);
+    pendingAttachState.delete(templateId);
+    if (state?.revert) {
+      try {
+        state.revert();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    updatePanelAddButtonState();
+    return;
+  }
+
+  if (!CAN_MANAGE_TEMPLATES) {
+    ensurePanelReadOnlyHint();
+    if (tagifyInstance) {
+      withTagifySuppressed(() => {
+        tagifyInstance.addTags([data]);
+      });
+    }
+    return;
+  }
+  if (!selectedProgramId) {
+    setTemplatePanelMessage('Select a program before removing templates.', true);
+    if (tagifyInstance) {
+      withTagifySuppressed(() => {
+        tagifyInstance.addTags([data]);
+      });
+    }
+    return;
+  }
+
+  const index = templates.findIndex(template => getTemplateId(template) === templateId);
+  if (index < 0) {
+    updatePanelAddButtonState();
+    return;
+  }
+
+  const previousSelection = new Set(selectedTemplateIds);
+  const previousPrimary = selectedTemplateId;
+  const [removedTemplate] = templates.splice(index, 1);
+  selectedTemplateIds.delete(templateId);
+  if (selectedTemplateId === templateId) {
+    selectedTemplateId = null;
+  }
+  renderTemplates();
+
+  const revert = () => {
+    templates.splice(index, 0, removedTemplate);
+    selectedTemplateIds.clear();
+    previousSelection.forEach(id => selectedTemplateIds.add(id));
+    selectedTemplateId = previousPrimary;
+    renderTemplates();
+  };
+
+  detachTemplateAssociation(templateId, { revert, tagData: { ...data } });
+}
+
+async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
+  if (!templateId || !selectedProgramId) {
+    if (typeof revert === 'function') revert();
+    if (tagifyInstance && tagData) {
+      withTagifySuppressed(() => {
+        tagifyInstance.addTags([tagData]);
+      });
+    }
+    updatePanelAddButtonState();
+    return;
+  }
+
+  const programId = selectedProgramId;
+  setTemplatePanelMessage('Removing template…');
+  let deleteWasNoOp = false;
+  try {
+    try {
+      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } catch (error) {
+      if (error.status === 404) {
+        deleteWasNoOp = true;
+      } else {
+        throw error;
+      }
+    }
+    if (deleteWasNoOp) {
+      setTemplatePanelMessage('Template was already removed.');
+    } else {
+      setTemplatePanelMessage('Template removed.');
+    }
+    setTimeout(() => {
+      const successMessage = deleteWasNoOp ? 'Template was already removed.' : 'Template removed.';
+      if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+        setTemplatePanelMessage('');
+      }
+    }, 2500);
+    await loadTemplates({ preserveSelection: true });
+  } catch (error) {
+    console.error(error);
+    if (typeof revert === 'function') {
+      try {
+        revert();
+      } catch (revertError) {
+        console.error(revertError);
+      }
+    }
+    if (tagifyInstance && tagData) {
+      withTagifySuppressed(() => {
+        tagifyInstance.addTags([tagData]);
+      });
+    }
+    if (error.status === 403) {
+      setTemplatePanelMessage('You do not have permission to remove templates from this program.', true);
+    } else {
+      setTemplatePanelMessage('Unable to remove this template. Please try again.', true);
+    }
+  } finally {
+    updatePanelAddButtonState();
   }
 }
 
@@ -1070,6 +1589,7 @@ async function flushPendingTemplateOrder({ immediate = false } = {}) {
 async function flushPendingTemplateAssociationChanges() {
   await flushPendingMetadataUpdates({ immediate: true });
   await flushPendingTemplateOrder({ immediate: true });
+  await flushPendingTemplateAttachments({ immediate: true });
 }
 
 function resetTemplateForm() {
@@ -1934,7 +2454,7 @@ function renderTemplateAssignmentsPanel() {
   if (!ordered.length) {
     if (!hasErrorMessage) {
       if (CAN_MANAGE_TEMPLATES) {
-        setTemplatePanelMessage('Use “Add Template” to attach templates to this program.');
+        setTemplatePanelMessage('Use the search above to attach templates to this program.');
       } else {
         ensurePanelReadOnlyHint();
       }
@@ -2225,14 +2745,113 @@ async function loadPrograms() {
   }
 }
 
+function extractAssignmentsFromResponse(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+  if (Array.isArray(payload.assignments)) {
+    return payload.assignments;
+  }
+  if (Array.isArray(payload.data)) {
+    return payload.data;
+  }
+  if (Array.isArray(payload.items)) {
+    return payload.items;
+  }
+  if (Array.isArray(payload.results)) {
+    return payload.results;
+  }
+  const nestedData = payload.data;
+  if (nestedData && typeof nestedData === 'object') {
+    const nested = extractAssignmentsFromResponse(nestedData);
+    if (nested.length) {
+      return nested;
+    }
+  }
+  const nestedTemplates = payload.templates;
+  if (nestedTemplates && typeof nestedTemplates === 'object' && !Array.isArray(nestedTemplates)) {
+    const nested = extractAssignmentsFromResponse(nestedTemplates);
+    if (nested.length) {
+      return nested;
+    }
+  }
+  if (Array.isArray(payload.templates)
+    && !Array.isArray(payload.available_templates)
+    && !Array.isArray(payload.availableTemplates)) {
+    return payload.templates;
+  }
+  if (Array.isArray(payload.records)) {
+    return payload.records;
+  }
+  if (Array.isArray(payload.rows)) {
+    return payload.rows;
+  }
+  return [];
+}
+
+function extractTemplateLibraryFromResponse(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+  const directKeys = ['available_templates', 'availableTemplates', 'available', 'library'];
+  for (const key of directKeys) {
+    if (!(key in payload)) continue;
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      const nested = extractTemplateLibraryFromResponse(value);
+      if (nested.length) {
+        return nested;
+      }
+    }
+  }
+  if (Array.isArray(payload.templates)) {
+    if (Array.isArray(payload.assignments)
+      || Array.isArray(payload.items)
+      || Array.isArray(payload.results)) {
+      return payload.templates;
+    }
+  }
+  const nestedTemplates = payload.templates;
+  if (nestedTemplates && typeof nestedTemplates === 'object' && !Array.isArray(nestedTemplates)) {
+    const nested = extractTemplateLibraryFromResponse(nestedTemplates);
+    if (nested.length) {
+      return nested;
+    }
+  }
+  const nestedData = payload.data;
+  if (nestedData && typeof nestedData === 'object') {
+    const nested = extractTemplateLibraryFromResponse(nestedData);
+    if (nested.length) {
+      return nested;
+    }
+  }
+  return [];
+}
+
 async function loadTemplates(options = {}) {
   const { focusTemplateId = null, preserveSelection = false } = options;
+  if (attachInFlightPromise) {
+    try {
+      await attachInFlightPromise;
+    } catch (error) {
+      console.error(error);
+    }
+  }
   const activeProgramId = selectedProgramId;
   if (!activeProgramId) {
     templates = [];
+    templateLibrary = [];
+    templateLibraryIndex.clear();
     selectedTemplateIds.clear();
     selectedTemplateId = null;
     lastLoadedTemplateProgramId = null;
+    destroyTagifyInstance();
     renderTemplates();
     templateMessage.textContent = programs.length
       ? 'Select a program to view its templates.'
@@ -2251,16 +2870,29 @@ async function loadTemplates(options = {}) {
     }
     const encodedProgramId = encodeURIComponent(activeProgramId);
     const data = await fetchJson(`${API}/programs/${encodedProgramId}/templates?include_deleted=true`);
-    let fetchedTemplates = [];
-    if (Array.isArray(data?.data)) {
-      fetchedTemplates = data.data;
-    } else if (Array.isArray(data)) {
-      fetchedTemplates = data;
+    const fetchedTemplates = extractAssignmentsFromResponse(data);
+    let fetchedLibrary = Array.isArray(data) ? [] : extractTemplateLibraryFromResponse(data);
+    if (fetchedLibrary === fetchedTemplates) {
+      fetchedLibrary = Array.isArray(fetchedLibrary) ? [...fetchedLibrary] : [];
     }
+    templateLibrary = Array.isArray(fetchedLibrary) ? fetchedLibrary : [];
+    templateLibraryIndex.clear();
+    templateLibrary.forEach(template => {
+      const id = getTemplateId(template);
+      if (id) {
+        templateLibraryIndex.set(id, template);
+      }
+    });
     const normalized = fetchedTemplates.map((item, index) => normalizeTemplateAssociation(item, index));
     normalized.sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
     templates = normalized;
     lastLoadedTemplateProgramId = activeProgramId;
+    templates.forEach(template => {
+      const id = getTemplateId(template);
+      if (id && !templateLibraryIndex.has(id)) {
+        templateLibraryIndex.set(id, template);
+      }
+    });
 
     if (preserveSelection) {
       const validIds = new Set(templates.map(getTemplateId).filter(Boolean));
@@ -2289,14 +2921,18 @@ async function loadTemplates(options = {}) {
     renderTemplates();
     templateMessage.textContent = '';
     setTemplatePanelMessage('');
+    initTagifyForProgram(activeProgramId);
   } catch (error) {
     console.error(error);
     templates = [];
+    templateLibrary = [];
+    templateLibraryIndex.clear();
     if (!preserveSelection) {
       selectedTemplateIds.clear();
       selectedTemplateId = null;
     }
     lastLoadedTemplateProgramId = null;
+    destroyTagifyInstance();
     renderTemplates();
     if (error.status === 403) {
       templateMessage.textContent = 'You do not have permission to load templates for this program.';
@@ -2734,10 +3370,11 @@ if (templateForm) {
   templateForm.addEventListener('submit', submitTemplateForm);
 }
 
-if (btnPanelAddTemplate) {
-  btnPanelAddTemplate.addEventListener('click', event => {
+if (btnAttachTags) {
+  btnAttachTags.addEventListener('click', event => {
     event.preventDefault();
-    openTemplateModal('create');
+    if (btnAttachTags.disabled) return;
+    schedulePendingTemplateAttachments({ immediate: true });
   });
 }
 
