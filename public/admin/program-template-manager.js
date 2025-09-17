@@ -243,17 +243,19 @@ function dedupeTemplatesById(entries) {
   return [...unique.values(), ...fallback];
 }
 
-function syncTemplateLibraryFromCatalog(entries = allTemplatesCatalog) {
+function syncTemplateLibraryFromCatalog(entries = allTemplatesCatalog, fallbackEntries = []) {
   const source = Array.isArray(entries) ? entries : [];
-  templateLibrary = [...source];
+  const extras = Array.isArray(fallbackEntries) ? fallbackEntries : [];
+  const combined = extras.length ? dedupeTemplatesById([...source, ...extras]) : source;
+  templateLibrary = [...combined];
   templateLibraryIndex.clear();
-  if (source === allTemplatesCatalog && allTemplatesCatalogIndex.size) {
+  if (!extras.length && combined === allTemplatesCatalog && allTemplatesCatalogIndex.size) {
     allTemplatesCatalogIndex.forEach((value, key) => {
       templateLibraryIndex.set(key, value);
     });
     return;
   }
-  source.forEach(item => {
+  combined.forEach(item => {
     const id = getTemplateId(item);
     if (id) {
       templateLibraryIndex.set(id, item);
@@ -261,8 +263,10 @@ function syncTemplateLibraryFromCatalog(entries = allTemplatesCatalog) {
   });
 }
 
-function setAllTemplatesCatalog(entries) {
-  const deduped = dedupeTemplatesById(entries);
+function setAllTemplatesCatalog(entries, fallbackEntries = []) {
+  const source = Array.isArray(entries) ? entries : [];
+  const extras = Array.isArray(fallbackEntries) ? fallbackEntries : [];
+  const deduped = extras.length ? dedupeTemplatesById([...source, ...extras]) : dedupeTemplatesById(source);
   allTemplatesCatalog = deduped;
   allTemplatesCatalogIndex.clear();
   deduped.forEach(item => {
@@ -416,6 +420,8 @@ let templateLibrary = [];
 const templateLibraryIndex = new Map();
 let allTemplatesCatalog = [];
 const allTemplatesCatalogIndex = new Map();
+const programTemplateCatalogCache = new Map();
+const programTemplateCatalogPromises = new Map();
 let allTags = [];
 let templateCatalogLoadPromise = null;
 let isTagDerivedTemplateList = false;
@@ -424,6 +430,7 @@ const selectedTemplateIds = new Set();
 let selectedProgramId = null;
 let selectedTemplateId = null;
 let lastLoadedTemplateProgramId = null;
+let isProgramDerivedTemplateCatalog = false;
 const modalStack = [];
 let programModalMode = 'create';
 let programModalProgramId = null;
@@ -467,6 +474,7 @@ const pendingAttach = new Set();
 const pendingAttachState = new Map();
 let attachSaveTimeout = null;
 let attachInFlightPromise = null;
+const PROGRAM_TEMPLATE_CATALOG_FALLBACK_LIMIT = 6;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -3479,12 +3487,120 @@ function extractTemplatesFromCatalogResponse(payload, seen = new Set()) {
   return [];
 }
 
-async function ensureTemplateCatalogLoaded({ force = false } = {}) {
-  if (!force && allTemplatesCatalog.length && !templateCatalogLoadPromise) {
+function shouldFallbackToProgramCatalog(error) {
+  const status = error?.status;
+  if (!status) return false;
+  if (status === 401 || status === 403) return false;
+  if ([404, 405, 410, 422, 501].includes(status)) return true;
+  return status >= 500;
+}
+
+function getProgramIdsForCatalogFallback(activeProgramId = null) {
+  const normalizedActiveId = normalizeId(activeProgramId);
+  const seen = new Set();
+  const ids = [];
+  const add = id => {
+    const normalized = normalizeId(id);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    ids.push(normalized);
+  };
+  add(normalizedActiveId);
+  selectedProgramIds.forEach(add);
+  programTemplateCatalogCache.forEach((_, key) => add(key));
+  for (const program of programs) {
+    add(getProgramId(program));
+    if (ids.length >= PROGRAM_TEMPLATE_CATALOG_FALLBACK_LIMIT) break;
+  }
+  return ids.slice(0, PROGRAM_TEMPLATE_CATALOG_FALLBACK_LIMIT);
+}
+
+async function fetchProgramTemplatesForCatalog(programId) {
+  const normalizedId = normalizeId(programId);
+  if (!normalizedId) return [];
+  if (programTemplateCatalogCache.has(normalizedId)) {
+    return programTemplateCatalogCache.get(normalizedId);
+  }
+  if (programTemplateCatalogPromises.has(normalizedId)) {
+    return programTemplateCatalogPromises.get(normalizedId);
+  }
+  const encoded = encodeURIComponent(normalizedId);
+  const promise = (async () => {
+    try {
+      const payload = await fetchJson(`${API}/programs/${encoded}/templates?include_deleted=true`);
+      const extracted = extractTemplateLibraryFromResponse(payload);
+      const entries = Array.isArray(extracted) ? extracted : [];
+      const deduped = dedupeTemplatesById(entries);
+      programTemplateCatalogCache.set(normalizedId, deduped);
+      return deduped;
+    } finally {
+      programTemplateCatalogPromises.delete(normalizedId);
+    }
+  })();
+  programTemplateCatalogPromises.set(normalizedId, promise);
+  return promise;
+}
+
+async function buildProgramDerivedTemplateCatalog({ activeProgramId = null } = {}) {
+  const programIds = getProgramIdsForCatalogFallback(activeProgramId);
+  if (!programIds.length && !programTemplateCatalogCache.size) {
+    return [];
+  }
+  const results = await Promise.all(programIds.map(async programId => {
+    try {
+      return await fetchProgramTemplatesForCatalog(programId);
+    } catch (error) {
+      if (error?.status === 401 || error?.status === 403) {
+        return [];
+      }
+      if (shouldFallbackToProgramCatalog(error)) {
+        return [];
+      }
+      console.error(error);
+      throw error;
+    }
+  }));
+  const aggregated = [];
+  results.forEach(entries => {
+    if (Array.isArray(entries) && entries.length) {
+      aggregated.push(...entries);
+    }
+  });
+  if (programTemplateCatalogCache.size) {
+    programTemplateCatalogCache.forEach(entries => {
+      if (Array.isArray(entries) && entries.length) {
+        aggregated.push(...entries);
+      }
+    });
+  }
+  return dedupeTemplatesById(aggregated);
+}
+
+async function ensureTemplateCatalogLoaded({ force = false, activeProgramId = null } = {}) {
+  const normalizedActiveId = normalizeId(activeProgramId);
+  const needsProgramRefresh = isProgramDerivedTemplateCatalog
+    && normalizedActiveId
+    && !programTemplateCatalogCache.has(normalizedActiveId)
+    && !programTemplateCatalogPromises.has(normalizedActiveId);
+  if (!force && allTemplatesCatalog.length && !templateCatalogLoadPromise && !needsProgramRefresh) {
     return allTemplatesCatalog;
   }
   if (templateCatalogLoadPromise) {
     return templateCatalogLoadPromise;
+  }
+  const loadFromPrograms = async () => {
+    const fallbackEntries = await buildProgramDerivedTemplateCatalog({ activeProgramId: normalizedActiveId });
+    isProgramDerivedTemplateCatalog = true;
+    setAllTemplatesCatalog([], fallbackEntries);
+    return allTemplatesCatalog;
+  };
+  if (isProgramDerivedTemplateCatalog && !force && needsProgramRefresh) {
+    templateCatalogLoadPromise = loadFromPrograms();
+    try {
+      return await templateCatalogLoadPromise;
+    } finally {
+      templateCatalogLoadPromise = null;
+    }
   }
   templateCatalogLoadPromise = (async () => {
     let entries = [];
@@ -3496,6 +3612,9 @@ async function ensureTemplateCatalogLoaded({ force = false } = {}) {
       entries = Array.isArray(entries) ? entries : [];
       loadSucceeded = true;
     } catch (error) {
+      if (shouldFallbackToProgramCatalog(error)) {
+        return loadFromPrograms();
+      }
       primaryError = error;
     }
     if (!loadSucceeded) {
@@ -3505,6 +3624,12 @@ async function ensureTemplateCatalogLoaded({ force = false } = {}) {
         entries = Array.isArray(entries) ? entries : [];
         loadSucceeded = true;
       } catch (fallbackError) {
+        if (shouldFallbackToProgramCatalog(fallbackError)) {
+          if (primaryError && !shouldFallbackToProgramCatalog(primaryError)) {
+            console.error(primaryError);
+          }
+          return loadFromPrograms();
+        }
         if (primaryError) {
           throw primaryError;
         }
@@ -3514,6 +3639,7 @@ async function ensureTemplateCatalogLoaded({ force = false } = {}) {
     if (!loadSucceeded) {
       throw primaryError || new Error('Unable to load template catalog.');
     }
+    isProgramDerivedTemplateCatalog = false;
     setAllTemplatesCatalog(entries);
     return allTemplatesCatalog;
   })();
@@ -3559,8 +3685,9 @@ async function loadTemplates(options = {}) {
         selectedTemplateId = null;
       }
     }
-    const catalog = await ensureTemplateCatalogLoaded({ force: true }).catch(error => {
-      throw error;
+    const catalog = await ensureTemplateCatalogLoaded({
+      force: !allTemplatesCatalog.length,
+      activeProgramId,
     });
     const program = getProgramById(activeProgramId);
     const programTagList = getProgramTags(program);
