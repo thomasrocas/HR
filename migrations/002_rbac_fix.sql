@@ -40,11 +40,6 @@ CREATE TRIGGER audit_programs
 AFTER INSERT OR UPDATE OR DELETE ON public.programs
 FOR EACH ROW EXECUTE PROCEDURE public.audit_row_change();
 
-DROP TRIGGER IF EXISTS audit_program_task_templates  ON public.program_task_templates;
-CREATE TRIGGER audit_program_task_templates
-AFTER INSERT OR UPDATE OR DELETE ON public.program_task_templates
-FOR EACH ROW EXECUTE PROCEDURE public.audit_row_change();
-
 DROP TRIGGER IF EXISTS audit_program_memberships     ON public.program_memberships;
 CREATE TRIGGER audit_program_memberships
 AFTER INSERT OR UPDATE OR DELETE ON public.program_memberships

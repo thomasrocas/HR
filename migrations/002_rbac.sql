@@ -91,10 +91,6 @@ create trigger audit_programs
 after insert or update or delete on public.programs
 for each row execute function audit_trigger();
 
-create trigger audit_program_task_templates
-after insert or update or delete on public.program_task_templates
-for each row execute function audit_trigger();
-
 create trigger audit_program_memberships
 after insert or update or delete on program_memberships
 for each row execute function audit_trigger();
