@@ -4,7 +4,8 @@
 begin;
 
 create table if not exists public.program_template_links (
-  template_id uuid not null references public.program_task_templates(template_id) on delete cascade,
+  template_id public.program_task_templates.template_id%TYPE not null
+    references public.program_task_templates(template_id) on delete cascade,
   program_id  text not null references public.programs(program_id) on delete cascade,
   created_at  timestamptz not null default now(),
   primary key (template_id, program_id)

@@ -91,6 +91,22 @@ psql -h localhost -p 5432 -U postgres -d orientation -f migrations/003_seed_admi
 
 ---
 
+## Template identifier type (program_task_templates)
+
+Production runs currently expose `public.program_task_templates.template_id` as a `bigint`. Confirm with:
+
+```sql
+select data_type
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'program_task_templates'
+  and column_name = 'template_id';
+```
+
+New DDL and fixtures should therefore treat template IDs as 64-bit integers (e.g., `bigserial`/`bigint`) instead of UUIDs. The join table `public.program_template_links.template_id` uses `%TYPE` so fresh installs inherit whatever type `program_task_templates.template_id` already has.
+
+---
+
 ## Verifying RBAC after running
 
 ```sql
