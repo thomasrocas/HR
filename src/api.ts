@@ -12,20 +12,15 @@ export interface Program {
   owner: string;
   updatedAt: string;
   assignedCount: number;
-  tags: string[];
 }
 
 export interface Template {
   id: string;
+  programId: string;
   name: string;
-  tags: string[];
-  weekNumber: number | null;
-  sortOrder: number | null;
-  notes?: string;
-  status?: 'draft' | 'published' | 'deprecated';
+  category: string;
   updatedAt?: string;
-  category?: string;
-  programId?: string;
+  status?: 'draft' | 'published' | 'deprecated';
 }
 
 type UserListResponse = { data: User[]; meta: { total: number; page: number } };
@@ -86,64 +81,6 @@ const toDateString = (value: unknown): string => {
 const USER_STATUSES = new Set<User['status']>(['active', 'pending', 'suspended', 'archived']);
 const PROGRAM_STATUSES = new Set<Program['status']>(['draft', 'published', 'deprecated', 'archived']);
 const TEMPLATE_STATUS_SET = new Set<NonNullable<Template['status']>>(['draft', 'published', 'deprecated']);
-
-const normalizeTagList = (input: unknown): string[] => {
-  if (!input) return [];
-  const result: string[] = [];
-  const seen = new Set<string>();
-  const enqueue = (value: unknown) => {
-    if (value === null || value === undefined) return;
-    if (Array.isArray(value)) {
-      value.forEach(enqueue);
-      return;
-    }
-    if (typeof value === 'object') {
-      if ('value' in (value as Record<string, unknown>)) {
-        enqueue((value as Record<string, unknown>).value);
-      }
-      if ('tag' in (value as Record<string, unknown>)) {
-        enqueue((value as Record<string, unknown>).tag);
-      }
-      if ('name' in (value as Record<string, unknown>)) {
-        enqueue((value as Record<string, unknown>).name);
-      }
-      if ('tags' in (value as Record<string, unknown>)) {
-        enqueue((value as Record<string, unknown>).tags);
-      }
-      return;
-    }
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) return;
-      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || trimmed.startsWith('{')) {
-        try {
-          enqueue(JSON.parse(trimmed));
-          return;
-        } catch (_err) {
-          // treat as literal if parsing fails
-        }
-      }
-      if (trimmed.includes(',')) {
-        trimmed.split(',').forEach(part => enqueue(part));
-        return;
-      }
-      const normalized = trimmed.toLowerCase();
-      if (!seen.has(normalized)) {
-        seen.add(normalized);
-        result.push(normalized);
-      }
-      return;
-    }
-    const normalized = String(value).trim().toLowerCase();
-    if (!normalized) return;
-    if (!seen.has(normalized)) {
-      seen.add(normalized);
-      result.push(normalized);
-    }
-  };
-  enqueue(input);
-  return result;
-};
 
 const normalizeRoles = (value: unknown): User['roles'] => {
   if (!Array.isArray(value)) return [];
@@ -219,7 +156,6 @@ const normalizeProgram = (raw: any): Program => {
       owner: '',
       updatedAt: '',
       assignedCount: 0,
-      tags: [],
     };
   }
 
@@ -254,9 +190,6 @@ const normalizeProgram = (raw: any): Program => {
         : 0
   );
 
-  const tagsSource =
-    (raw.tags as unknown) ?? raw.tag_list ?? raw.tagList ?? raw.tag_names ?? raw.tagNames ?? [];
-
   return {
     id: String(idCandidate ?? ''),
     name:
@@ -271,7 +204,6 @@ const normalizeProgram = (raw: any): Program => {
     owner: ownerCandidate ? String(ownerCandidate) : '',
     updatedAt: toDateString(updatedCandidate),
     assignedCount,
-    tags: normalizeTagList(tagsSource),
   };
 };
 
@@ -299,73 +231,28 @@ const normalizeProgramList = (payload: unknown): ProgramListResponse => {
 
 const normalizeTemplate = (raw: any): Template => {
   if (!raw || typeof raw !== 'object') {
-    return {
-      id: '',
-      name: '',
-      tags: [],
-      weekNumber: null,
-      sortOrder: null,
-    };
+    return { id: '', programId: '', name: '', category: 'General' };
   }
 
   const idCandidate = raw.id ?? raw.template_id ?? raw.uid ?? '';
-  const nameCandidate = raw.name ?? raw.label ?? raw.title ?? '';
+  const programCandidate = raw.programId ?? raw.program_id ?? '';
+  const nameCandidate = raw.name ?? raw.label ?? '';
+  const categoryCandidate = raw.category ?? raw.notes ?? '';
   const statusCandidate = typeof raw.status === 'string' ? raw.status.toLowerCase() : '';
   const normalizedStatus = TEMPLATE_STATUS_SET.has(statusCandidate as NonNullable<Template['status']>)
     ? (statusCandidate as Template['status'])
     : undefined;
-  const updatedCandidate =
-    raw.updatedAt ??
-    raw.updated_at ??
-    raw.updated ??
-    raw.modified_at ??
-    raw.modifiedAt ??
-    raw.last_updated ??
-    raw.lastUpdated ??
-    raw.created_at ??
-    raw.createdAt ??
-    null;
-  const weekCandidate =
-    raw.weekNumber ?? raw.week_number ?? raw.week ?? raw.weekNo ?? raw.week_no ?? raw.week_index ?? null;
-  const sortCandidate =
-    raw.sortOrder ?? raw.sort_order ?? raw.sort ?? raw.order ?? raw.position ?? raw.display_order ?? null;
-  const tagsSource =
-    (raw.tags as unknown) ??
-    raw.tag_list ??
-    raw.tagList ??
-    raw.tag_names ??
-    raw.tagNames ??
-    raw.tags_json ??
-    raw.tagsJson ??
-    [];
-  const notesCandidate = raw.notes ?? raw.description ?? raw.summary ?? raw.details ?? null;
-  const categoryCandidate = raw.category ?? raw.type ?? raw.topic ?? null;
-  const programCandidate = raw.programId ?? raw.program_id ?? null;
-
-  const weekNumber =
-    weekCandidate === null || weekCandidate === undefined
-      ? null
-      : Number.isFinite(Number(weekCandidate))
-        ? Number(weekCandidate)
-        : null;
-  const sortOrder =
-    sortCandidate === null || sortCandidate === undefined
-      ? null
-      : Number.isFinite(Number(sortCandidate))
-        ? Number(sortCandidate)
-        : null;
+  const updatedCandidate = raw.updatedAt ?? raw.updated_at ?? raw.updated ?? raw.modified_at ?? null;
 
   const template: Template = {
     id: String(idCandidate ?? ''),
+    programId: String(programCandidate ?? ''),
     name:
       nameCandidate && String(nameCandidate).trim().length
         ? String(nameCandidate)
         : `Template ${String(idCandidate ?? '')}`,
-    tags: normalizeTagList(tagsSource),
-    weekNumber,
-    sortOrder,
+    category: String(categoryCandidate ?? 'General'),
   };
-
   const parsedDate = toDateString(updatedCandidate);
   if (parsedDate) {
     template.updatedAt = parsedDate;
@@ -373,16 +260,6 @@ const normalizeTemplate = (raw: any): Template => {
   if (normalizedStatus) {
     template.status = normalizedStatus;
   }
-  if (typeof notesCandidate === 'string' && notesCandidate.trim().length) {
-    template.notes = notesCandidate;
-  }
-  if (categoryCandidate !== undefined && categoryCandidate !== null && String(categoryCandidate).trim().length) {
-    template.category = String(categoryCandidate);
-  }
-  if (programCandidate) {
-    template.programId = String(programCandidate);
-  }
-
   return template;
 };
 
@@ -414,6 +291,24 @@ const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unk
   return body;
 };
 
+const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, unknown> => {
+  const { id: _id, programId: _programId, updatedAt: _updatedAt, ...rest } = payload;
+  const body: Record<string, unknown> = { ...rest };
+  if (payload.name && !body.label) {
+    body.label = payload.name;
+  }
+  if (payload.category && !body.notes) {
+    body.notes = payload.category;
+  }
+  if (payload.status) {
+    const normalized = payload.status.toLowerCase() as Template['status'];
+    if (TEMPLATE_STATUS_SET.has(normalized as NonNullable<Template['status']>)) {
+      body.status = normalized;
+    }
+  }
+  return body;
+};
+
 const attemptRequests = async <T>(requests: { url: string; init?: RequestInit }[]): Promise<T> => {
   let lastError: unknown;
   for (const { url, init } of requests) {
@@ -430,6 +325,7 @@ const attemptRequests = async <T>(requests: { url: string; init?: RequestInit }[
 };
 
 const PROGRAMS_BASE = '/programs';
+const programTemplatesBase = (programId: string) => `${PROGRAMS_BASE}/${programId}/templates`;
 
 async function apiFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
   if (!useMock) {
@@ -637,20 +533,51 @@ export const cloneProgram = (id: string) =>
         ],
   ).then(normalizeProgram);
 
-export const getTemplateCatalog = async (
-  params: { includeDeleted?: boolean; status?: string; tags?: string[] } = {},
+export const getProgramTemplates = async (
+  programId: string,
+  params: { includeDeleted?: boolean } = {},
 ): Promise<TemplateListResponse> => {
   const search = new URLSearchParams();
   if (params.includeDeleted) search.set('include_deleted', 'true');
-  if (params.status) search.set('status', params.status);
-  if (Array.isArray(params.tags) && params.tags.length) {
-    search.set('tags', params.tags.join(','));
-  }
   const query = search.toString();
-  const base = useMock ? '/api/templates/catalog' : '/templates/catalog';
-  const raw = await apiFetch<unknown>(`${base}${query ? `?${query}` : ''}`);
+  const raw = await apiFetch<unknown>(
+    `${programTemplatesBase(programId)}${query ? `?${query}` : ''}`,
+  );
   return normalizeTemplateList(raw);
 };
+
+export const createTemplate = async (programId: string, payload: Partial<Template>): Promise<Template> => {
+  const raw = await apiFetch<unknown>(programTemplatesBase(programId), {
+    method: 'POST',
+    body: JSON.stringify(buildTemplateWritePayload(payload)),
+  });
+  return normalizeTemplate(raw);
+};
+
+export const patchTemplate = async (
+  programId: string,
+  templateId: string,
+  payload: Partial<Template>,
+): Promise<Template> => {
+  const raw = await apiFetch<unknown>(`${programTemplatesBase(programId)}/${templateId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(buildTemplateWritePayload(payload)),
+  });
+  return normalizeTemplate(raw);
+};
+
+export const deleteTemplate = (programId: string, templateId: string) =>
+  apiFetch(`${programTemplatesBase(programId)}/${templateId}`, { method: 'DELETE' });
+
+export const restoreTemplate = (programId: string, templateId: string) =>
+  attemptRequests<unknown>(
+    useMock
+      ? [{ url: `/programs/${programId}/templates/${templateId}/restore`, init: { method: 'POST' } }]
+      : [
+          { url: `${programTemplatesBase(programId)}/${templateId}/restore`, init: { method: 'POST' } },
+          { url: `/api/programs/${programId}/templates/${templateId}/restore`, init: { method: 'POST' } },
+        ],
+  );
 
 export const bulkAssign = (
   assignments: { userId: string; programId: string; startDate: string; dueDate: string }[],
@@ -684,9 +611,42 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { deleted: true } as any;
     case /^\/programs\/[^/]+\/restore$/.test(url) && method === 'POST':
       return { restored: true } as any;
-    case (url === '/templates/catalog' || url.startsWith('/templates/catalog?')) && method === 'GET':
-    case (url === '/api/templates/catalog' || url.startsWith('/api/templates/catalog?')) && method === 'GET':
-      return { data: seed.templates } as any;
+    case /^\/programs\/[^/]+\/templates(?:\?.*)?$/.test(url) && method === 'GET': {
+      const programId = url.split('/')[2]?.split('?')[0];
+      return {
+        data: seed.templates.filter(t => t.programId === programId),
+      } as any;
+    }
+    case /^\/programs\/[^/]+\/templates$/.test(url) && method === 'POST': {
+      const programId = url.split('/')[2];
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      const requestedStatus = typeof payload.status === 'string' ? payload.status.toLowerCase() : 'draft';
+      const status = ['draft', 'published', 'deprecated'].includes(requestedStatus)
+        ? requestedStatus
+        : 'draft';
+      return {
+        ...payload,
+        id: 'tmpl-new',
+        programId,
+        status,
+      } as any;
+    }
+    case /^\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && method === 'PATCH': {
+      const programId = url.split('/')[2];
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      if (payload.status) {
+        payload.status = String(payload.status).toLowerCase();
+      }
+      return {
+        ...payload,
+        id: url.split('/').at(-1),
+        programId,
+      } as any;
+    }
+    case /^\/programs\/[^/]+\/templates\/[^/]+$/.test(url) && method === 'DELETE':
+      return { deleted: true } as any;
+    case /^\/programs\/[^/]+\/templates\/[^/]+\/restore$/.test(url) && method === 'POST':
+      return { restored: true } as any;
     case url.startsWith('/api/programs?'):
       return { data: p, meta: { total: p.length, page: 1 } } as any;
     case /^\/api\/programs\/[^/]+\/publish$/.test(url) && method === 'POST':
@@ -747,7 +707,6 @@ export const seed = {
       owner: 'Alice Admin',
       updatedAt: '2024-05-01',
       assignedCount: 3,
-      tags: ['engineering', 'welcome'],
     },
     {
       id: 'p2',
@@ -757,31 +716,24 @@ export const seed = {
       owner: 'Mark Manager',
       updatedAt: '2024-04-10',
       assignedCount: 1,
-      tags: ['retail'],
     },
   ] as Program[],
   templates: [
     {
       id: 't1',
+      programId: 'p1',
       name: 'Engineer Onboarding',
-      tags: ['engineering', 'welcome'],
-      weekNumber: 1,
-      sortOrder: 1,
-      notes: 'Engineering',
+      category: 'Engineering',
       updatedAt: '2024-05-15',
       status: 'published',
-      category: 'Engineering',
     },
     {
       id: 't2',
+      programId: 'p2',
       name: 'Retail Associate Training',
-      tags: ['retail'],
-      weekNumber: 2,
-      sortOrder: 2,
-      notes: 'Operations',
+      category: 'Operations',
       updatedAt: '2024-04-20',
       status: 'draft',
-      category: 'Operations',
     },
   ] as Template[],
   audit: [
