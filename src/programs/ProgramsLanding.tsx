@@ -5,7 +5,7 @@ import {
   deprecateProgram,
   archiveProgram,
   restoreProgram,
-  getProgramTemplates,
+  getTemplateCatalog,
   Program,
   Template,
 } from '../api';
@@ -36,6 +36,9 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateCatalog, setTemplateCatalog] = useState<Template[]>([]);
+  const [templateCatalogLoaded, setTemplateCatalogLoaded] = useState(false);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
@@ -55,6 +58,13 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
     return response.data;
   }, []);
 
+  const refreshTemplateCatalog = useCallback(async () => {
+    const response = await getTemplateCatalog({});
+    setTemplateCatalog(response.data);
+    setTemplateCatalogLoaded(true);
+    return response.data;
+  }, []);
+
   const refreshTemplates = useCallback(
     async (programId?: string) => {
       const targetProgramId = programId ?? selectedProgramId;
@@ -62,11 +72,33 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
         setTemplates([]);
         return [] as Template[];
       }
-      const response = await getProgramTemplates(targetProgramId);
-      setTemplates(response.data);
-      return response.data;
+      const program = programs.find(item => item.id === targetProgramId) ?? null;
+      if (!program) {
+        setTemplates([]);
+        return [] as Template[];
+      }
+
+      const catalog = templateCatalogLoaded ? templateCatalog : await refreshTemplateCatalog();
+      const normalizedTags = Array.isArray(program.tags)
+        ? program.tags.filter(tag => typeof tag === 'string' && tag.trim().length).map(tag => tag.toLowerCase())
+        : [];
+      const tagSet = new Set(normalizedTags);
+      if (tagSet.size === 0) {
+        setTemplates([]);
+        return [] as Template[];
+      }
+
+      const filtered = catalog.filter(template => {
+        if (!Array.isArray(template.tags) || template.tags.length === 0) {
+          return false;
+        }
+        return template.tags.some(tag => tagSet.has(tag.toLowerCase()));
+      });
+
+      setTemplates(filtered);
+      return filtered;
     },
-    [selectedProgramId],
+    [selectedProgramId, programs, templateCatalog, templateCatalogLoaded, refreshTemplateCatalog],
   );
 
   useEffect(() => {
@@ -89,19 +121,34 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
 
   useEffect(() => {
     if (tab !== 'templates') {
+      setIsLoadingTemplates(false);
       return;
     }
     if (!selectedProgramId) {
       setTemplates([]);
+      setIsLoadingTemplates(false);
       return;
     }
 
-    refreshTemplates(selectedProgramId).catch(error => {
-      setFeedback({
-        type: 'error',
-        message: `Unable to load templates. ${getErrorMessage(error)}`,
+    let isMounted = true;
+    setIsLoadingTemplates(true);
+    refreshTemplates(selectedProgramId)
+      .catch(error => {
+        if (!isMounted) return;
+        setFeedback({
+          type: 'error',
+          message: `Unable to load templates. ${getErrorMessage(error)}`,
+        });
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingTemplates(false);
+        }
       });
-    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [tab, selectedProgramId, refreshTemplates]);
 
   const handleProgramAction = async (program: Program, action: ProgramAction) => {
@@ -309,14 +356,23 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
               </button>
             )}
           </div>
-          {templates.length > 0 ? (
+          {isLoadingTemplates ? (
+            <div className="panel p-4 text-sm text-[var(--text-muted)]">Loading templates…</div>
+          ) : templates.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-3">
               {templates.map(template => (
                 <div key={template.id} className="panel space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="space-y-1">
                       <h3 className="font-semibold">{template.name}</h3>
-                      <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
+                      {template.category && (
+                        <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
+                      )}
+                      {template.tags.length > 0 && (
+                        <p className="text-xs text-[var(--text-muted)]">
+                          Tags: {template.tags.join(', ')}
+                        </p>
+                      )}
                     </div>
                     {template.status && (
                       <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
@@ -343,8 +399,12 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
           ) : (
             <div className="panel p-4 text-sm text-[var(--text-muted)]">
               {programs.length === 0
-                ? 'Create a program to view its templates.'
-                : `No templates for ${selectedProgram?.name ?? 'this program'} yet.`}
+                ? 'Create a program to manage templates.'
+                : !selectedProgramId
+                  ? 'Select a program to view matching templates.'
+                  : (selectedProgram?.tags?.length ?? 0) === 0
+                    ? 'Add tags to this program to automatically surface matching templates.'
+                    : `No templates share tags with ${selectedProgram?.name ?? 'this program'} yet.`}
             </div>
           )}
         </section>
