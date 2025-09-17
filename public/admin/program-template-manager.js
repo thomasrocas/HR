@@ -358,7 +358,10 @@ let reorderInFlightPromise = null;
 let metadataSaveTimeout = null;
 let reorderSaveTimeout = null;
 const METADATA_SAVE_DELAY_MS = 600;
+let programTitleInvalidInputHandler = null;
 let programWeeksInvalidInputHandler = null;
+let templateWeekInvalidInputHandler = null;
+let templateLabelInvalidInputHandler = null;
 const REORDER_SAVE_DELAY_MS = 400;
 const ATTACH_SAVE_DELAY_MS = 600;
 const pendingMetadataState = {
@@ -694,6 +697,16 @@ function getProgramSubmitDefaultLabel() {
   return programModalMode === 'edit' ? 'Save Changes' : 'Create Program';
 }
 
+function clearProgramTitleValidationState() {
+  if (!programFormTitleInput) return;
+  programFormTitleInput.setCustomValidity('');
+  programFormTitleInput.removeAttribute('aria-invalid');
+  if (programTitleInvalidInputHandler) {
+    programFormTitleInput.removeEventListener('input', programTitleInvalidInputHandler);
+    programTitleInvalidInputHandler = null;
+  }
+}
+
 function clearProgramWeeksValidationState() {
   if (programFormWeeksInput) {
     programFormWeeksInput.setCustomValidity('');
@@ -722,6 +735,7 @@ function resetProgramForm() {
   if (programForm) {
     programForm.reset();
   }
+  clearProgramTitleValidationState();
   clearProgramWeeksValidationState();
   if (programFormSubmit) {
     programFormSubmit.disabled = false;
@@ -1626,10 +1640,32 @@ async function flushPendingTemplateAssociationChanges() {
   await flushPendingTemplateAttachments({ immediate: true });
 }
 
+function clearTemplateWeekValidationState() {
+  if (!templateFormWeekInput) return;
+  templateFormWeekInput.setCustomValidity('');
+  templateFormWeekInput.removeAttribute('aria-invalid');
+  if (templateWeekInvalidInputHandler) {
+    templateFormWeekInput.removeEventListener('input', templateWeekInvalidInputHandler);
+    templateWeekInvalidInputHandler = null;
+  }
+}
+
+function clearTemplateLabelValidationState() {
+  if (!templateFormLabelInput) return;
+  templateFormLabelInput.setCustomValidity('');
+  templateFormLabelInput.removeAttribute('aria-invalid');
+  if (templateLabelInvalidInputHandler) {
+    templateFormLabelInput.removeEventListener('input', templateLabelInvalidInputHandler);
+    templateLabelInvalidInputHandler = null;
+  }
+}
+
 function resetTemplateForm() {
   if (templateForm) {
     templateForm.reset();
   }
+  clearTemplateWeekValidationState();
+  clearTemplateLabelValidationState();
   if (templateFormWeekInput) {
     templateFormWeekInput.value = '1';
   }
@@ -1675,6 +1711,7 @@ function openProgramModal(mode = 'create', programId = null) {
   if (programForm) {
     programForm.reset();
   }
+  clearProgramTitleValidationState();
   clearProgramWeeksValidationState();
   if (programFormSubmit) {
     programFormSubmit.disabled = false;
@@ -1834,14 +1871,38 @@ async function submitProgramForm(event) {
   }
   const title = (programFormTitleInput?.value || '').trim();
   if (!title) {
-    setProgramFormMessage('Program title is required.', true);
+    const message = 'Program title is required.';
+    setProgramFormMessage(message, true);
     if (programFormSubmit) {
       programFormSubmit.disabled = false;
       programFormSubmit.textContent = defaultSubmitLabel;
     }
-    programFormTitleInput?.focus();
+    if (programFormTitleInput) {
+      programFormTitleInput.setCustomValidity(message);
+      programFormTitleInput.setAttribute('aria-invalid', 'true');
+      if (!programTitleInvalidInputHandler) {
+        programTitleInvalidInputHandler = () => {
+          if (!programFormTitleInput) return;
+          const nextValue = (programFormTitleInput.value || '').trim();
+          if (nextValue) {
+            clearProgramTitleValidationState();
+            const currentMessage = (programFormMessage?.textContent || '').trim();
+            if (currentMessage === message) {
+              setProgramFormMessage('');
+            }
+          } else {
+            programFormTitleInput.setCustomValidity(message);
+            programFormTitleInput.setAttribute('aria-invalid', 'true');
+          }
+        };
+        programFormTitleInput.addEventListener('input', programTitleInvalidInputHandler);
+      }
+      programFormTitleInput.reportValidity?.();
+      programFormTitleInput.focus();
+    }
     return;
   }
+  clearProgramTitleValidationState();
   const weeksValue = programFormWeeksInput?.value ?? '';
   const weeksValidation = validateProgramWeeks(weeksValue);
   if (!weeksValidation.valid) {
@@ -1954,25 +2015,74 @@ async function submitTemplateForm(event) {
   const weekRawValue = templateFormWeekInput?.value ?? '';
   const weekNumber = Number(weekRawValue);
   if (weekRawValue === '' || !Number.isFinite(weekNumber) || weekNumber <= 0) {
-    setTemplateFormMessage('Week number must be a positive number.', true);
+    const message = 'Week number must be a positive number.';
+    setTemplateFormMessage(message, true);
     if (templateFormSubmit) {
       templateFormSubmit.disabled = false;
       templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
+    }
+    if (templateFormWeekInput) {
+      templateFormWeekInput.setCustomValidity(message);
+      templateFormWeekInput.setAttribute('aria-invalid', 'true');
+      if (!templateWeekInvalidInputHandler) {
+        templateWeekInvalidInputHandler = () => {
+          if (!templateFormWeekInput) return;
+          const rawValue = templateFormWeekInput.value ?? '';
+          const parsedValue = Number(rawValue);
+          if (rawValue !== '' && Number.isFinite(parsedValue) && parsedValue > 0) {
+            clearTemplateWeekValidationState();
+            const currentMessage = (templateFormMessage?.textContent || '').trim();
+            if (currentMessage === message) {
+              setTemplateFormMessage('');
+            }
+          } else {
+            templateFormWeekInput.setCustomValidity(message);
+            templateFormWeekInput.setAttribute('aria-invalid', 'true');
+          }
+        };
+        templateFormWeekInput.addEventListener('input', templateWeekInvalidInputHandler);
+      }
+      templateFormWeekInput.reportValidity?.();
     }
     templateFormWeekInput?.focus();
     templateFormWeekInput?.select?.();
     return;
   }
+  clearTemplateWeekValidationState();
   const labelValue = (templateFormLabelInput?.value || '').trim();
   if (!labelValue) {
-    setTemplateFormMessage('Label is required.', true);
+    const message = 'Label is required.';
+    setTemplateFormMessage(message, true);
     if (templateFormSubmit) {
       templateFormSubmit.disabled = false;
       templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
     }
-    templateFormLabelInput?.focus();
+    if (templateFormLabelInput) {
+      templateFormLabelInput.setCustomValidity(message);
+      templateFormLabelInput.setAttribute('aria-invalid', 'true');
+      if (!templateLabelInvalidInputHandler) {
+        templateLabelInvalidInputHandler = () => {
+          if (!templateFormLabelInput) return;
+          const nextValue = (templateFormLabelInput.value || '').trim();
+          if (nextValue) {
+            clearTemplateLabelValidationState();
+            const currentMessage = (templateFormMessage?.textContent || '').trim();
+            if (currentMessage === message) {
+              setTemplateFormMessage('');
+            }
+          } else {
+            templateFormLabelInput.setCustomValidity(message);
+            templateFormLabelInput.setAttribute('aria-invalid', 'true');
+          }
+        };
+        templateFormLabelInput.addEventListener('input', templateLabelInvalidInputHandler);
+      }
+      templateFormLabelInput.reportValidity?.();
+      templateFormLabelInput.focus();
+    }
     return;
   }
+  clearTemplateLabelValidationState();
   const sortRawValue = templateFormSortInput?.value ?? '';
   let sortNumber = null;
   if (sortRawValue !== '') {
