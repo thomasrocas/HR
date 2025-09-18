@@ -1,0 +1,427 @@
+openapi: 3.0.3
+info:
+  title: Orientation API
+  version: '1.0.0'
+  description: |
+    API documentation for task template management, including pagination and
+    program associations.
+servers:
+  - url: https://localhost:3002
+paths:
+  /api/templates:
+    get:
+      summary: List task templates
+      tags: [Templates]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum number of templates to return.
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+          description: Number of templates to skip before collecting results.
+        - in: query
+          name: include_deleted
+          schema:
+            type: boolean
+          description: Include soft-deleted templates when true.
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, published, deprecated]
+          description: Filter templates by status.
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Perform case-insensitive search across labels and notes.
+      responses:
+        '200':
+          description: Paginated list of templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateListResponse'
+        '400':
+          description: Invalid status or pagination parameter supplied.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.read` permission.
+    post:
+      summary: Create a template
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateCreateInput'
+      responses:
+        '201':
+          description: Template created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '400':
+          description: Validation error.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.create` permission.
+  /api/templates/{templateId}:
+    parameters:
+      - in: path
+        name: templateId
+        required: true
+        schema:
+          type: string
+        description: Identifier of the template.
+    get:
+      summary: Retrieve a template
+      tags: [Templates]
+      parameters:
+        - in: query
+          name: include_deleted
+          schema:
+            type: boolean
+          description: Include soft-deleted template state.
+      responses:
+        '200':
+          description: Template details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '400':
+          description: Invalid template identifier.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.read` permission.
+        '404':
+          description: Template not found.
+    patch:
+      summary: Update a template
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateUpdateInput'
+      responses:
+        '200':
+          description: Template updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '400':
+          description: Validation error or missing fields.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.update` permission.
+        '404':
+          description: Template not found or soft deleted.
+    delete:
+      summary: Soft delete a template
+      tags: [Templates]
+      responses:
+        '200':
+          description: Template soft deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '400':
+          description: Invalid template identifier.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.delete` permission.
+        '404':
+          description: Template not found or already deleted.
+  /api/templates/{templateId}/restore:
+    post:
+      summary: Restore a soft-deleted template
+      tags: [Templates]
+      responses:
+        '200':
+          description: Template restored successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored:
+                    type: boolean
+        '400':
+          description: Invalid template identifier.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.delete` permission.
+        '404':
+          description: Template not found.
+  /api/templates/{templateId}/programs:
+    get:
+      summary: List programs linked to a template
+      tags: [Templates]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Paginated list of programs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateProgramList'
+        '400':
+          description: Invalid template identifier.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.read` permission.
+  /api/programs/{programId}/templates:
+    parameters:
+      - in: path
+        name: programId
+        required: true
+        schema:
+          type: string
+        description: Identifier of the program.
+    get:
+      summary: List templates linked to a program
+      tags: [Programs]
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+        - in: query
+          name: include_deleted
+          schema:
+            type: boolean
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, published, deprecated]
+      responses:
+        '200':
+          description: Paginated list of templates associated with the program.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateListResponse'
+        '400':
+          description: Invalid request parameters.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.read` permission.
+        '404':
+          description: Program not found.
+  /api/programs/{programId}/templates/attach:
+    post:
+      summary: Attach an existing template to a program
+      tags: [Programs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_id]
+              properties:
+                template_id:
+                  type: string
+                  description: Identifier of the template to attach.
+      responses:
+        '200':
+          description: Template attached or already linked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attached:
+                    type: boolean
+                  alreadyAttached:
+                    type: boolean
+                  template:
+                    $ref: '#/components/schemas/Template'
+        '400':
+          description: Invalid template identifier.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.update` permission or manager not assigned.
+        '404':
+          description: Program or template not found.
+  /api/programs/{programId}/templates/detach:
+    post:
+      summary: Detach a template from a program
+      tags: [Programs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_id]
+              properties:
+                template_id:
+                  type: string
+                  description: Identifier of the template to detach.
+      responses:
+        '200':
+          description: Template detached if linked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detached:
+                    type: boolean
+                  wasAttached:
+                    type: boolean
+        '400':
+          description: Invalid template identifier.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.update` permission or manager not assigned.
+        '404':
+          description: Program or template not found.
+components:
+  schemas:
+    Template:
+      type: object
+      properties:
+        template_id:
+          type: string
+        week_number:
+          type: integer
+          nullable: true
+        label:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [draft, published, deprecated]
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+    TemplateCreateInput:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+        week_number:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [draft, published, deprecated]
+    TemplateUpdateInput:
+      type: object
+      properties:
+        label:
+          type: string
+        week_number:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [draft, published, deprecated]
+    TemplateListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Template'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    TemplateProgramList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              program_id:
+                type: string
+              title:
+                type: string
+                nullable: true
+              deleted_at:
+                type: string
+                format: date-time
+                nullable: true
+              linked_at:
+                type: string
+                format: date-time
+                nullable: true
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer

@@ -6,6 +6,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
+const { createTemplatesDao, TEMPLATE_STATUSES } = require('./db/templates');
+const { createProgramTemplateLinksDao } = require('./db/programTemplateLinks');
 
 const session = require('express-session');
 const PgStore = require('connect-pg-simple')(session);
@@ -39,8 +41,12 @@ const pool = new Pool({
   database: process.env.PGDATABASE || 'orientation'
 });
 
+const templatesDao = createTemplatesDao(pool);
+const programTemplateLinksDao = createProgramTemplateLinksDao(pool);
+
 // ==== 2) App + middleware ====
 const app = express();
+const apiRouter = express.Router();
 
 // Behind proxies / WebViewer? Trust the first proxy so secure cookies & IPs work properly
 app.set('trust proxy', 1);
@@ -129,6 +135,8 @@ app.use(async (req, _res, next) => {
     next();
   }
 });
+
+app.use('/api', apiRouter);
 
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
@@ -390,6 +398,391 @@ function ensurePerm(...permKeys) {
     res.status(403).json({ error: 'forbidden' });
   };
 }
+
+const parseBooleanParam = value => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+  return false;
+};
+
+const parseOptionalInteger = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const asNumber = Number(value);
+    if (Number.isInteger(asNumber)) return asNumber;
+  }
+  return undefined;
+};
+
+const coerceNotes = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  return String(value);
+};
+
+const normalizeTemplateId = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return value.trim();
+  return null;
+};
+
+const normalizeTemplateStatus = value => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return TEMPLATE_STATUSES.has(normalized) ? normalized : null;
+};
+
+const createHttpError = (status, code) => {
+  const error = new Error(code || 'error');
+  error.status = status;
+  error.code = code;
+  return error;
+};
+
+async function withTransaction(req, work) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (req?.user?.id) {
+      try {
+        await client.query('SET LOCAL app.current_user = $1', [req.user.id]);
+      } catch (_err) {
+        /* ignore audit context errors */
+      }
+    }
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_rollbackErr) {
+      /* ignore rollback errors */
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+apiRouter.get('/templates', ensurePerm('template.read'), async (req, res) => {
+  try {
+    const includeDeleted = parseBooleanParam(req.query?.include_deleted);
+    const rawStatus = req.query?.status;
+    let status;
+    if (rawStatus !== undefined && rawStatus !== null && String(rawStatus).trim() !== '') {
+      const normalizedStatus = normalizeTemplateStatus(String(rawStatus));
+      if (!normalizedStatus) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      status = normalizedStatus;
+    }
+    const result = await templatesDao.list({
+      includeDeleted,
+      limit: req.query?.limit,
+      offset: req.query?.offset,
+      status,
+      search: typeof req.query?.search === 'string' ? req.query.search : undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('GET /api/templates error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/templates', ensurePerm('template.create'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const rawLabel = typeof body.label === 'string' ? body.label.trim() : '';
+    if (!rawLabel) {
+      return res.status(400).json({ error: 'invalid_label' });
+    }
+    const weekNumber = parseOptionalInteger(body.week_number);
+    if (weekNumber === undefined) {
+      return res.status(400).json({ error: 'invalid_week_number' });
+    }
+    const sortOrder = parseOptionalInteger(body.sort_order);
+    if (sortOrder === undefined) {
+      return res.status(400).json({ error: 'invalid_sort_order' });
+    }
+    let status = 'draft';
+    if (body.status !== undefined) {
+      const normalizedStatus = normalizeTemplateStatus(String(body.status));
+      if (!normalizedStatus) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      status = normalizedStatus;
+    }
+    const template = await templatesDao.create({
+      week_number: weekNumber,
+      label: rawLabel,
+      notes: coerceNotes(body.notes),
+      sort_order: sortOrder,
+      status,
+    });
+    res.status(201).json(template);
+  } catch (err) {
+    console.error('POST /api/templates error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.get('/templates/:templateId', ensurePerm('template.read'), async (req, res) => {
+  try {
+    const templateId = normalizeTemplateId(req.params.templateId);
+    if (templateId === null) {
+      return res.status(400).json({ error: 'invalid_template_id' });
+    }
+    const includeDeleted = parseBooleanParam(req.query?.include_deleted);
+    const template = await templatesDao.getById({ id: templateId, includeDeleted });
+    if (!template) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    res.json(template);
+  } catch (err) {
+    console.error('GET /api/templates/:id error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.patch('/templates/:templateId', ensurePerm('template.update'), async (req, res) => {
+  try {
+    const templateId = normalizeTemplateId(req.params.templateId);
+    if (templateId === null) {
+      return res.status(400).json({ error: 'invalid_template_id' });
+    }
+    const existing = await templatesDao.getById({ id: templateId, includeDeleted: true });
+    if (!existing) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    if (existing.deleted_at) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const body = req.body || {};
+    const patch = {};
+    if (Object.prototype.hasOwnProperty.call(body, 'label')) {
+      const label = typeof body.label === 'string' ? body.label.trim() : '';
+      if (!label) {
+        return res.status(400).json({ error: 'invalid_label' });
+      }
+      patch.label = label;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'week_number')) {
+      const weekNumber = parseOptionalInteger(body.week_number);
+      if (weekNumber === undefined) {
+        return res.status(400).json({ error: 'invalid_week_number' });
+      }
+      patch.week_number = weekNumber;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'notes')) {
+      patch.notes = coerceNotes(body.notes);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'sort_order')) {
+      const sortOrder = parseOptionalInteger(body.sort_order);
+      if (sortOrder === undefined) {
+        return res.status(400).json({ error: 'invalid_sort_order' });
+      }
+      patch.sort_order = sortOrder;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+      const normalizedStatus = normalizeTemplateStatus(String(body.status));
+      if (!normalizedStatus) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      patch.status = normalizedStatus;
+    }
+    if (!Object.keys(patch).length) {
+      return res.status(400).json({ error: 'no_fields' });
+    }
+    const updated = await templatesDao.update({ id: templateId, patch });
+    if (!updated) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    res.json(updated);
+  } catch (err) {
+    console.error('PATCH /api/templates/:id error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.delete('/templates/:templateId', ensurePerm('template.delete'), async (req, res) => {
+  try {
+    const templateId = normalizeTemplateId(req.params.templateId);
+    if (templateId === null) {
+      return res.status(400).json({ error: 'invalid_template_id' });
+    }
+    const deleted = await templatesDao.softDelete({ id: templateId });
+    if (!deleted) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('DELETE /api/templates/:id error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/templates/:templateId/restore', ensurePerm('template.delete'), async (req, res) => {
+  try {
+    const templateId = normalizeTemplateId(req.params.templateId);
+    if (templateId === null) {
+      return res.status(400).json({ error: 'invalid_template_id' });
+    }
+    const restored = await templatesDao.restore({ id: templateId });
+    if (!restored) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    res.json({ restored: true });
+  } catch (err) {
+    console.error('POST /api/templates/:id/restore error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.get('/templates/:templateId/programs', ensurePerm('template.read'), async (req, res) => {
+  try {
+    const templateId = normalizeTemplateId(req.params.templateId);
+    if (templateId === null) {
+      return res.status(400).json({ error: 'invalid_template_id' });
+    }
+    const result = await programTemplateLinksDao.listProgramsForTemplate({
+      templateId,
+      limit: req.query?.limit,
+      offset: req.query?.offset,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('GET /api/templates/:id/programs error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.get('/programs/:programId/templates', ensurePerm('template.read'), async (req, res) => {
+  try {
+    const { programId } = req.params;
+    if (!programId) {
+      return res.status(400).json({ error: 'invalid_program_id' });
+    }
+    const { rowCount: programExists } = await pool.query(
+      'select 1 from public.programs where program_id = $1 limit 1',
+      [programId]
+    );
+    if (!programExists) {
+      return res.status(404).json({ error: 'program_not_found' });
+    }
+    const includeDeleted = parseBooleanParam(req.query?.include_deleted);
+    const rawStatus = req.query?.status;
+    let status;
+    if (rawStatus !== undefined && rawStatus !== null && String(rawStatus).trim() !== '') {
+      const normalizedStatus = normalizeTemplateStatus(String(rawStatus));
+      if (!normalizedStatus) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      status = normalizedStatus;
+    }
+    const result = await programTemplateLinksDao.listTemplatesForProgram({
+      programId,
+      includeDeleted,
+      limit: req.query?.limit,
+      offset: req.query?.offset,
+      status,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('GET /api/programs/:id/templates error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/programs/:programId/templates/attach', ensurePerm('template.update'), async (req, res) => {
+  const { programId } = req.params;
+  const templateId = normalizeTemplateId(req.body?.template_id ?? req.body?.templateId);
+  if (!programId || templateId === null) {
+    return res.status(400).json({ error: 'invalid_template_id' });
+  }
+  try {
+    if (!req.roles.includes('admin')) {
+      const manages = await userManagesProgram(req.user.id, programId);
+      if (!manages) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+    }
+    const { template, attachResult } = await withTransaction(req, async client => {
+      const { rowCount: programExists } = await client.query(
+        'select 1 from public.programs where program_id = $1 limit 1',
+        [programId]
+      );
+      if (!programExists) {
+        throw createHttpError(404, 'program_not_found');
+      }
+      const foundTemplate = await templatesDao.getById({ id: templateId, includeDeleted: false, db: client });
+      if (!foundTemplate) {
+        throw createHttpError(404, 'template_not_found');
+      }
+      const attachResultInner = await programTemplateLinksDao.attach({
+        programId,
+        templateId,
+        db: client,
+      });
+      return { template: foundTemplate, attachResult: attachResultInner };
+    });
+    res.json({ attached: true, alreadyAttached: attachResult.alreadyAttached, template });
+  } catch (err) {
+    if (err?.status === 404) {
+      return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    console.error('POST /api/programs/:id/templates/attach error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/programs/:programId/templates/detach', ensurePerm('template.update'), async (req, res) => {
+  const { programId } = req.params;
+  const templateId = normalizeTemplateId(req.body?.template_id ?? req.body?.templateId);
+  if (!programId || templateId === null) {
+    return res.status(400).json({ error: 'invalid_template_id' });
+  }
+  try {
+    if (!req.roles.includes('admin')) {
+      const manages = await userManagesProgram(req.user.id, programId);
+      if (!manages) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+    }
+    const result = await withTransaction(req, async client => {
+      const { rowCount: programExists } = await client.query(
+        'select 1 from public.programs where program_id = $1 limit 1',
+        [programId]
+      );
+      if (!programExists) {
+        throw createHttpError(404, 'program_not_found');
+      }
+      const template = await templatesDao.getById({ id: templateId, includeDeleted: true, db: client });
+      if (!template) {
+        throw createHttpError(404, 'template_not_found');
+      }
+      const detachResultInner = await programTemplateLinksDao.detach({
+        programId,
+        templateId,
+        db: client,
+      });
+      return { template, detachResult: detachResultInner };
+    });
+    res.json({ detached: true, wasAttached: result.detachResult.wasAttached });
+  } catch (err) {
+    if (err?.status === 404) {
+      return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    console.error('POST /api/programs/:id/templates/detach error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
 
 app.get('/admin/user-manager', ensureAuth, (req, res) => {
   const roles = req.roles || [];
@@ -660,8 +1053,6 @@ app.post('/programs/:program_id/restore', ensurePerm('program.delete'), async (r
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-const TEMPLATE_STATUSES = new Set(['draft', 'published', 'deprecated']);
 
 app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (req, res) => {
   try {
