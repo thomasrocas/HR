@@ -54,7 +54,7 @@
 <div id="root" class="max-w-7xl mx-auto px-4"></div>
 
 <script type="text/babel" data-presets="env,react">
-const { useEffect, useMemo, useState, useRef } = React;
+const { useEffect, useMemo, useState, useRef, useCallback } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
 /* Use same origin the page is served from */
@@ -168,6 +168,42 @@ function useRafThrottle(fn) {
       fn(...args);
       frame.current = null;
     });
+  };
+}
+
+function useDebouncedValue(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const handle = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(handle);
+  }, [value, delay]);
+  return debounced;
+}
+
+function usePagination(initialLimit = 10) {
+  const [limit, setLimit] = useState(initialLimit);
+  const [page, setPage] = useState(0);
+  const offset = page * limit;
+  const setPageSafe = (nextPage) => {
+    setPage(Math.max(0, Number.isFinite(nextPage) ? Math.floor(nextPage) : 0));
+  };
+  const changeLimit = (nextLimit) => {
+    const numeric = Number(nextLimit);
+    if (!Number.isFinite(numeric) || numeric <= 0) return;
+    const normalized = Math.max(1, Math.floor(numeric));
+    setLimit(normalized);
+    setPage(0);
+  };
+  const next = () => setPageSafe(page + 1);
+  const prev = () => setPageSafe(page - 1);
+  return {
+    limit,
+    page,
+    offset,
+    setPage: setPageSafe,
+    setLimit: changeLimit,
+    next,
+    prev,
   };
 }
 
@@ -366,40 +402,111 @@ async function apiDeleteProgram(programId){
   if(!r.ok) throw new Error(`DELETE /programs/${programId} failed (${r.status})`);
   return r.json();
 }
-async function apiListTemplates(programId){
-  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates`, { credentials:'include' });
-  if(!r.ok) throw new Error('GET /programs/:id/templates failed');
-  return r.json();
+
+async function apiQueryTemplates(params = {}) {
+  const {
+    limit,
+    offset,
+    search,
+    status,
+    includeDeleted,
+  } = params;
+  const usp = new URLSearchParams();
+  if (limit !== undefined) usp.set('limit', limit);
+  if (offset !== undefined) usp.set('offset', offset);
+  if (search) usp.set('search', search);
+  if (status) usp.set('status', status);
+  if (includeDeleted) usp.set('include_deleted', 'true');
+  const url = `${API}/api/templates${usp.toString() ? `?${usp.toString()}` : ''}`;
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new Error('GET /api/templates failed');
+  return res.json();
 }
-async function apiCreateTemplate(programId, data){
-  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates`, {
-    method:'POST', credentials:'include',
-    headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify(data)
+
+async function apiCreateTemplateGlobal(data) {
+  const res = await fetch(`${API}/api/templates`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   });
-  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
-  if(!r.ok) throw new Error('POST /programs/:id/templates failed');
-  return r.json();
+  if (res.status === 403) { alert('You do not have permission to perform this action.'); return null; }
+  if (!res.ok) throw new Error('POST /api/templates failed');
+  return res.json();
 }
-async function apiPatchTemplate(programId, templateId, data){
-  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
-    method:'PATCH', credentials:'include',
-    headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify(data)
+
+async function apiUpdateTemplateGlobal(templateId, data) {
+  const res = await fetch(`${API}/api/templates/${encodeURIComponent(templateId)}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   });
-  if(r.status === 404) return null;
-  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
-  if(!r.ok) throw new Error(`PATCH /programs/${programId}/templates/${templateId} failed (${r.status})`);
-  return r.json();
+  if (res.status === 404) return null;
+  if (res.status === 403) { alert('You do not have permission to perform this action.'); return null; }
+  if (!res.ok) throw new Error(`PATCH /api/templates/${templateId} failed (${res.status})`);
+  return res.json();
 }
-async function apiDeleteTemplate(programId, templateId){
-  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
-    method:'DELETE', credentials:'include'
+
+async function apiDeleteTemplateGlobal(templateId) {
+  const res = await fetch(`${API}/api/templates/${encodeURIComponent(templateId)}`, {
+    method: 'DELETE',
+    credentials: 'include',
   });
-  if(r.status === 404) return null;
-  if(r.status === 403){ alert('You do not have permission to perform this action.'); return null; }
-  if(!r.ok) throw new Error(`DELETE /programs/${programId}/templates/${templateId} failed (${r.status})`);
-  return r.json();
+  if (res.status === 404) return null;
+  if (res.status === 403) { alert('You do not have permission to perform this action.'); return null; }
+  if (!res.ok) throw new Error(`DELETE /api/templates/${templateId} failed (${res.status})`);
+  return res.json();
+}
+
+async function apiListTemplatePrograms(templateId, params = {}) {
+  const { limit, offset } = params;
+  const usp = new URLSearchParams();
+  if (limit !== undefined) usp.set('limit', limit);
+  if (offset !== undefined) usp.set('offset', offset);
+  const url = `${API}/api/templates/${encodeURIComponent(templateId)}/programs${usp.toString() ? `?${usp.toString()}` : ''}`;
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new Error('GET /api/templates/:id/programs failed');
+  return res.json();
+}
+
+async function apiListProgramTemplates(programId, params = {}) {
+  const { limit, offset, status, includeDeleted } = params;
+  const usp = new URLSearchParams();
+  if (limit !== undefined) usp.set('limit', limit);
+  if (offset !== undefined) usp.set('offset', offset);
+  if (status) usp.set('status', status);
+  if (includeDeleted) usp.set('include_deleted', 'true');
+  const url = `${API}/api/programs/${encodeURIComponent(programId)}/templates${usp.toString() ? `?${usp.toString()}` : ''}`;
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new Error('GET /api/programs/:id/templates failed');
+  return res.json();
+}
+
+async function apiAttachTemplate(programId, templateId) {
+  const res = await fetch(`${API}/api/programs/${encodeURIComponent(programId)}/templates/attach`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_id: templateId }),
+  });
+  if (res.status === 404) return null;
+  if (res.status === 403) { alert('You do not have permission to perform this action.'); return null; }
+  if (!res.ok) throw new Error('POST /api/programs/:id/templates/attach failed');
+  return res.json();
+}
+
+async function apiDetachTemplate(programId, templateId) {
+  const res = await fetch(`${API}/api/programs/${encodeURIComponent(programId)}/templates/detach`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_id: templateId }),
+  });
+  if (res.status === 404) return null;
+  if (res.status === 403) { alert('You do not have permission to perform this action.'); return null; }
+  if (!res.ok) throw new Error('POST /api/programs/:id/templates/detach failed');
+  return res.json();
 }
 async function apiInstantiateProgram(programId) {
   const opts = { method:'POST', credentials:'include' };
@@ -528,8 +635,9 @@ function App({ me, onSignOut }){
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
   const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [templateProgramId, setTemplateProgramId] = useState(null);
+  const [templatePrograms, setTemplatePrograms] = useState({}); // templateId -> { data, meta }
+  const [programTemplatesState, setProgramTemplatesState] = useState({}); // programId -> { data, meta }
+  const [programTemplateDrawer, setProgramTemplateDrawer] = useState(null);
   const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
   const [searchTerm, setSearchTerm] = useState('');
   const [userList, setUserList] = useState([]);
@@ -542,6 +650,156 @@ function App({ me, onSignOut }){
   const isTrainee = (me?.roles || []).includes('trainee');
   const isReadOnly = (me?.roles || []).some(r => r === 'viewer' || r === 'auditor');
   const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
+  const programMap = useMemo(() => {
+    const map = new Map();
+    (programs || []).forEach(p => {
+      if (p?.program_id !== undefined && p?.program_id !== null) {
+        map.set(String(p.program_id), p);
+      }
+    });
+    return map;
+  }, [programs]);
+  const setTemplateProgramsFor = useCallback((templateId, updater) => {
+    setTemplatePrograms(prev => {
+      const current = prev?.[templateId] || { data: [], meta: { total: 0, limit: 0, offset: 0 } };
+      const nextValue = typeof updater === 'function' ? updater(current) : updater;
+      return { ...prev, [templateId]: nextValue };
+    });
+  }, []);
+  const setProgramTemplatesFor = useCallback((programId, updater) => {
+    setProgramTemplatesState(prev => {
+      const current = prev?.[programId] || { data: [], meta: { total: 0, limit: 0, offset: 0 } };
+      const nextValue = typeof updater === 'function' ? updater(current) : updater;
+      return { ...prev, [programId]: nextValue };
+    });
+  }, []);
+  const loadTemplatePrograms = useCallback(async (templateId, options = {}) => {
+    if (!templateId) return null;
+    try {
+      const result = await apiListTemplatePrograms(templateId, options);
+      if (!result) return null;
+      setTemplateProgramsFor(String(templateId), {
+        data: Array.isArray(result.data) ? result.data : [],
+        meta: {
+          total: Number(result.meta?.total || 0),
+          limit: Number(result.meta?.limit || options.limit || 0),
+          offset: Number(result.meta?.offset || options.offset || 0),
+        },
+      });
+      return result;
+    } catch (err) {
+      console.error('Failed to load template programs', err);
+      return null;
+    }
+  }, [setTemplateProgramsFor]);
+  const loadProgramTemplates = useCallback(async (programId, options = {}) => {
+    if (!programId) return null;
+    try {
+      const result = await apiListProgramTemplates(programId, options);
+      if (!result) return null;
+      setProgramTemplatesFor(String(programId), {
+        data: Array.isArray(result.data) ? result.data : [],
+        meta: {
+          total: Number(result.meta?.total || 0),
+          limit: Number(result.meta?.limit || options.limit || 0),
+          offset: Number(result.meta?.offset || options.offset || 0),
+        },
+      });
+      return result;
+    } catch (err) {
+      console.error('Failed to load program templates', err);
+      return null;
+    }
+  }, [setProgramTemplatesFor]);
+  const attachTemplateToProgram = useCallback(async (programId, templateId) => {
+    if (!programId || !templateId) return false;
+    try {
+      const result = await apiAttachTemplate(programId, templateId);
+      if (!result) return false;
+      if (result.alreadyAttached) {
+        return true;
+      }
+      const template = result.template || { template_id: templateId };
+      setProgramTemplatesFor(String(programId), current => {
+        const exists = current.data.some(t => String(t.template_id) === String(template.template_id));
+        const nextData = exists ? current.data : [template, ...current.data];
+        const total = Number(current.meta?.total ?? current.data.length);
+        return {
+          data: nextData,
+          meta: {
+            ...current.meta,
+            total: exists ? total : total + 1,
+          },
+        };
+      });
+      const program = programMap.get(String(programId));
+      if (program) {
+        setTemplateProgramsFor(String(template.template_id), current => {
+          const exists = current.data.some(p => String(p.program_id) === String(programId));
+          const nextData = exists
+            ? current.data
+            : [
+                {
+                  program_id: String(programId),
+                  title: program.title || '',
+                  linked_at: new Date().toISOString(),
+                  deleted_at: program.deleted_at || null,
+                },
+                ...current.data,
+              ];
+          const total = Number(current.meta?.total ?? current.data.length);
+          return {
+            data: nextData,
+            meta: {
+              ...current.meta,
+              total: exists ? total : total + 1,
+            },
+          };
+        });
+      }
+      return true;
+    } catch (err) {
+      console.error('Failed to attach template', err);
+      alert('Failed to attach template');
+      return false;
+    }
+  }, [programMap, setProgramTemplatesFor, setTemplateProgramsFor]);
+  const detachTemplateFromProgram = useCallback(async (programId, templateId) => {
+    if (!programId || !templateId) return false;
+    try {
+      const result = await apiDetachTemplate(programId, templateId);
+      if (!result) return false;
+      setProgramTemplatesFor(String(programId), current => {
+        const nextData = current.data.filter(t => String(t.template_id) !== String(templateId));
+        const total = Number(current.meta?.total ?? current.data.length);
+        const wasRemoved = nextData.length !== current.data.length;
+        return {
+          data: nextData,
+          meta: {
+            ...current.meta,
+            total: wasRemoved ? Math.max(0, total - 1) : total,
+          },
+        };
+      });
+      setTemplateProgramsFor(String(templateId), current => {
+        const nextData = current.data.filter(p => String(p.program_id) !== String(programId));
+        const total = Number(current.meta?.total ?? current.data.length);
+        const wasRemoved = nextData.length !== current.data.length;
+        return {
+          data: nextData,
+          meta: {
+            ...current.meta,
+            total: wasRemoved ? Math.max(0, total - 1) : total,
+          },
+        };
+      });
+      return Boolean(result.wasAttached !== false);
+    } catch (err) {
+      console.error('Failed to detach template', err);
+      alert('Failed to detach template');
+      return false;
+    }
+  }, [setProgramTemplatesFor, setTemplateProgramsFor]);
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -1095,7 +1353,6 @@ useEffect(() => {
     const [title, setTitle] = useState(program?.title || '');
     const [weeksCount, setWeeksCount] = useState(program?.total_weeks || 6);
     const [desc, setDesc] = useState(program?.description || '');
-    const [showTemplates, setShowTemplates] = useState(false);
 
     useEffect(()=>{
       setTitle(program?.title || '');
@@ -1162,7 +1419,19 @@ useEffect(() => {
                     <button className="btn btn-outline" onClick={handleDelete}>Delete</button>
                   )}
                   {hasPerm('template.read') && !isTrainee && (
-                    <button className="btn btn-outline" onClick={()=> setShowTemplates(true)}>Templates</button>
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => {
+                        if (program?.program_id) {
+                          const id = String(program.program_id);
+                          setProgramTemplateDrawer(id);
+                          loadProgramTemplates(id, { limit: 5, offset: 0 });
+                        }
+                        onClose();
+                      }}
+                    >
+                      Templates
+                    </button>
                   )}
                 </div>
               )}
@@ -1172,155 +1441,643 @@ useEffect(() => {
               </div>
             </div>
           </div>
-          {showTemplates && program?.program_id && hasPerm('template.read') && !isTrainee && <TemplateModal programId={program.program_id} onClose={()=> setShowTemplates(false)} />}
         </div>
       </div>,
       document.body
     );
   }
 
-  function TemplateModal({ programId, onClose }){
-    const [templates, setTemplates] = useState([]);
-    const [editing, setEditing] = useState(null);
-    const [wk, setWk] = useState(1);
-    const [label, setLabel] = useState('');
-    const [notes, setNotes] = useState('');
-    const [sort, setSort] = useState(1);
+  const TemplateFormModal = ({ template, onClose, onSaved }) => {
+    const isEdit = Boolean(template?.template_id);
+    const [weekNumber, setWeekNumber] = useState(template?.week_number || '');
+    const [label, setLabel] = useState(template?.label || '');
+    const [notes, setNotes] = useState(template?.notes || '');
+    const [sortOrder, setSortOrder] = useState(template?.sort_order || '');
+    const [status, setStatus] = useState(template?.status || 'draft');
+    const [saving, setSaving] = useState(false);
+    const canSave = isEdit ? hasPerm('template.update') : hasPerm('template.create');
+    const modalRef = useRef(null);
+    useFocusTrap(true, modalRef);
 
-    useEffect(()=>{ refresh(); }, [programId]);
-
-    async function refresh(){
-      try {
-        const list = await apiListTemplates(programId);
-        setTemplates(list);
-      } catch(err){
-        console.error('Failed to load templates', err);
-      }
-    }
-
-    function startNew(){
-      setEditing({});
-      setWk(1); setLabel(''); setNotes(''); setSort(1);
-    }
-    function startEdit(t){
-      setEditing(t);
-      setWk(t.week_number||1); setLabel(t.label||''); setNotes(t.notes||''); setSort(t.sort_order||1);
-    }
-    function cancelEdit(){
-      setEditing(null);
-    }
-
-    async function handleSave(e){
+    const handleSubmit = async (e) => {
       e.preventDefault();
+      if (!canSave) return;
       try {
-        const data = { week_number:Number(wk), label:label.trim(), notes, sort_order:Number(sort) };
-        let saved;
-        if(editing?.template_id){
-          saved = await apiPatchTemplate(programId, editing.template_id, data);
-        } else {
-          saved = await apiCreateTemplate(programId, data);
+        setSaving(true);
+        const payload = {
+          week_number: weekNumber === '' ? null : Number(weekNumber),
+          label: label.trim(),
+          notes: notes || null,
+          sort_order: sortOrder === '' ? null : Number(sortOrder),
+          status,
+        };
+        if (!payload.label) {
+          alert('Label is required');
+          setSaving(false);
+          return;
         }
-        if(!saved) return;
-        await refresh();
-        setEditing(null);
-        if(programId === QS_PROGRAM_ID) await refreshPrograms();
-      } catch(err){
+        let saved;
+        if (isEdit) {
+          saved = await apiUpdateTemplateGlobal(template.template_id, payload);
+        } else {
+          saved = await apiCreateTemplateGlobal(payload);
+        }
+        if (!saved) {
+          setSaving(false);
+          return;
+        }
+        onSaved(saved);
+        onClose();
+      } catch (err) {
         console.error('Failed to save template', err);
         alert('Failed to save template');
+      } finally {
+        setSaving(false);
       }
-    }
+    };
 
-    async function handleDelete(id){
-      if(!confirm('Delete this template?')) return;
+    return ReactDOM.createPortal(
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+        <div
+          className="fm-modal max-w-xl"
+          onClick={e => e.stopPropagation()}
+          ref={modalRef}
+        >
+          <div className="fm-modal-header">
+            <div className="font-semibold">{isEdit ? 'Edit Template' : 'Create Template'}</div>
+            <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="fm-modal-body">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm block mb-1">Week #</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={weekNumber}
+                    onChange={e => setWeekNumber(e.target.value)}
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm block mb-1">Sort Order</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={sortOrder}
+                    onChange={e => setSortOrder(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm block mb-1">Label<span className="text-red-500">*</span></label>
+                <input
+                  className="input"
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-sm block mb-1">Notes</label>
+                <textarea
+                  className="textarea"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="text-sm block mb-1">Status</label>
+                <select className="input" value={status} onChange={e => setStatus(e.target.value)}>
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="deprecated">Deprecated</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+                {canSave && (
+                  <button type="submit" className="btn btn-primary" disabled={saving}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
+  const TemplatesPanel = () => {
+    const pager = usePagination(10);
+    const [templates, setTemplates] = useState([]);
+    const [meta, setMeta] = useState({ total: 0, limit: pager.limit, offset: pager.offset });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [searchTermTemplates, setSearchTermTemplates] = useState('');
+    const debouncedSearchTemplates = useDebouncedValue(searchTermTemplates, 400);
+    const [statusFilter, setStatusFilter] = useState('');
+    const [includeDeleted, setIncludeDeleted] = useState(false);
+    const [formState, setFormState] = useState({ open: false, template: null });
+    const [openDrawerId, setOpenDrawerId] = useState(null);
+    const [drawerPagination, setDrawerPagination] = useState({});
+    const [attachSelections, setAttachSelections] = useState({});
+
+    const refreshTemplates = useCallback(async () => {
       try {
-        const res = await apiDeleteTemplate(programId, id);
-        if(!res) return;
-        await refresh();
-        if(programId === QS_PROGRAM_ID) await refreshPrograms();
-      } catch(err){
+        setLoading(true);
+        setError('');
+        const result = await apiQueryTemplates({
+          limit: pager.limit,
+          offset: pager.offset,
+          search: debouncedSearchTemplates || undefined,
+          status: statusFilter || undefined,
+          includeDeleted,
+        });
+        const total = Number(result.meta?.total || 0);
+        const limit = Number(result.meta?.limit || pager.limit);
+        const offset = Number(result.meta?.offset || pager.offset);
+        setTemplates(Array.isArray(result.data) ? result.data : []);
+        setMeta({ total, limit, offset });
+        const maxPage = limit ? Math.max(0, Math.ceil(total / limit) - 1) : 0;
+        if (pager.page > maxPage) {
+          pager.setPage(maxPage);
+        }
+      } catch (err) {
+        console.error('Failed to load templates', err);
+        setError('Unable to load templates');
+      } finally {
+        setLoading(false);
+      }
+    }, [pager.limit, pager.offset, pager.page, debouncedSearchTemplates, statusFilter, includeDeleted]);
+
+    useEffect(() => {
+      refreshTemplates();
+    }, [refreshTemplates]);
+
+    useEffect(() => {
+      templates.forEach(t => {
+        const key = String(t.template_id);
+        if (!templatePrograms[key]) {
+          const cfg = drawerPagination[key] || { limit: 5, page: 0 };
+          loadTemplatePrograms(key, { limit: cfg.limit, offset: cfg.page * cfg.limit });
+        }
+      });
+    }, [templates, templatePrograms, loadTemplatePrograms, drawerPagination]);
+
+    useEffect(() => {
+      if (!openDrawerId) return;
+      const key = String(openDrawerId);
+      const cfg = drawerPagination[key] || { limit: 5, page: 0 };
+      loadTemplatePrograms(key, { limit: cfg.limit, offset: cfg.page * cfg.limit });
+    }, [openDrawerId, drawerPagination, loadTemplatePrograms]);
+
+    const handleDrawerToggle = (templateId) => {
+      const id = String(templateId);
+      setOpenDrawerId(prev => (prev === id ? null : id));
+      setDrawerPagination(prev => {
+        if (prev[id]) return prev;
+        return { ...prev, [id]: { limit: 5, page: 0 } };
+      });
+    };
+
+    const handleDrawerPageChange = (templateId, nextPage) => {
+      const id = String(templateId);
+      setDrawerPagination(prev => {
+        const current = prev[id] || { limit: 5, page: 0 };
+        return { ...prev, [id]: { ...current, page: Math.max(0, nextPage) } };
+      });
+    };
+
+    const handleDrawerLimitChange = (templateId, nextLimit) => {
+      const id = String(templateId);
+      const numeric = Number(nextLimit);
+      if (!Number.isFinite(numeric) || numeric <= 0) return;
+      setDrawerPagination(prev => ({
+        ...prev,
+        [id]: { limit: Math.max(1, Math.floor(numeric)), page: 0 },
+      }));
+    };
+
+    const handleAttachProgram = async (templateId) => {
+      const id = String(templateId);
+      const selection = attachSelections[id];
+      if (!selection) return;
+      const ok = await attachTemplateToProgram(selection, templateId);
+      if (ok) {
+        const cfg = drawerPagination[id] || { limit: 5, page: 0 };
+        loadTemplatePrograms(id, { limit: cfg.limit, offset: cfg.page * cfg.limit });
+        loadProgramTemplates(selection, { limit: 5, offset: 0 });
+        setAttachSelections(prev => ({ ...prev, [id]: '' }));
+      }
+    };
+
+    const handleDetachProgram = async (templateId, programId) => {
+      const ok = await detachTemplateFromProgram(programId, templateId);
+      if (ok) {
+        const id = String(templateId);
+        const cfg = drawerPagination[id] || { limit: 5, page: 0 };
+        loadTemplatePrograms(id, { limit: cfg.limit, offset: cfg.page * cfg.limit });
+      }
+    };
+
+    const handleDeleteTemplate = async (templateId) => {
+      if (!hasPerm('template.delete')) return;
+      if (!confirm('Delete this template?')) return;
+      try {
+        const res = await apiDeleteTemplateGlobal(templateId);
+        if (!res) return;
+        refreshTemplates();
+      } catch (err) {
         console.error('Failed to delete template', err);
         alert('Failed to delete template');
       }
-    }
+    };
 
-    return ReactDOM.createPortal(
-      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} tabIndex={0}>
-        <div className="fm-modal max-w-2xl" onClick={e=> e.stopPropagation()}>
-          <div className="fm-modal-header">
-            <div className="font-semibold">Manage Templates</div>
-            <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
-          </div>
-          <div className="fm-modal-body space-y-4">
-            <div className="flex justify-between items-center">
-              <div className="text-sm font-semibold">Templates</div>
-              {(hasPerm('template.create') || hasPerm('template.update')) && (
-                <button className="btn btn-outline" onClick={startNew}>+ New Row</button>
-              )}
+    const totalPages = meta.limit ? Math.max(1, Math.ceil(meta.total / meta.limit)) : 1;
+    const currentPage = meta.limit ? Math.floor(meta.offset / meta.limit) + 1 : 1;
+
+    const renderProgramsDrawer = (template) => {
+      const id = String(template.template_id);
+      const drawerOpen = openDrawerId === id;
+      if (!drawerOpen) return null;
+      const cfg = drawerPagination[id] || { limit: 5, page: 0 };
+      const data = templatePrograms[id]?.data || [];
+      const drawerMeta = templatePrograms[id]?.meta || { total: 0, limit: cfg.limit, offset: cfg.page * cfg.limit };
+      const attachedIds = new Set(data.map(p => String(p.program_id)));
+      const attachablePrograms = programs.filter(p => !attachedIds.has(String(p.program_id)));
+      const drawerTotalPages = drawerMeta.limit ? Math.max(1, Math.ceil(drawerMeta.total / drawerMeta.limit)) : 1;
+      const drawerCurrentPage = drawerMeta.limit ? Math.floor(drawerMeta.offset / drawerMeta.limit) + 1 : 1;
+      return (
+        <div className="bg-slate-50 border-t border-slate-200 p-3 space-y-3 text-sm">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold">Linked Programs</div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <label className="flex items-center gap-1">
+                <span>Rows</span>
+                <select
+                  className="input w-20"
+                  value={cfg.limit}
+                  onChange={e => handleDrawerLimitChange(id, e.target.value)}
+                >
+                  {[5,10,20].map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <div className="space-y-2">
-              {templates.map(t=> (
-                <div key={t.template_id} className="border rounded p-2 flex items-center justify-between text-sm">
+          </div>
+          <div className="space-y-2">
+            {data.length ? (
+              data.map(p => (
+                <div key={p.program_id} className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Week {t.week_number} • {t.label}</div>
-                    <div className="text-xs text-slate-500">Sort {t.sort_order}{t.notes?` • ${t.notes}`:''}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="btn btn-ghost"
-                      onClick={() => startEdit(t)}
-                      title="Edit"
-                    >
-                      <span aria-hidden="true">✏️</span>
-                      <span className="sr-only">Edit</span>
-                    </button>
-                    {hasPerm('template.delete') && (
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => handleDelete(t.template_id)}
-                        title="Delete"
-                      >
-                        <span aria-hidden="true">🗑️</span>
-                        <span className="sr-only">Delete</span>
-                      </button>
+                    <div className="font-medium">{p.title || programMap.get(String(p.program_id))?.title || `Program ${p.program_id}`}</div>
+                    {p.linked_at && (
+                      <div className="text-xs text-slate-500">Linked {fmt(p.linked_at)}</div>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-            {editing && (
-              <form onSubmit={handleSave} className="space-y-2 pt-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-sm block mb-1">Week #</label>
-                    <input type="number" className="input" value={wk} onChange={e=> setWk(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-sm block mb-1">Sort Order</label>
-                    <input type="number" className="input" value={sort} onChange={e=> setSort(e.target.value)} />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm block mb-1">Label</label>
-                  <input className="input" value={label} onChange={e=> setLabel(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-sm block mb-1">Notes</label>
-                  <textarea className="textarea" value={notes} onChange={e=> setNotes(e.target.value)} />
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <button type="button" className="btn btn-ghost" onClick={cancelEdit}>Cancel</button>
-                  {(hasPerm('template.create') || hasPerm('template.update')) && (
-                    <button type="submit" className="btn btn-primary">Save</button>
+                  {hasPerm('template.update') && !isTrainee && (
+                    <button
+                      className="btn btn-ghost text-xs"
+                      onClick={() => handleDetachProgram(template.template_id, p.program_id)}
+                    >
+                      Detach
+                    </button>
                   )}
                 </div>
-              </form>
+              ))
+            ) : (
+              <div className="text-xs text-slate-500">No programs linked.</div>
             )}
           </div>
+          {hasPerm('template.update') && !isTrainee && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold">Attach to program</div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <select
+                  className="input min-w-[180px]"
+                  value={attachSelections[id] || ''}
+                  onChange={e => setAttachSelections(prev => ({ ...prev, [id]: e.target.value }))}
+                >
+                  <option value="">Select program</option>
+                  {attachablePrograms.map(p => (
+                    <option key={p.program_id} value={p.program_id}>{p.title}</option>
+                  ))}
+                </select>
+                <button
+                  className="btn btn-outline"
+                  onClick={() => handleAttachProgram(template.template_id)}
+                  disabled={!attachSelections[id] || !attachablePrograms.length}
+                >
+                  Attach
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <div>Page {drawerCurrentPage} of {drawerTotalPages}</div>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn btn-ghost text-xs"
+                onClick={() => handleDrawerPageChange(id, (cfg.page || 0) - 1)}
+                disabled={cfg.page <= 0}
+              >
+                Prev
+              </button>
+              <button
+                className="btn btn-ghost text-xs"
+                onClick={() => handleDrawerPageChange(id, (cfg.page || 0) + 1)}
+                disabled={drawerCurrentPage >= drawerTotalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
-      </div>,
-      document.body
+      );
+    };
+
+    return (
+      <Section
+        title="Templates"
+        subtitle="Manage reusable onboarding task templates"
+        right={(!isTrainee && (hasPerm('template.create') || hasPerm('template.update'))) && (
+          <button className="btn btn-primary" onClick={() => setFormState({ open: true, template: null })}>
+            + New Template
+          </button>
+        )}
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              className="input md:w-64"
+              placeholder="Search templates"
+              value={searchTermTemplates}
+              onChange={e => setSearchTermTemplates(e.target.value)}
+            />
+            <select
+              className="input md:w-44"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <option value="">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="deprecated">Deprecated</option>
+            </select>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={includeDeleted}
+                onChange={e => setIncludeDeleted(e.target.checked)}
+              />
+              Include deleted
+            </label>
+            <div className="ml-auto flex items-center gap-2 text-sm">
+              <span>Rows</span>
+              <select
+                className="input w-20"
+                value={pager.limit}
+                onChange={e => pager.setLimit(Number(e.target.value))}
+              >
+                {[10,20,50].map(option => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {error && <div className="text-sm text-red-600">{error}</div>}
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <div className="grid grid-cols-6 gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wide bg-slate-100 text-slate-600">
+              <div>Label</div>
+              <div>Week</div>
+              <div>Sort</div>
+              <div>Status</div>
+              <div>Programs</div>
+              <div className="text-right">Actions</div>
+            </div>
+            {loading ? (
+              <div className="p-6 text-center text-sm text-slate-500">Loading templates…</div>
+            ) : templates.length ? (
+              templates.map(t => {
+                const templateId = String(t.template_id);
+                const count = templatePrograms[templateId]?.meta?.total ?? 0;
+                return (
+                  <div key={templateId} className="border-t border-slate-200">
+                    <div className="grid grid-cols-6 gap-2 px-4 py-3 items-center text-sm">
+                      <div>
+                        <div className="font-medium">{t.label}</div>
+                        {t.notes && <div className="text-xs text-slate-500">{t.notes}</div>}
+                        {t.deleted_at && <div className="text-xs text-red-500">Deleted</div>}
+                      </div>
+                      <div>{t.week_number ?? '—'}</div>
+                      <div>{t.sort_order ?? '—'}</div>
+                      <div className="capitalize">{t.status || '—'}</div>
+                      <div>
+                        <button
+                          className="btn btn-ghost text-xs"
+                          onClick={() => handleDrawerToggle(templateId)}
+                        >
+                          {count} program{count === 1 ? '' : 's'}
+                        </button>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        {hasPerm('template.update') && !isTrainee && (
+                          <button
+                            className="btn btn-ghost text-xs"
+                            onClick={() => setFormState({ open: true, template: t })}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {hasPerm('template.delete') && !isTrainee && (
+                          <button
+                            className="btn btn-ghost text-xs text-red-600"
+                            onClick={() => handleDeleteTemplate(t.template_id)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {renderProgramsDrawer(t)}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-6 text-center text-sm text-slate-500">No templates found.</div>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-sm text-slate-600">
+            <div>Page {currentPage} of {totalPages} • {meta.total} total</div>
+            <div className="flex items-center gap-2">
+              <button className="btn btn-outline text-xs" onClick={pager.prev} disabled={pager.page <= 0}>Prev</button>
+              <button className="btn btn-outline text-xs" onClick={pager.next} disabled={currentPage >= totalPages}>Next</button>
+            </div>
+          </div>
+        </div>
+        {formState.open && (
+          <TemplateFormModal
+            template={formState.template}
+            onClose={() => setFormState({ open: false, template: null })}
+            onSaved={() => refreshTemplates()}
+          />
+        )}
+      </Section>
     );
-  }
+  };
+
+  const ProgramTemplatesManager = ({ program, onClose }) => {
+    const pager = usePagination(5);
+    const programId = program?.program_id ? String(program.program_id) : '';
+    const attachments = programId ? (programTemplatesState[programId]?.data || []) : [];
+    const meta = programId ? (programTemplatesState[programId]?.meta || { total: 0, limit: pager.limit, offset: pager.offset }) : { total: 0, limit: pager.limit, offset: pager.offset };
+    const [searchTermProgram, setSearchTermProgram] = useState('');
+    const debouncedSearchProgram = useDebouncedValue(searchTermProgram, 400);
+    const [searchResults, setSearchResults] = useState([]);
+    const [searchLoading, setSearchLoading] = useState(false);
+    const canModifyTemplates = hasPerm('template.update') && !isTrainee;
+
+    useEffect(() => {
+      if (!programId) return;
+      loadProgramTemplates(programId, { limit: pager.limit, offset: pager.offset });
+    }, [programId, pager.limit, pager.offset, loadProgramTemplates]);
+
+    useEffect(() => {
+      const limit = meta.limit || pager.limit;
+      const total = meta.total || 0;
+      const maxPage = limit ? Math.max(0, Math.ceil(total / limit) - 1) : 0;
+      if (pager.page > maxPage) {
+        pager.setPage(maxPage);
+      }
+    }, [meta.limit, meta.total, pager.limit, pager.page]);
+
+    useEffect(() => {
+      if (!canModifyTemplates || !programId) {
+        setSearchResults([]);
+        return;
+      }
+      if (!debouncedSearchProgram) {
+        setSearchResults([]);
+        return;
+      }
+      let cancelled = false;
+      (async () => {
+        try {
+          setSearchLoading(true);
+          const res = await apiQueryTemplates({ limit: 10, search: debouncedSearchProgram });
+          if (cancelled) return;
+          const existingIds = new Set(attachments.map(t => String(t.template_id)));
+          setSearchResults((res?.data || []).filter(t => !existingIds.has(String(t.template_id))));
+        } catch (err) {
+          console.error('Failed to search templates', err);
+          if (!cancelled) setSearchResults([]);
+        } finally {
+          if (!cancelled) setSearchLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [debouncedSearchProgram, attachments, programId, canModifyTemplates]);
+
+    const handleAttach = async (templateId) => {
+      if (!programId) return;
+      const ok = await attachTemplateToProgram(programId, templateId);
+      if (ok) {
+        loadProgramTemplates(programId, { limit: pager.limit, offset: pager.offset });
+        loadTemplatePrograms(templateId, { limit: 5, offset: 0 });
+        setSearchTermProgram('');
+        setSearchResults([]);
+      }
+    };
+
+    const handleDetach = async (templateId) => {
+      if (!programId) return;
+      const ok = await detachTemplateFromProgram(programId, templateId);
+      if (ok) {
+        loadProgramTemplates(programId, { limit: pager.limit, offset: pager.offset });
+      }
+    };
+
+    const totalPages = meta.limit ? Math.max(1, Math.ceil((meta.total || 0) / meta.limit)) : 1;
+    const currentPage = meta.limit ? Math.floor((meta.offset || 0) / meta.limit) + 1 : 1;
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3 text-sm">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Templates ({meta.total || 0})</div>
+          <button className="btn btn-ghost text-xs" onClick={onClose}>Close</button>
+        </div>
+        <div className="space-y-2 max-h-48 overflow-auto pr-1">
+          {attachments.length ? (
+            attachments.map(t => (
+              <div key={t.template_id} className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-medium truncate">{t.label}</div>
+                  <div className="text-xs text-slate-500">Week {t.week_number ?? '—'} • Sort {t.sort_order ?? '—'}</div>
+                </div>
+                {canModifyTemplates && (
+                  <button
+                    className="btn btn-ghost text-xs text-red-600"
+                    onClick={() => handleDetach(t.template_id)}
+                  >
+                    Detach
+                  </button>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="text-xs text-slate-500">No templates linked.</div>
+          )}
+        </div>
+        {canModifyTemplates && (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide">Attach template</div>
+            <input
+              className="input w-full"
+              placeholder="Search templates"
+              value={searchTermProgram}
+              onChange={e => setSearchTermProgram(e.target.value)}
+            />
+            <div className="max-h-40 overflow-auto space-y-1">
+              {searchLoading ? (
+                <div className="text-xs text-slate-500">Searching…</div>
+              ) : searchTermProgram ? (
+                searchResults.length ? (
+                  searchResults.map(t => (
+                    <div key={t.template_id} className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-medium truncate">{t.label}</div>
+                        <div className="text-xs text-slate-500">Week {t.week_number ?? '—'}</div>
+                      </div>
+                      <button className="btn btn-outline text-xs" onClick={() => handleAttach(t.template_id)}>Attach</button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-xs text-slate-500">No templates found.</div>
+                )
+              ) : (
+                <div className="text-xs text-slate-500">Type to search templates.</div>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <div>Page {currentPage} of {totalPages}</div>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-ghost" onClick={pager.prev} disabled={pager.page <= 0}>Prev</button>
+            <button className="btn btn-ghost" onClick={pager.next} disabled={currentPage >= totalPages}>Next</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const controlBar = !isTrainee && (
     <div className="flex items-center gap-3">
@@ -1511,6 +2268,7 @@ useEffect(() => {
         </div>
       </Section>
       )}
+      {!isTrainee && hasPerm('template.read') && <TemplatesPanel />}
     </div>
       {panelOpen && (
         <div
@@ -1684,55 +2442,72 @@ useEffect(() => {
                 <div className="space-y-2">
                   {programs
                     .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
-                    .map(p => (
-                    <div key={p.program_id} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1 flex items-center gap-2 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => refreshPrograms(p.program_id)}
-                        title="Open"
-                      >
-                        <span aria-hidden="true">📂</span>
-                        <span className="sr-only">Open</span>
-                      </button>
-                      {hasPerm('template.read') && !isTrainee && (
-                        <button
-                        className="btn btn-ghost"
-                        onClick={() => {
-                          setTemplateProgramId(p.program_id);
-                          setShowTemplates(true);
-                        }}
-                        title="Templates"
-                      >
-                        <span aria-hidden="true">📝</span>
-                        <span className="sr-only">Templates</span>
-                      </button>
-                      )}
-                      {hasPerm('program.update') && !isTrainee && (
-                        <details className="relative">
-                          <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
-                          <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
+                    .map(p => {
+                      const programId = String(p.program_id);
+                      const templateCount = programTemplatesState[programId]?.meta?.total ?? 0;
+                      const isDrawerOpen = programTemplateDrawer === programId;
+                      return (
+                        <div key={p.program_id} className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="flex-1 flex items-center gap-2 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
                             <button
-                              className="btn btn-ghost w-full justify-start"
-                              onClick={() => setProgramModal({ show: true, program: p })}
+                              className="btn btn-ghost"
+                              onClick={() => refreshPrograms(p.program_id)}
+                              title="Open"
                             >
-                              <span aria-hidden="true">✏️</span>
-                              <span>Edit</span>
+                              <span aria-hidden="true">📂</span>
+                              <span className="sr-only">Open</span>
                             </button>
-                            {hasPerm('program.delete') && !isTrainee && (
+                            {hasPerm('template.read') && !isTrainee && (
                               <button
-                                className="btn btn-ghost w-full justify-start"
-                                onClick={() => handleDeleteProgram(p.program_id)}
+                                className={`btn btn-ghost ${isDrawerOpen ? 'bg-slate-100' : ''}`}
+                                onClick={() => {
+                                  const next = isDrawerOpen ? null : programId;
+                                  setProgramTemplateDrawer(next);
+                                  if (next) {
+                                    loadProgramTemplates(programId, { limit: 5, offset: 0 });
+                                  }
+                                }}
+                                title="Templates"
                               >
-                                <span aria-hidden="true">🗑️</span>
-                                <span>Delete</span>
+                                <span aria-hidden="true">📝</span>
+                                <span className="sr-only">Templates</span>
+                                <span className="ml-1 text-xs text-slate-500">({templateCount})</span>
                               </button>
                             )}
+                            {hasPerm('program.update') && !isTrainee && (
+                              <details className="relative">
+                                <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
+                                <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
+                                  <button
+                                    className="btn btn-ghost w-full justify-start"
+                                    onClick={() => setProgramModal({ show: true, program: p })}
+                                  >
+                                    <span aria-hidden="true">✏️</span>
+                                    <span>Edit</span>
+                                  </button>
+                                  {hasPerm('program.delete') && !isTrainee && (
+                                    <button
+                                      className="btn btn-ghost w-full justify-start"
+                                      onClick={() => handleDeleteProgram(p.program_id)}
+                                    >
+                                      <span aria-hidden="true">🗑️</span>
+                                      <span>Delete</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </details>
+                            )}
                           </div>
-                        </details>
-                      )}
-                    </div>
-                  ))}
+                          {isDrawerOpen && (
+                            <ProgramTemplatesManager
+                              program={p}
+                              onClose={() => setProgramTemplateDrawer(null)}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
                 <div className="sticky bottom-0 bg-white pt-2">
                   {(hasPerm('program.create') || hasPerm('program.update')) && !isTrainee && (
@@ -1789,12 +2564,6 @@ useEffect(() => {
           </div>
         </div>
       </aside>
-    {showTemplates && templateProgramId && hasPerm('template.read') && !isTrainee && (
-      <TemplateModal
-        programId={templateProgramId}
-        onClose={() => setShowTemplates(false)}
-      />
-    )}
   </div>
   );
 }
