@@ -330,14 +330,6 @@ const programTemplateList = document.getElementById('programTemplateList');
 const templateAttachInput = document.getElementById('programTemplateAttachInput');
 const btnAttachTags = document.getElementById('btnPanelAttachTemplate');
 const templateVisibilityOptions = document.getElementById('templateVisibilityOptions');
-const templateProgramPanel = document.getElementById('templateProgramPanel');
-const templateProgramPanelTitle = document.getElementById('templateProgramPanelTitle');
-const templateProgramPanelDescription = document.getElementById('templateProgramPanelDescription');
-const templateProgramPanelMessage = document.getElementById('templateProgramPanelMessage');
-const templateProgramPanelEmpty = document.getElementById('templateProgramPanelEmpty');
-const templateProgramList = document.getElementById('templateProgramList');
-const templateProgramAttachInput = document.getElementById('templateProgramAttachInput');
-const btnTemplateAttachProgram = document.getElementById('btnTemplateAttachProgram');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -347,16 +339,12 @@ let programs = [];
 let templates = [];
 let globalTemplates = [];
 let templateLibrary = [];
-let templatePrograms = [];
 const templateLibraryIndex = new Map();
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
-const selectedTemplateProgramIds = new Set();
 let selectedProgramId = null;
 let selectedTemplateId = null;
 let lastLoadedTemplateProgramId = null;
-let selectedTemplateProgramId = null;
-let lastLoadedTemplateProgramsTemplateId = null;
 const modalStack = [];
 let programModalMode = 'create';
 let programModalProgramId = null;
@@ -394,13 +382,6 @@ const pendingAttach = new Set();
 const pendingAttachState = new Map();
 let attachSaveTimeout = null;
 let attachInFlightPromise = null;
-let templateProgramTagifyInstance = null;
-let suppressTemplateProgramTagifyEventsFlag = false;
-const templateProgramPendingAttach = new Set();
-const templateProgramPendingState = new Map();
-let templateProgramAttachSaveTimeout = null;
-let templateProgramAttachInFlightPromise = null;
-let isLoadingTemplatePrograms = false;
 
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
@@ -532,19 +513,6 @@ function syncTemplateSelection() {
   if (selectedTemplateId && !validIds.has(selectedTemplateId)) {
     const nextSelected = selectedTemplateIds.values().next();
     selectedTemplateId = nextSelected.done ? null : nextSelected.value;
-  }
-}
-
-function syncTemplateProgramSelection() {
-  const validIds = new Set(templatePrograms.map(getProgramId).filter(Boolean));
-  for (const id of Array.from(selectedTemplateProgramIds)) {
-    if (!validIds.has(id)) {
-      selectedTemplateProgramIds.delete(id);
-    }
-  }
-  if (selectedTemplateProgramId && !validIds.has(selectedTemplateProgramId)) {
-    const nextSelected = selectedTemplateProgramIds.values().next();
-    selectedTemplateProgramId = nextSelected.done ? null : nextSelected.value;
   }
 }
 
@@ -745,10 +713,6 @@ function setTemplatePanelMessage(text, isError = false) {
   setModalMessage(programTemplatePanelMessage, text, isError);
 }
 
-function setTemplateProgramPanelMessage(text, isError = false) {
-  setModalMessage(templateProgramPanelMessage, text, isError);
-}
-
 function updatePanelAddButtonState() {
   const hasProgram = Boolean(selectedProgramId);
   const canManage = CAN_MANAGE_TEMPLATES && hasProgram;
@@ -790,49 +754,6 @@ function ensurePanelReadOnlyHint() {
   }
 }
 
-function updateTemplateProgramPanelAddButtonState() {
-  const hasTemplate = Boolean(selectedTemplateId);
-  const canManage = CAN_MANAGE_TEMPLATES && hasTemplate;
-
-  if (templateProgramAttachInput) {
-    const placeholder = !CAN_MANAGE_TEMPLATES
-      ? 'Read-only access — attachments disabled.'
-      : hasTemplate
-        ? 'Search programs to attach…'
-        : 'Select a template to attach programs.';
-    templateProgramAttachInput.setAttribute('placeholder', placeholder);
-    templateProgramAttachInput.disabled = !canManage;
-    if (templateProgramTagifyInstance?.setReadonly) {
-      templateProgramTagifyInstance.setReadonly(!canManage);
-    }
-  }
-
-  if (btnTemplateAttachProgram) {
-    if (!CAN_MANAGE_TEMPLATES) {
-      btnTemplateAttachProgram.disabled = true;
-      btnTemplateAttachProgram.title = 'Only admins or managers can attach programs.';
-    } else if (!hasTemplate) {
-      btnTemplateAttachProgram.disabled = true;
-      btnTemplateAttachProgram.title = 'Select a template to attach programs.';
-    } else {
-      btnTemplateAttachProgram.disabled = templateProgramPendingAttach.size === 0;
-      btnTemplateAttachProgram.title = templateProgramPendingAttach.size === 0
-        ? 'Select programs to attach first.'
-        : '';
-    }
-  }
-}
-
-function ensureTemplateProgramPanelReadOnlyHint() {
-  if (CAN_MANAGE_TEMPLATES) return;
-  if (!selectedTemplateId) return;
-  if (!templateProgramPanelMessage) return;
-  const current = (templateProgramPanelMessage.textContent || '').trim();
-  if (!current) {
-    setTemplateProgramPanelMessage('Read-only mode — assignments are view only for your role.');
-  }
-}
-
 function withTagifySuppressed(callback) {
   if (typeof callback !== 'function') return;
   const previous = suppressTagifyEventsFlag;
@@ -841,17 +762,6 @@ function withTagifySuppressed(callback) {
     callback();
   } finally {
     suppressTagifyEventsFlag = previous;
-  }
-}
-
-function withTemplateProgramTagifySuppressed(callback) {
-  if (typeof callback !== 'function') return;
-  const previous = suppressTemplateProgramTagifyEventsFlag;
-  suppressTemplateProgramTagifyEventsFlag = true;
-  try {
-    callback();
-  } finally {
-    suppressTemplateProgramTagifyEventsFlag = previous;
   }
 }
 
@@ -877,28 +787,6 @@ function destroyTagifyInstance() {
   updatePanelAddButtonState();
 }
 
-function destroyTemplateProgramTagifyInstance() {
-  if (templateProgramTagifyInstance && typeof templateProgramTagifyInstance.destroy === 'function') {
-    try {
-      templateProgramTagifyInstance.destroy();
-    } catch (error) {
-      console.error(error);
-    }
-  }
-  templateProgramTagifyInstance = null;
-  suppressTemplateProgramTagifyEventsFlag = false;
-  templateProgramPendingAttach.clear();
-  templateProgramPendingState.clear();
-  if (templateProgramAttachSaveTimeout) {
-    clearTimeout(templateProgramAttachSaveTimeout);
-    templateProgramAttachSaveTimeout = null;
-  }
-  if (templateProgramAttachInput) {
-    templateProgramAttachInput.value = '';
-  }
-  updateTemplateProgramPanelAddButtonState();
-}
-
 function getTagifyOptionFromTemplate(template, { isAssigned = false } = {}) {
   const templateId = getTemplateId(template);
   if (!templateId) return null;
@@ -913,24 +801,6 @@ function getTagifyOptionFromTemplate(template, { isAssigned = false } = {}) {
   };
   if (template && typeof template === 'object') {
     option.template = template;
-  }
-  return option;
-}
-
-function getTagifyOptionFromProgram(program, { isAssigned = false } = {}) {
-  const programId = getProgramId(program);
-  if (!programId) return null;
-  const name = getProgramTitle(program) || `Program ${programId}`;
-  const status = getProgramLifecycle(program) || '';
-  const option = {
-    value: programId,
-    name,
-    label: name,
-    status,
-    isAssigned,
-  };
-  if (program && typeof program === 'object') {
-    option.program = program;
   }
   return option;
 }
@@ -1021,95 +891,6 @@ function initTagifyForProgram(programId) {
   tagifyInstance.on('add', handleTagifyAdd);
   tagifyInstance.on('remove', handleTagifyRemove);
   updatePanelAddButtonState();
-}
-
-function initTagifyForTemplate(templateId) {
-  if (!templateProgramAttachInput) {
-    return;
-  }
-  destroyTemplateProgramTagifyInstance();
-  updateTemplateProgramPanelAddButtonState();
-  if (!templateId) {
-    return;
-  }
-  const TagifyConstructor = window?.Tagify;
-  if (typeof TagifyConstructor !== 'function') {
-    console.warn('Tagify library is not available.');
-    return;
-  }
-
-  const assignedTags = templatePrograms
-    .map(program => getTagifyOptionFromProgram(program, { isAssigned: true }))
-    .filter(Boolean);
-  const assignedIds = new Set(assignedTags.map(tag => tag.value).filter(Boolean));
-  const availableTags = (Array.isArray(programs) ? programs : [])
-    .map(program => getTagifyOptionFromProgram(program))
-    .filter(option => option && !assignedIds.has(option.value));
-
-  templateProgramTagifyInstance = new TagifyConstructor(templateProgramAttachInput, {
-    enforceWhitelist: true,
-    skipInvalid: true,
-    dropdown: {
-      enabled: 0,
-      maxItems: 20,
-      closeOnSelect: false,
-      searchKeys: ['name', 'label', 'value'],
-    },
-    whitelist: availableTags,
-    templates: {
-      tag(tagData) {
-        const label = escapeHtml(tagData?.name || tagData?.label || tagData?.value || '');
-        const status = tagData?.status ? createStatusBadge(tagData.status) : '';
-        return `
-          <tag title="${label}"
-               contenteditable="false"
-               spellcheck="false"
-               class="tagify__tag">
-            <x title="" class="tagify__tag__removeBtn" role="button" aria-label="remove tag"></x>
-            <div class="tagify__tag-text-wrapper flex items-center gap-2">
-              <span class="tagify__tag-text">${label}</span>
-              ${status ? `<span class="shrink-0">${status}</span>` : ''}
-            </div>
-          </tag>
-        `;
-      },
-      dropdownItem(tagData) {
-        const label = escapeHtml(tagData?.name || tagData?.label || tagData?.value || '');
-        const status = tagData?.status ? createStatusBadge(tagData.status) : '';
-        return `
-          <div ${this.getAttributes(tagData)}
-               class="tagify__dropdown__item flex items-center justify-between gap-2">
-            <span class="truncate">${label}</span>
-            ${status ? `<span class="shrink-0">${status}</span>` : ''}
-          </div>
-        `;
-      },
-    },
-  });
-
-  withTemplateProgramTagifySuppressed(() => {
-    if (!templateProgramTagifyInstance) return;
-    const settings = templateProgramTagifyInstance.settings || {};
-    const previousEnforce = Object.prototype.hasOwnProperty.call(settings, 'enforceWhitelist')
-      ? settings.enforceWhitelist
-      : undefined;
-    try {
-      if (typeof previousEnforce !== 'undefined') {
-        settings.enforceWhitelist = false;
-      }
-      if (assignedTags.length) {
-        templateProgramTagifyInstance.addTags(assignedTags);
-      }
-    } finally {
-      if (typeof previousEnforce !== 'undefined') {
-        settings.enforceWhitelist = previousEnforce;
-      }
-    }
-  });
-
-  templateProgramTagifyInstance.on('add', handleTemplateProgramTagAdd);
-  templateProgramTagifyInstance.on('remove', handleTemplateProgramTagRemove);
-  updateTemplateProgramPanelAddButtonState();
 }
 
 function schedulePendingTemplateAttachments({ immediate = false } = {}) {
@@ -1311,209 +1092,6 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
   })();
 
   attachInFlightPromise = perform;
-  return perform;
-}
-
-function scheduleTemplateProgramAttachments({ immediate = false } = {}) {
-  if (!templateProgramPendingAttach.size && !immediate) {
-    return;
-  }
-  if (templateProgramAttachSaveTimeout) {
-    clearTimeout(templateProgramAttachSaveTimeout);
-    templateProgramAttachSaveTimeout = null;
-  }
-  if (immediate) {
-    flushTemplateProgramAttachments({ immediate: true }).catch(error => {
-      console.error(error);
-    });
-    return;
-  }
-  templateProgramAttachSaveTimeout = setTimeout(() => {
-    templateProgramAttachSaveTimeout = null;
-    flushTemplateProgramAttachments({ immediate: true }).catch(error => {
-      console.error(error);
-    });
-  }, ATTACH_SAVE_DELAY_MS);
-}
-
-async function flushTemplateProgramAttachments({ immediate = false } = {}) {
-  if (templateProgramAttachInFlightPromise) {
-    try {
-      await templateProgramAttachInFlightPromise;
-    } catch (error) {
-      console.error(error);
-    }
-  }
-  if (!templateProgramPendingAttach.size) {
-    if (immediate && templateProgramAttachSaveTimeout) {
-      clearTimeout(templateProgramAttachSaveTimeout);
-      templateProgramAttachSaveTimeout = null;
-    }
-    return false;
-  }
-  if (!selectedTemplateId) {
-    templateProgramPendingAttach.clear();
-    templateProgramPendingState.clear();
-    if (templateProgramAttachSaveTimeout) {
-      clearTimeout(templateProgramAttachSaveTimeout);
-      templateProgramAttachSaveTimeout = null;
-    }
-    updateTemplateProgramPanelAddButtonState();
-    return false;
-  }
-  if (!immediate && templateProgramAttachSaveTimeout) {
-    return false;
-  }
-  if (immediate && templateProgramAttachSaveTimeout) {
-    clearTimeout(templateProgramAttachSaveTimeout);
-    templateProgramAttachSaveTimeout = null;
-  }
-
-  const templateId = selectedTemplateId;
-  const entries = Array.from(templateProgramPendingAttach).map(id => ({ id, state: templateProgramPendingState.get(id) }));
-  templateProgramPendingAttach.clear();
-  entries.forEach(({ id }) => templateProgramPendingState.delete(id));
-  if (!entries.length) {
-    updateTemplateProgramPanelAddButtonState();
-    return false;
-  }
-
-  const perform = (async () => {
-    try {
-      const templateStillSelected = selectedTemplateId === templateId;
-      if (templateStillSelected) {
-        setTemplateProgramPanelMessage('Attaching programs…');
-      }
-      const successProgramIds = [];
-      const alreadyLinkedProgramIds = [];
-      let failureCount = 0;
-      let programCountsUpdated = false;
-
-      for (const { id, state } of entries) {
-        try {
-          const result = await fetchJson(`${API}/programs/${encodeURIComponent(id)}/templates/attach`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ template_id: templateId }),
-          });
-          const alreadyAttached = Boolean(result?.alreadyAttached);
-          if (alreadyAttached) {
-            alreadyLinkedProgramIds.push(id);
-          } else {
-            successProgramIds.push(id);
-            const updated = updateCachedProgramTemplateCount(id, { delta: 1 });
-            if (updated) {
-              programCountsUpdated = true;
-            }
-          }
-        } catch (error) {
-          failureCount += 1;
-          console.error(error);
-          templateProgramPendingAttach.add(id);
-          if (state) {
-            templateProgramPendingState.set(id, state);
-          }
-          if (typeof state?.revert === 'function') {
-            try {
-              state.revert();
-            } catch (revertError) {
-              console.error(revertError);
-            }
-          }
-          if (templateProgramTagifyInstance && state?.tagData) {
-            withTemplateProgramTagifySuppressed(() => {
-              templateProgramTagifyInstance.addTags([state.tagData]);
-            });
-          }
-        }
-      }
-
-      if (programCountsUpdated) {
-        renderPrograms();
-      }
-
-      const hasSuccess = successProgramIds.length > 0 || alreadyLinkedProgramIds.length > 0;
-
-      if (templateStillSelected) {
-        if (failureCount && !hasSuccess) {
-          setTemplateProgramPanelMessage('Unable to attach programs. Please try again.', true);
-        } else if (failureCount && hasSuccess) {
-          setTemplateProgramPanelMessage('Some programs could not be attached. Please try again.', true);
-        } else {
-          let successMessage = 'Programs attached.';
-          if (!successProgramIds.length && alreadyLinkedProgramIds.length) {
-            successMessage = alreadyLinkedProgramIds.length === 1
-              ? 'Program was already attached.'
-              : 'Programs were already attached.';
-          } else if (successProgramIds.length && alreadyLinkedProgramIds.length) {
-            successMessage = 'Programs attached. Some were already linked.';
-          }
-          setTemplateProgramPanelMessage(successMessage);
-          setTimeout(() => {
-            if (templateProgramPanelMessage && templateProgramPanelMessage.textContent === successMessage) {
-              setTemplateProgramPanelMessage('');
-            }
-          }, 2500);
-        }
-        if (hasSuccess) {
-          if (templateProgramTagifyInstance) {
-            withTemplateProgramTagifySuppressed(() => {
-              templateProgramTagifyInstance.removeAllTags?.();
-              templateProgramTagifyInstance.dropdown?.hide?.();
-            });
-          }
-          updateTemplateProgramPanelAddButtonState();
-        }
-      }
-
-      if (hasSuccess && templateStillSelected) {
-        await loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
-      }
-
-      if (hasSuccess) {
-        const affectedPrograms = new Set([...successProgramIds, ...alreadyLinkedProgramIds]);
-        if (affectedPrograms.has(selectedProgramId)) {
-          await loadProgramTemplateAssignments({ preserveSelection: true }).catch(() => {});
-        }
-      }
-
-      if (failureCount) {
-        return false;
-      }
-      return true;
-    } catch (error) {
-      console.error(error);
-      entries.forEach(({ id, state }) => {
-        templateProgramPendingAttach.add(id);
-        if (state) {
-          templateProgramPendingState.set(id, state);
-        }
-        if (typeof state?.revert === 'function') {
-          try {
-            state.revert();
-          } catch (revertError) {
-            console.error(revertError);
-          }
-        }
-        if (templateProgramTagifyInstance && state?.tagData) {
-          withTemplateProgramTagifySuppressed(() => {
-            templateProgramTagifyInstance.addTags([state.tagData]);
-          });
-        }
-      });
-      if (selectedTemplateId === templateId) {
-        setTemplateProgramPanelMessage('Unable to attach programs. Please try again.', true);
-        renderTemplateProgramPanel();
-      }
-      return false;
-    } finally {
-      templateProgramAttachInFlightPromise = null;
-      updateTemplateProgramPanelAddButtonState();
-    }
-  })();
-
-  templateProgramAttachInFlightPromise = perform;
   return perform;
 }
 
@@ -1922,225 +1500,6 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
   }
 }
 
-function handleTemplateProgramTagAdd(event) {
-  if (suppressTemplateProgramTagifyEventsFlag) return;
-  const data = event?.detail?.data || {};
-  const programId = normalizeId(data?.value ?? data?.id);
-  if (!programId) return;
-
-  if (!CAN_MANAGE_TEMPLATES) {
-    ensureTemplateProgramPanelReadOnlyHint();
-    if (templateProgramTagifyInstance) {
-      withTemplateProgramTagifySuppressed(() => {
-        if (typeof templateProgramTagifyInstance.removeTags === 'function') {
-          templateProgramTagifyInstance.removeTags(programId, true);
-        } else if (event?.detail?.tag && typeof templateProgramTagifyInstance.removeTag === 'function') {
-          templateProgramTagifyInstance.removeTag(event.detail.tag, true);
-        }
-      });
-    }
-    return;
-  }
-  if (!selectedTemplateId) {
-    setTemplateProgramPanelMessage('Select a template before attaching programs.', true);
-    if (templateProgramTagifyInstance) {
-      withTemplateProgramTagifySuppressed(() => {
-        if (typeof templateProgramTagifyInstance.removeTags === 'function') {
-          templateProgramTagifyInstance.removeTags(programId, true);
-        } else if (event?.detail?.tag && typeof templateProgramTagifyInstance.removeTag === 'function') {
-          templateProgramTagifyInstance.removeTag(event.detail.tag, true);
-        }
-      });
-    }
-    return;
-  }
-  if (templateProgramPendingAttach.has(programId)) {
-    updateTemplateProgramPanelAddButtonState();
-    return;
-  }
-
-  const previousSelection = new Set(selectedTemplateProgramIds);
-  const previousPrimary = selectedTemplateProgramId;
-  let programData = getProgramById(programId)
-    || data?.program
-    || data?.programRef
-    || null;
-  if (!programData) {
-    programData = {
-      id: programId,
-      title: data?.name || data?.label || data?.text || programId,
-      status: data?.status || 'draft',
-    };
-  }
-  const alreadyExists = templatePrograms.some(program => getProgramId(program) === programId);
-  if (!alreadyExists) {
-    const optimisticProgram = { ...programData, id: programId, __optimistic: true };
-    templatePrograms.push(optimisticProgram);
-  }
-  selectedTemplateProgramIds.clear();
-  selectedTemplateProgramIds.add(programId);
-  selectedTemplateProgramId = programId;
-  renderTemplateProgramPanel();
-
-  const revert = () => {
-    templatePrograms = templatePrograms.filter(program => getProgramId(program) !== programId);
-    selectedTemplateProgramIds.clear();
-    previousSelection.forEach(id => selectedTemplateProgramIds.add(id));
-    selectedTemplateProgramId = previousPrimary;
-    renderTemplateProgramPanel();
-  };
-
-  templateProgramPendingAttach.add(programId);
-  templateProgramPendingState.set(programId, {
-    revert,
-    tagData: { ...data },
-    programData,
-  });
-  updateTemplateProgramPanelAddButtonState();
-  scheduleTemplateProgramAttachments();
-}
-
-function handleTemplateProgramTagRemove(event) {
-  if (suppressTemplateProgramTagifyEventsFlag) return;
-  const data = event?.detail?.data || {};
-  const programId = normalizeId(data?.value ?? data?.id);
-  if (!programId) return;
-
-  if (templateProgramPendingAttach.has(programId)) {
-    const state = templateProgramPendingState.get(programId);
-    templateProgramPendingAttach.delete(programId);
-    templateProgramPendingState.delete(programId);
-    if (typeof state?.revert === 'function') {
-      try {
-        state.revert();
-      } catch (error) {
-        console.error(error);
-      }
-    }
-    updateTemplateProgramPanelAddButtonState();
-    return;
-  }
-
-  if (!CAN_MANAGE_TEMPLATES) {
-    ensureTemplateProgramPanelReadOnlyHint();
-    if (templateProgramTagifyInstance) {
-      withTemplateProgramTagifySuppressed(() => {
-        templateProgramTagifyInstance.addTags([data]);
-      });
-    }
-    return;
-  }
-  if (!selectedTemplateId) {
-    setTemplateProgramPanelMessage('Select a template before removing programs.', true);
-    if (templateProgramTagifyInstance) {
-      withTemplateProgramTagifySuppressed(() => {
-        templateProgramTagifyInstance.addTags([data]);
-      });
-    }
-    return;
-  }
-
-  const index = templatePrograms.findIndex(program => getProgramId(program) === programId);
-  if (index < 0) {
-    updateTemplateProgramPanelAddButtonState();
-    return;
-  }
-
-  const previousSelection = new Set(selectedTemplateProgramIds);
-  const previousPrimary = selectedTemplateProgramId;
-  const [removedProgram] = templatePrograms.splice(index, 1);
-  selectedTemplateProgramIds.delete(programId);
-  if (selectedTemplateProgramId === programId) {
-    selectedTemplateProgramId = null;
-  }
-  renderTemplateProgramPanel();
-
-  const revert = () => {
-    templatePrograms.splice(index, 0, removedProgram);
-    selectedTemplateProgramIds.clear();
-    previousSelection.forEach(id => selectedTemplateProgramIds.add(id));
-    selectedTemplateProgramId = previousPrimary;
-    renderTemplateProgramPanel();
-  };
-
-  detachProgramFromTemplate(programId, { revert, tagData: { ...data } });
-}
-
-async function detachProgramFromTemplate(programId, { revert, tagData } = {}) {
-  if (!programId || !selectedTemplateId) {
-    if (typeof revert === 'function') revert();
-    if (templateProgramTagifyInstance && tagData) {
-      withTemplateProgramTagifySuppressed(() => {
-        templateProgramTagifyInstance.addTags([tagData]);
-      });
-    }
-    updateTemplateProgramPanelAddButtonState();
-    return;
-  }
-
-  const templateId = selectedTemplateId;
-  setTemplateProgramPanelMessage('Removing program…');
-  let deleteWasNoOp = false;
-  let detachResult = { wasAttached: false };
-  try {
-    try {
-      detachResult = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/detach`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_id: templateId }),
-      });
-    } catch (error) {
-      if (error.status === 404) {
-        deleteWasNoOp = true;
-      } else {
-        throw error;
-      }
-    }
-    const wasAttached = Boolean(detachResult?.wasAttached);
-    if (wasAttached) {
-      const updated = updateCachedProgramTemplateCount(programId, { delta: -1 });
-      if (updated) {
-        renderPrograms();
-      }
-    }
-    const successMessage = deleteWasNoOp || !wasAttached
-      ? 'Program was already removed.'
-      : 'Program removed.';
-    setTemplateProgramPanelMessage(successMessage);
-    setTimeout(() => {
-      if (templateProgramPanelMessage && templateProgramPanelMessage.textContent === successMessage) {
-        setTemplateProgramPanelMessage('');
-      }
-    }, 2500);
-    await loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
-    if (selectedProgramId === programId) {
-      await loadProgramTemplateAssignments({ preserveSelection: true }).catch(() => {});
-    }
-  } catch (error) {
-    console.error(error);
-    if (typeof revert === 'function') {
-      try {
-        revert();
-      } catch (revertError) {
-        console.error(revertError);
-      }
-    }
-    if (templateProgramTagifyInstance && tagData) {
-      withTemplateProgramTagifySuppressed(() => {
-        templateProgramTagifyInstance.addTags([tagData]);
-      });
-    }
-    if (error.status === 403) {
-      setTemplateProgramPanelMessage('You do not have permission to remove programs from this template.', true);
-    } else {
-      setTemplateProgramPanelMessage('Unable to remove this program. Please try again.', true);
-    }
-  } finally {
-    updateTemplateProgramPanelAddButtonState();
-  }
-}
-
 function resetPendingMetadataState() {
   pendingMetadataState.programId = null;
   pendingMetadataState.updates = new Map();
@@ -2492,7 +1851,6 @@ async function flushPendingTemplateAssociationChanges() {
   await flushPendingMetadataUpdates({ immediate: true });
   await flushPendingTemplateOrder({ immediate: true });
   await flushPendingTemplateAttachments({ immediate: true });
-  await flushTemplateProgramAttachments({ immediate: true });
 }
 
 function resetTemplateForm() {
@@ -3301,7 +2659,6 @@ function renderTemplates() {
   updateTemplateSelectionSummary();
   updateTemplateActionsState(displayed);
   renderTemplateAssignmentsPanel();
-  renderTemplateProgramPanel();
 }
 
 function renderTemplateAssignmentsPanel() {
@@ -3364,139 +2721,6 @@ function renderTemplateAssignmentsPanel() {
       ensurePanelReadOnlyHint();
     }
   }
-}
-
-function renderTemplateProgramPanel() {
-  if (!templateProgramPanel) return;
-  updateTemplateProgramPanelAddButtonState();
-  syncTemplateProgramSelection();
-  const hasErrorMessage = templateProgramPanelMessage?.classList?.contains('text-red-600');
-  if (!selectedTemplateId) {
-    templateProgramPanel.classList.add('hidden');
-    if (templateProgramPanelDescription) {
-      templateProgramPanelDescription.textContent = 'Select a template to view linked programs.';
-    }
-    if (templateProgramList) {
-      templateProgramList.innerHTML = '';
-    }
-    if (templateProgramPanelEmpty) {
-      templateProgramPanelEmpty.classList.add('hidden');
-    }
-    if (!hasErrorMessage) {
-      setTemplateProgramPanelMessage('');
-    }
-    return;
-  }
-
-  templateProgramPanel.classList.remove('hidden');
-  const template = getTemplateById(selectedTemplateId);
-  const templateName = getTemplateName(template) || 'this template';
-  const showLoadingState = Boolean(
-    isLoadingTemplatePrograms
-    || (selectedTemplateId && selectedTemplateId !== lastLoadedTemplateProgramsTemplateId)
-  );
-  if (templateProgramPanelTitle) {
-    templateProgramPanelTitle.textContent = `Programs using ${templateName}`;
-  }
-  if (templateProgramPanelDescription) {
-    templateProgramPanelDescription.textContent = 'Attach or detach programs to reuse this template across the catalog.';
-  }
-
-  if (templateProgramList) {
-    if (showLoadingState) {
-      templateProgramList.innerHTML = '<li class="text-sm text-slate-500">Loading programs…</li>';
-    } else {
-      const ordered = templatePrograms.slice().sort((a, b) => {
-        const titleA = (getProgramTitle(a) || '').toLowerCase();
-        const titleB = (getProgramTitle(b) || '').toLowerCase();
-        if (titleA < titleB) return -1;
-        if (titleA > titleB) return 1;
-        return 0;
-      });
-      if (!ordered.length) {
-        templateProgramList.innerHTML = '';
-      } else {
-        templateProgramList.innerHTML = ordered
-          .map((program, index) => createTemplateProgramListItem(program, index, ordered.length))
-          .join('');
-      }
-      if (!ordered.length) {
-        if (!hasErrorMessage) {
-          if (CAN_MANAGE_TEMPLATES) {
-            setTemplateProgramPanelMessage('Use the search above to attach programs to this template.');
-          } else {
-            ensureTemplateProgramPanelReadOnlyHint();
-          }
-        }
-      } else if (!hasErrorMessage && !templateProgramPanelMessage?.textContent?.trim()) {
-        if (CAN_MANAGE_TEMPLATES) {
-          setTemplateProgramPanelMessage('');
-        } else {
-          ensureTemplateProgramPanelReadOnlyHint();
-        }
-      }
-
-      if (templateProgramPanelEmpty) {
-        const showEmptyState = !hasErrorMessage && !ordered.length;
-        templateProgramPanelEmpty.classList.toggle('hidden', !showEmptyState);
-      }
-      return;
-    }
-  }
-
-  if (templateProgramPanelEmpty) {
-    const showEmptyState = !hasErrorMessage && !showLoadingState && !templatePrograms.length;
-    templateProgramPanelEmpty.classList.toggle('hidden', !showEmptyState);
-  }
-}
-
-function createTemplateProgramListItem(program) {
-  const programId = getProgramId(program) || '';
-  const title = escapeHtml(getProgramTitle(program) || 'Untitled program');
-  const lifecycle = getProgramLifecycle(program);
-  const totalWeeks = getProgramTotalWeeks(program);
-  const description = getProgramDescription(program) || '';
-  const archivedAt = getProgramArchivedAt(program);
-  const isActive = Boolean(selectedTemplateProgramId && programId && selectedTemplateProgramId === programId);
-  const isPending = templateProgramPendingAttach.has(programId);
-  const itemClasses = ['rounded-xl', 'border', 'border-slate-200', 'bg-white', 'p-4', 'space-y-3'];
-  if (isActive) {
-    itemClasses.push('ring-2', 'ring-sky-200');
-  }
-  const metaParts = [];
-  if (lifecycle) {
-    metaParts.push(`<span>${createStatusBadge(lifecycle)}</span>`);
-  }
-  if (Number.isFinite(totalWeeks)) {
-    metaParts.push(`<span class="text-xs text-slate-500">${totalWeeks} weeks</span>`);
-  }
-  if (archivedAt) {
-    metaParts.push(`<span class="text-xs text-slate-400">Archived ${escapeHtml(formatDate(archivedAt))}</span>`);
-  }
-  const disableRemove = !CAN_MANAGE_TEMPLATES || isPending;
-  const removeTitle = !CAN_MANAGE_TEMPLATES
-    ? 'Only admins or managers can remove programs.'
-    : isPending
-      ? 'Program is being attached.'
-      : 'Remove program';
-  const descriptionHtml = description ? `<p class="text-sm text-slate-500">${escapeHtml(description)}</p>` : '';
-  const pendingBadge = isPending ? '<span class="text-xs text-slate-500">Attaching…</span>' : '';
-  const metaHtml = metaParts.length ? `<div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">${metaParts.join('')}</div>` : '';
-  return `
-    <li class="${itemClasses.join(' ')}" data-program-id="${programId}">
-      <div class="flex items-start justify-between gap-3">
-        <div class="space-y-1 min-w-0">
-          <p class="font-medium truncate" title="${title}">${title}</p>
-          ${metaHtml}
-        </div>
-        <div class="flex items-center gap-2">
-          ${pendingBadge}
-          <button type="button" class="btn btn-danger-outline text-xs" data-template-program-action="remove" data-program-id="${programId}" ${disableRemove ? 'disabled' : ''} title="${removeTitle}" aria-label="Remove program from template">Remove</button>
-        </div>
-      </div>
-      ${descriptionHtml}
-    </li>
-  `;
 }
 
 function createTemplateAssignmentListItem(template, index, total) {
@@ -3837,7 +3061,6 @@ async function loadTemplates(options = {}) {
 
     renderTemplates();
     templateMessage.textContent = '';
-    await loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
   } catch (error) {
     console.error(error);
     globalTemplates = [];
@@ -3846,7 +3069,6 @@ async function loadTemplates(options = {}) {
       selectedTemplateId = null;
     }
     renderTemplates();
-    await loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
     if (error.status === 403) {
       templateMessage.textContent = 'You do not have permission to load templates.';
     } else {
@@ -3944,32 +3166,6 @@ function extractTemplateLibraryFromResponse(payload) {
   return [];
 }
 
-function extractTemplateProgramList(payload) {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const candidateKeys = ['programs', 'items', 'results', 'data', 'records', 'rows'];
-  for (const key of candidateKeys) {
-    const value = payload[key];
-    if (Array.isArray(value)) {
-      return value;
-    }
-  }
-  for (const key of candidateKeys) {
-    const value = payload[key];
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const nested = extractTemplateProgramList(value);
-      if (Array.isArray(nested)) {
-        return nested;
-      }
-    }
-  }
-  return null;
-}
-
 async function loadProgramTemplateAssignments(options = {}) {
   const { focusTemplateId = null, preserveSelection = false } = options;
   if (attachInFlightPromise) {
@@ -4060,9 +3256,6 @@ async function loadProgramTemplateAssignments(options = {}) {
     renderTemplates();
     setTemplatePanelMessage('');
     initTagifyForProgram(activeProgramId);
-    if (selectedTemplateId) {
-      await loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
-    }
   } catch (error) {
     console.error(error);
     templates = [];
@@ -4080,94 +3273,6 @@ async function loadProgramTemplateAssignments(options = {}) {
     } else {
       setTemplatePanelMessage('Unable to load template assignments right now. Please try again.', true);
     }
-  }
-}
-
-async function loadTemplateProgramAssociations(options = {}) {
-  const { preserveSelection = false } = options;
-  const activeTemplateId = selectedTemplateId;
-  if (!activeTemplateId) {
-    templatePrograms = [];
-    selectedTemplateProgramIds.clear();
-    selectedTemplateProgramId = null;
-    lastLoadedTemplateProgramsTemplateId = null;
-    destroyTemplateProgramTagifyInstance();
-    isLoadingTemplatePrograms = false;
-    renderTemplateProgramPanel();
-    setTemplateProgramPanelMessage('');
-    updateTemplateProgramPanelAddButtonState();
-    return;
-  }
-
-  if (!preserveSelection || activeTemplateId !== lastLoadedTemplateProgramsTemplateId) {
-    if (activeTemplateId !== lastLoadedTemplateProgramsTemplateId) {
-      selectedTemplateProgramIds.clear();
-      selectedTemplateProgramId = null;
-    }
-  }
-
-  isLoadingTemplatePrograms = true;
-  renderTemplateProgramPanel();
-
-  try {
-    const encodedTemplateId = encodeURIComponent(activeTemplateId);
-    const data = await fetchJson(`${TEMPLATE_API}/${encodedTemplateId}/programs?include_deleted=true`);
-    const fetchedPrograms = extractTemplateProgramList(data);
-    if (!Array.isArray(fetchedPrograms)) {
-      const error = new Error('Invalid template program response.');
-      const payloadMessage = typeof data?.error === 'string'
-        ? data.error
-        : typeof data?.message === 'string'
-          ? data.message
-          : null;
-      if (payloadMessage) {
-        error.userMessage = payloadMessage;
-      }
-      throw error;
-    }
-    templatePrograms = fetchedPrograms;
-    lastLoadedTemplateProgramsTemplateId = activeTemplateId;
-
-    if (preserveSelection) {
-      const validIds = new Set(templatePrograms.map(getProgramId).filter(Boolean));
-      for (const id of Array.from(selectedTemplateProgramIds)) {
-        if (!validIds.has(id)) {
-          selectedTemplateProgramIds.delete(id);
-        }
-      }
-      if (selectedTemplateProgramId && !validIds.has(selectedTemplateProgramId)) {
-        selectedTemplateProgramId = null;
-      }
-    } else {
-      selectedTemplateProgramIds.clear();
-      selectedTemplateProgramId = null;
-    }
-
-    renderTemplateProgramPanel();
-    setTemplateProgramPanelMessage('');
-    initTagifyForTemplate(activeTemplateId);
-  } catch (error) {
-    console.error(error);
-    templatePrograms = [];
-    lastLoadedTemplateProgramsTemplateId = null;
-    if (!preserveSelection) {
-      selectedTemplateProgramIds.clear();
-      selectedTemplateProgramId = null;
-    }
-    destroyTemplateProgramTagifyInstance();
-    if (selectedTemplateId === activeTemplateId) {
-      if (error.status === 403) {
-        setTemplateProgramPanelMessage('You do not have permission to view programs for this template.', true);
-      } else if (typeof error.userMessage === 'string' && error.userMessage.trim()) {
-        setTemplateProgramPanelMessage(error.userMessage.trim(), true);
-      } else {
-        setTemplateProgramPanelMessage('Unable to load program assignments right now. Please try again.', true);
-      }
-    }
-    renderTemplateProgramPanel();
-  } finally {
-    isLoadingTemplatePrograms = false;
-    renderTemplateProgramPanel();
   }
 }
 
@@ -4355,7 +3460,7 @@ programTableBody.addEventListener('click', async event => {
   loadProgramTemplateAssignments();
 });
 
-templateTableBody.addEventListener('change', async event => {
+templateTableBody.addEventListener('change', event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   const id = target.getAttribute('data-template-id');
@@ -4364,46 +3469,23 @@ templateTableBody.addEventListener('change', async event => {
     target.checked = false;
     return;
   }
-  const previousActiveId = selectedTemplateId;
-  const nextSelectedIds = new Set(selectedTemplateIds);
   if (target.checked) {
-    nextSelectedIds.add(id);
+    selectedTemplateIds.add(id);
+    selectedTemplateId = id;
   } else {
-    nextSelectedIds.delete(id);
-  }
-  let nextActiveId = previousActiveId;
-  if (target.checked) {
-    nextActiveId = id;
-  } else if (previousActiveId === id) {
-    const nextSelected = nextSelectedIds.values().next();
-    nextActiveId = nextSelected.done ? null : nextSelected.value;
-  }
-  if (nextActiveId !== previousActiveId) {
-    try {
-      await flushPendingTemplateAssociationChanges();
-    } catch (error) {
-      console.error(error);
+    selectedTemplateIds.delete(id);
+    if (selectedTemplateId === id) {
+      const nextSelected = selectedTemplateIds.values().next();
+      if (!nextSelected.done) {
+        selectedTemplateId = nextSelected.value;
+      } else {
+        selectedTemplateId = null;
+      }
     }
-    destroyTemplateProgramTagifyInstance();
-  }
-  selectedTemplateIds.clear();
-  nextSelectedIds.forEach(value => selectedTemplateIds.add(value));
-  selectedTemplateId = nextActiveId;
-  if (nextActiveId !== previousActiveId) {
-    selectedTemplateProgramIds.clear();
-    selectedTemplateProgramId = null;
-    templatePrograms = [];
-    if (nextActiveId) {
-      isLoadingTemplatePrograms = true;
-    } else {
-      isLoadingTemplatePrograms = false;
-    }
-    renderTemplateProgramPanel();
   }
   updateTemplateSelectionSummary();
   const displayed = getFilteredTemplates();
   updateTemplateActionsState(displayed);
-  loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
 });
 
 if (programSearchInput) {
@@ -4458,75 +3540,29 @@ if (programSelectAll) {
 }
 
 if (templateSelectAll) {
-  templateSelectAll.addEventListener('change', async () => {
+  templateSelectAll.addEventListener('change', () => {
     if (!CAN_MANAGE_TEMPLATES) {
       templateSelectAll.checked = false;
       return;
     }
     const displayed = getFilteredTemplates();
-    const previousActiveId = selectedTemplateId;
-    const nextSelectedIds = new Set(selectedTemplateIds);
-    let nextActiveId = previousActiveId;
     if (templateSelectAll.checked) {
       displayed.forEach(t => {
         const templateId = getTemplateId(t);
-        if (templateId) nextSelectedIds.add(templateId);
+        if (templateId) selectedTemplateIds.add(templateId);
       });
       const firstDisplayed = displayed.map(getTemplateId).find(Boolean) || null;
-      nextActiveId = firstDisplayed;
+      selectedTemplateId = firstDisplayed;
     } else {
       displayed.forEach(t => {
         const templateId = getTemplateId(t);
-        if (templateId) nextSelectedIds.delete(templateId);
+        if (templateId) selectedTemplateIds.delete(templateId);
       });
-      nextActiveId = null;
-    }
-    if (nextActiveId !== previousActiveId) {
-      try {
-        await flushPendingTemplateAssociationChanges();
-      } catch (error) {
-        console.error(error);
-      }
-      destroyTemplateProgramTagifyInstance();
-    }
-    selectedTemplateIds.clear();
-    nextSelectedIds.forEach(value => selectedTemplateIds.add(value));
-    selectedTemplateId = nextActiveId;
-    if (nextActiveId !== previousActiveId) {
-      selectedTemplateProgramIds.clear();
-      selectedTemplateProgramId = null;
-      templatePrograms = [];
-      isLoadingTemplatePrograms = Boolean(nextActiveId);
+      selectedTemplateId = null;
     }
     renderTemplates();
-    loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
   });
 }
-
-templateTableBody.addEventListener('click', async event => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  if (target.closest('input[type="checkbox"]')) return;
-  const row = target.closest('tr[data-template-id]');
-  if (!row) return;
-  const id = row.getAttribute('data-template-id');
-  if (!id || selectedTemplateId === id) return;
-  try {
-    await flushPendingTemplateAssociationChanges();
-  } catch (error) {
-    console.error(error);
-  }
-  destroyTemplateProgramTagifyInstance();
-  selectedTemplateIds.clear();
-  selectedTemplateIds.add(id);
-  selectedTemplateId = id;
-  selectedTemplateProgramIds.clear();
-  selectedTemplateProgramId = null;
-  templatePrograms = [];
-  isLoadingTemplatePrograms = true;
-  renderTemplates();
-  loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
-});
 
 if (programTemplateList) {
   programTemplateList.addEventListener('change', event => {
@@ -4573,69 +3609,6 @@ if (programTemplateList) {
     selectedTemplateIds.add(templateId);
     selectedTemplateId = templateId;
     renderTemplates();
-  });
-}
-
-if (templateProgramList) {
-  templateProgramList.addEventListener('click', event => {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    if (!target) return;
-    const actionBtn = target.closest('[data-template-program-action]');
-    if (actionBtn) {
-      event.preventDefault();
-      const isDisabled = actionBtn.hasAttribute('disabled') || actionBtn.getAttribute('aria-disabled') === 'true';
-      if (isDisabled) {
-        return;
-      }
-      const action = actionBtn.getAttribute('data-template-program-action');
-      const programIdAttr = actionBtn.getAttribute('data-program-id');
-      const item = actionBtn.closest('li[data-program-id]');
-      const programId = programIdAttr || item?.getAttribute('data-program-id');
-      if (!action || !programId) return;
-      if (action === 'remove') {
-        const index = templatePrograms.findIndex(program => getProgramId(program) === programId);
-        if (index < 0) return;
-        const previousSelection = new Set(selectedTemplateProgramIds);
-        const previousPrimary = selectedTemplateProgramId;
-        const [removedProgram] = templatePrograms.splice(index, 1);
-        selectedTemplateProgramIds.delete(programId);
-        if (selectedTemplateProgramId === programId) {
-          selectedTemplateProgramId = null;
-        }
-        renderTemplateProgramPanel();
-        let tagData = null;
-        if (templateProgramTagifyInstance) {
-          tagData = getTagifyOptionFromProgram(removedProgram, { isAssigned: true });
-          withTemplateProgramTagifySuppressed(() => {
-            if (typeof templateProgramTagifyInstance.removeTags === 'function') {
-              templateProgramTagifyInstance.removeTags(programId, true);
-            }
-          });
-        }
-        const revert = () => {
-          templatePrograms.splice(index, 0, removedProgram);
-          selectedTemplateProgramIds.clear();
-          previousSelection.forEach(id => selectedTemplateProgramIds.add(id));
-          selectedTemplateProgramId = previousPrimary;
-          renderTemplateProgramPanel();
-          if (templateProgramTagifyInstance && tagData) {
-            withTemplateProgramTagifySuppressed(() => {
-              templateProgramTagifyInstance.addTags([tagData]);
-            });
-          }
-        };
-        detachProgramFromTemplate(programId, { revert, tagData });
-      }
-      return;
-    }
-    const item = target.closest('li[data-program-id]');
-    if (!item) return;
-    const programId = item.getAttribute('data-program-id');
-    if (!programId) return;
-    selectedTemplateProgramIds.clear();
-    selectedTemplateProgramIds.add(programId);
-    selectedTemplateProgramId = programId;
-    renderTemplateProgramPanel();
   });
 }
 
@@ -4736,14 +3709,6 @@ if (btnAttachTags) {
     event.preventDefault();
     if (btnAttachTags.disabled) return;
     schedulePendingTemplateAttachments({ immediate: true });
-  });
-}
-
-if (btnTemplateAttachProgram) {
-  btnTemplateAttachProgram.addEventListener('click', event => {
-    event.preventDefault();
-    if (btnTemplateAttachProgram.disabled) return;
-    scheduleTemplateProgramAttachments({ immediate: true });
   });
 }
 
