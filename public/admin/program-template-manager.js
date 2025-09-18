@@ -970,7 +970,7 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
         const basePayload = state?.payload && typeof state.payload === 'object' ? state.payload : {};
         const payload = { template_id: id, ...basePayload };
         try {
-          const result = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/attach`, {
+          const result = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates/attach`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -1444,7 +1444,7 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
   let detachResult = { wasAttached: false };
   try {
     try {
-      detachResult = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/detach`, {
+      detachResult = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates/detach`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
