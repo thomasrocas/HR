@@ -403,29 +403,48 @@
           </div>
         </div>
 
-        <aside id="programTemplatePanel" class="panel-section hidden p-4 space-y-4" aria-live="polite">
-          <div class="space-y-1">
-            <h3 id="programTemplatePanelTitle" class="text-lg font-semibold">Program templates</h3>
-            <p id="programTemplatePanelDescription" class="text-sm text-slate-500">Select a program to manage template assignments.</p>
-          </div>
-          <p id="programTemplatePanelMessage" class="text-xs text-slate-500 hidden"></p>
-          <div id="programTemplatePanelEmpty" class="text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl p-4 text-center hidden">
-            No templates assigned to this program yet.
-          </div>
-          <div id="tagAttachRow" class="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-            <input id="programTemplateAttachInput" type="text" class="input" placeholder="Search templates to attach…">
-            <button id="btnPanelAttachTemplate" class="btn btn-primary text-sm">Attach Template</button>
-          </div>
-          <small class="block text-xs text-slate-500">Search existing templates to attach to this program.</small>
-          <ul id="programTemplateList" class="space-y-4" aria-live="polite"></ul>
-          <datalist id="templateVisibilityOptions">
-            <option value="inherit"></option>
-            <option value="assignee"></option>
-            <option value="manager"></option>
-            <option value="team"></option>
-            <option value="hidden"></option>
-          </datalist>
-        </aside>
+        <div class="space-y-6">
+          <aside id="programTemplatePanel" class="panel-section hidden p-4 space-y-4" aria-live="polite">
+            <div class="space-y-1">
+              <h3 id="programTemplatePanelTitle" class="text-lg font-semibold">Program templates</h3>
+              <p id="programTemplatePanelDescription" class="text-sm text-slate-500">Select a program to manage template assignments.</p>
+            </div>
+            <p id="programTemplatePanelMessage" class="text-xs text-slate-500 hidden"></p>
+            <div id="programTemplatePanelEmpty" class="text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl p-4 text-center hidden">
+              No templates assigned to this program yet.
+            </div>
+            <div id="tagAttachRow" class="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+              <input id="programTemplateAttachInput" type="text" class="input" placeholder="Search templates to attach…">
+              <button id="btnPanelAttachTemplate" class="btn btn-primary text-sm">Attach Template</button>
+            </div>
+            <small class="block text-xs text-slate-500">Search existing templates to attach to this program.</small>
+            <ul id="programTemplateList" class="space-y-4" aria-live="polite"></ul>
+            <datalist id="templateVisibilityOptions">
+              <option value="inherit"></option>
+              <option value="assignee"></option>
+              <option value="manager"></option>
+              <option value="team"></option>
+              <option value="hidden"></option>
+            </datalist>
+          </aside>
+
+          <aside id="templateProgramPanel" class="panel-section hidden p-4 space-y-4" aria-live="polite">
+            <div class="space-y-1">
+              <h3 id="templateProgramPanelTitle" class="text-lg font-semibold">Template programs</h3>
+              <p id="templateProgramPanelDescription" class="text-sm text-slate-500">Select a template to view linked programs.</p>
+            </div>
+            <p id="templateProgramPanelMessage" class="text-xs text-slate-500 hidden"></p>
+            <div id="templateProgramPanelEmpty" class="text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl p-4 text-center hidden">
+              This template is not assigned to any programs yet.
+            </div>
+            <div id="templateProgramAttachRow" class="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+              <input id="templateProgramAttachInput" type="text" class="input" placeholder="Search programs to attach…">
+              <button id="btnTemplateAttachProgram" class="btn btn-primary text-sm">Attach Program</button>
+            </div>
+            <small class="block text-xs text-slate-500">Search existing programs to attach to this template.</small>
+            <ul id="templateProgramList" class="space-y-4" aria-live="polite"></ul>
+          </aside>
+        </div>
       </div>
     </section>
   </div>
