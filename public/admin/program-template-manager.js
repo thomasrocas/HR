@@ -956,39 +956,105 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
     return false;
   }
 
-  const payloadTemplates = entries.map(({ id, state }) => {
-    const basePayload = state?.payload && typeof state.payload === 'object' ? state.payload : {};
-    return { template_id: id, ...basePayload };
-  });
-  const revertFns = entries.map(({ state }) => state?.revert).filter(fn => typeof fn === 'function');
-  const tagDataToRestore = entries.map(({ state }) => state?.tagData).filter(Boolean);
-
   const perform = (async () => {
     try {
-      if (selectedProgramId === programId) {
+      const attachedStillSelected = selectedProgramId === programId;
+      if (attachedStillSelected) {
         setTemplatePanelMessage('Attaching templates…');
       }
-      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templates: payloadTemplates }),
-      });
-      if (selectedProgramId === programId) {
-        setTemplatePanelMessage('Templates attached.');
-        if (tagifyInstance) {
-          withTagifySuppressed(() => {
-            tagifyInstance.removeAllTags?.();
-            tagifyInstance.dropdown?.hide?.();
+      let attachedDelta = 0;
+      let attachedCount = 0;
+      let alreadyAttachedCount = 0;
+      let failureCount = 0;
+      for (const { id, state } of entries) {
+        const basePayload = state?.payload && typeof state.payload === 'object' ? state.payload : {};
+        const payload = { template_id: id, ...basePayload };
+        try {
+          const result = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/attach`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
           });
-        }
-        updatePanelAddButtonState();
-        setTimeout(() => {
-          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === 'Templates attached.') {
-            setTemplatePanelMessage('');
+          const alreadyAttached = Boolean(result?.alreadyAttached);
+          if (alreadyAttached) {
+            alreadyAttachedCount += 1;
+          } else {
+            attachedCount += 1;
+            attachedDelta += 1;
           }
-        }, 2500);
+          if (result?.template) {
+            applyTemplateMetadataToCaches(result.template);
+          }
+        } catch (error) {
+          failureCount += 1;
+          console.error(error);
+          pendingAttach.add(id);
+          if (state) {
+            pendingAttachState.set(id, state);
+          }
+          if (typeof state?.revert === 'function') {
+            try {
+              state.revert();
+            } catch (revertError) {
+              console.error(revertError);
+            }
+          }
+          if (tagifyInstance && state?.tagData) {
+            withTagifySuppressed(() => {
+              tagifyInstance.addTags([state.tagData]);
+            });
+          }
+        }
+      }
+
+      if (attachedDelta) {
+        const updated = updateCachedProgramTemplateCount(programId, { delta: attachedDelta });
+        if (updated) {
+          renderPrograms();
+        }
+      }
+
+      const hasSuccess = attachedCount > 0 || alreadyAttachedCount > 0;
+
+      if (attachedStillSelected) {
+        if (failureCount && !hasSuccess) {
+          setTemplatePanelMessage('Unable to attach templates. Please try again.', true);
+        } else if (failureCount && hasSuccess) {
+          setTemplatePanelMessage('Some templates could not be attached. Please try again.', true);
+        } else {
+          let successMessage = 'Templates attached.';
+          if (!attachedCount && alreadyAttachedCount) {
+            successMessage = alreadyAttachedCount === 1
+              ? 'Template was already attached.'
+              : 'Templates were already attached.';
+          } else if (attachedCount && alreadyAttachedCount) {
+            successMessage = 'Templates attached. Some were already linked.';
+          }
+          setTemplatePanelMessage(successMessage);
+          setTimeout(() => {
+            if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+              setTemplatePanelMessage('');
+            }
+          }, 2500);
+        }
+        if (hasSuccess) {
+          if (tagifyInstance) {
+            withTagifySuppressed(() => {
+              tagifyInstance.removeAllTags?.();
+              tagifyInstance.dropdown?.hide?.();
+            });
+          }
+          updatePanelAddButtonState();
+        }
+      }
+
+      if (hasSuccess && attachedStillSelected) {
         await loadProgramTemplateAssignments({ preserveSelection: true });
+      }
+
+      if (failureCount) {
+        return false;
       }
       return true;
     } catch (error) {
@@ -998,12 +1064,17 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
         if (state) {
           pendingAttachState.set(id, state);
         }
-      });
-      revertFns.forEach(fn => {
-        try {
-          fn();
-        } catch (revertError) {
-          console.error(revertError);
+        if (typeof state?.revert === 'function') {
+          try {
+            state.revert();
+          } catch (revertError) {
+            console.error(revertError);
+          }
+        }
+        if (tagifyInstance && state?.tagData) {
+          withTagifySuppressed(() => {
+            tagifyInstance.addTags([state.tagData]);
+          });
         }
       });
       if (selectedProgramId === programId) {
@@ -1011,20 +1082,6 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
           ? 'You do not have permission to attach templates.'
           : 'Unable to attach templates. Please try again.';
         setTemplatePanelMessage(message, true);
-        if (tagifyInstance && tagDataToRestore.length) {
-          const existingValues = Array.isArray(tagifyInstance.value)
-            ? new Set(tagifyInstance.value.map(item => normalizeId(item?.value ?? item?.id)))
-            : new Set();
-          const missingTags = tagDataToRestore.filter(tag => {
-            const value = normalizeId(tag?.value ?? tag?.id);
-            return value && !existingValues.has(value);
-          });
-          if (missingTags.length) {
-            withTagifySuppressed(() => {
-              tagifyInstance.addTags(missingTags);
-            });
-          }
-        }
         renderTemplates();
       }
       return false;
@@ -1036,6 +1093,191 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
 
   attachInFlightPromise = perform;
   return perform;
+}
+
+function applyTemplateMetadataToCaches(templateData) {
+  if (!templateData || typeof templateData !== 'object') return;
+  const templateId = getTemplateId(templateData);
+  if (!templateId) return;
+
+  const mergeIntoCollection = collection => {
+    if (!Array.isArray(collection)) return;
+    const index = collection.findIndex(item => getTemplateId(item) === templateId);
+    if (index >= 0) {
+      const existing = collection[index] && typeof collection[index] === 'object' ? collection[index] : {};
+      collection[index] = { ...existing, ...templateData };
+    } else {
+      collection.push({ ...templateData });
+    }
+  };
+
+  mergeIntoCollection(globalTemplates);
+  mergeIntoCollection(templateLibrary);
+
+  const existingLibraryEntry = templateLibraryIndex.get(templateId);
+  if (existingLibraryEntry && typeof existingLibraryEntry === 'object') {
+    templateLibraryIndex.set(templateId, { ...existingLibraryEntry, ...templateData });
+  } else {
+    templateLibraryIndex.set(templateId, { ...templateData });
+  }
+
+  const assignmentIndex = templates.findIndex(template => getTemplateId(template) === templateId);
+  if (assignmentIndex >= 0) {
+    const existingAssignment = templates[assignmentIndex];
+    const mergedAssignment = {
+      ...existingAssignment,
+      template: { ...(existingAssignment?.template || {}), ...templateData },
+      template_id: templateId,
+    };
+    templates[assignmentIndex] = normalizeTemplateAssociation(mergedAssignment, assignmentIndex);
+  }
+
+  if (tagifyInstance) {
+    const assignedOption = getTagifyOptionFromTemplate(templateData, { isAssigned: true });
+    const availableOption = getTagifyOptionFromTemplate(templateData);
+
+    const updateTagCollection = (collection, option) => {
+      if (!Array.isArray(collection) || !option) return;
+      const idx = collection.findIndex(item => normalizeId(item?.value ?? item?.id) === templateId);
+      if (idx >= 0) {
+        const existing = collection[idx] && typeof collection[idx] === 'object' ? collection[idx] : {};
+        collection[idx] = { ...existing, ...option };
+      }
+    };
+
+    updateTagCollection(tagifyInstance.value, assignedOption);
+    if (tagifyInstance.settings && typeof tagifyInstance.settings === 'object') {
+      updateTagCollection(tagifyInstance.settings.whitelist, availableOption);
+    }
+    if (Array.isArray(tagifyInstance.whitelist)) {
+      updateTagCollection(tagifyInstance.whitelist, availableOption);
+    }
+  }
+}
+
+function updateCachedProgramTemplateCount(programId, { delta = 0, total = null } = {}) {
+  if (!programId) return false;
+  const program = getProgramById(programId);
+  if (!program) return false;
+
+  const toFiniteNumber = value => {
+    if (value === null || value === undefined || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const normalizedTotal = toFiniteNumber(total);
+  const hasTotal = normalizedTotal !== null;
+  const normalizedDelta = toFiniteNumber(delta);
+  const deltaValue = normalizedDelta !== null ? normalizedDelta : 0;
+
+  const candidateKeys = [
+    'template_count',
+    'templates_count',
+    'templateCount',
+    'templatesCount',
+    'template_assignments_count',
+    'templateAssignmentsCount',
+    'assignments_count',
+    'assignmentsCount',
+  ];
+  const candidateTargets = [program, program?.meta, program?.stats];
+  let updated = false;
+
+  const applyToTarget = (target, key) => {
+    if (!target || typeof target !== 'object') return false;
+    if (hasTotal) {
+      if (target[key] !== normalizedTotal) {
+        target[key] = normalizedTotal;
+        return true;
+      }
+      return false;
+    }
+    if (!(key in target)) return false;
+    const current = toFiniteNumber(target[key]) ?? 0;
+    const nextValue = Math.max(0, current + deltaValue);
+    if (target[key] !== nextValue) {
+      target[key] = nextValue;
+      return true;
+    }
+    return false;
+  };
+
+  candidateTargets.forEach(target => {
+    candidateKeys.forEach(key => {
+      if (hasTotal || (target && Object.prototype.hasOwnProperty.call(target, key))) {
+        if (applyToTarget(target, key)) {
+          updated = true;
+        }
+      }
+    });
+  });
+
+  if (!updated && hasTotal) {
+    if (program.template_assignments_count !== normalizedTotal) {
+      program.template_assignments_count = normalizedTotal;
+      updated = true;
+    }
+  } else if (!updated && deltaValue) {
+    const current = toFiniteNumber(program.template_assignments_count) ?? 0;
+    const nextValue = Math.max(0, current + deltaValue);
+    if (program.template_assignments_count !== nextValue) {
+      program.template_assignments_count = nextValue;
+      updated = true;
+    }
+  }
+
+  return updated;
+}
+
+function extractAssignmentTotalFromResponse(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+
+  const toFiniteNumber = value => {
+    if (value === null || value === undefined || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const directSources = [payload, payload.meta, payload.stats, payload.counts, payload.pagination];
+  const candidateKeys = [
+    'total',
+    'count',
+    'template_count',
+    'templates_count',
+    'templateCount',
+    'templatesCount',
+    'assignments_count',
+    'assignmentsCount',
+  ];
+
+  for (const source of directSources) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+    for (const key of candidateKeys) {
+      if (key in source) {
+        const numeric = toFiniteNumber(source[key]);
+        if (numeric !== null) {
+          return numeric;
+        }
+      }
+    }
+  }
+
+  const nestedKeys = ['data', 'assignments', 'results', 'items', 'templates', 'records', 'rows'];
+  for (const key of nestedKeys) {
+    const value = payload[key];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      continue;
+    }
+    const nestedTotal = extractAssignmentTotalFromResponse(value);
+    if (nestedTotal !== null) {
+      return nestedTotal;
+    }
+  }
+
+  return null;
 }
 
 function handleTagifyAdd(event) {
@@ -1199,11 +1441,14 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
   const programId = selectedProgramId;
   setTemplatePanelMessage('Removing template…');
   let deleteWasNoOp = false;
+  let detachResult = { wasAttached: false };
   try {
     try {
-      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
-        method: 'DELETE',
+      detachResult = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/detach`, {
+        method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_id: templateId }),
       });
     } catch (error) {
       if (error.status === 404) {
@@ -1212,13 +1457,20 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
         throw error;
       }
     }
-    if (deleteWasNoOp) {
+    const wasAttached = Boolean(detachResult?.wasAttached);
+    if (wasAttached) {
+      const updated = updateCachedProgramTemplateCount(programId, { delta: -1 });
+      if (updated) {
+        renderPrograms();
+      }
+    }
+    if (deleteWasNoOp || !wasAttached) {
       setTemplatePanelMessage('Template was already removed.');
     } else {
       setTemplatePanelMessage('Template removed.');
     }
     setTimeout(() => {
-      const successMessage = deleteWasNoOp ? 'Template was already removed.' : 'Template removed.';
+      const successMessage = deleteWasNoOp || !wasAttached ? 'Template was already removed.' : 'Template removed.';
       if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
         setTemplatePanelMessage('');
       }
@@ -2969,6 +3221,13 @@ async function loadProgramTemplateAssignments(options = {}) {
         templateLibraryIndex.set(id, template);
       }
     });
+
+    const responseTotal = extractAssignmentTotalFromResponse(data);
+    const resolvedTotal = Number.isFinite(responseTotal) ? responseTotal : templates.length;
+    const countUpdated = updateCachedProgramTemplateCount(activeProgramId, { total: resolvedTotal });
+    if (countUpdated) {
+      renderPrograms();
+    }
 
     if (preserveSelection) {
       const validIds = new Set(templates.map(getTemplateId).filter(Boolean));
