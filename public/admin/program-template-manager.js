@@ -4541,7 +4541,7 @@ if (programTemplateList) {
     handleAssociationFieldChange(templateId, field, target);
   });
 
-  programTemplateList.addEventListener('click', async event => {
+  programTemplateList.addEventListener('click', event => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (!target) return;
     const actionBtn = target.closest('[data-assignment-action]');
@@ -4568,22 +4568,11 @@ if (programTemplateList) {
     const item = target.closest('li[data-template-id]');
     if (!item) return;
     const templateId = item.getAttribute('data-template-id');
-    if (!templateId || selectedTemplateId === templateId) return;
-    try {
-      await flushPendingTemplateAssociationChanges();
-    } catch (error) {
-      console.error(error);
-    }
-    destroyTemplateProgramTagifyInstance();
+    if (!templateId) return;
     selectedTemplateIds.clear();
     selectedTemplateIds.add(templateId);
     selectedTemplateId = templateId;
-    selectedTemplateProgramIds.clear();
-    selectedTemplateProgramId = null;
-    templatePrograms = [];
-    isLoadingTemplatePrograms = true;
     renderTemplates();
-    loadTemplateProgramAssociations({ preserveSelection: true }).catch(() => {});
   });
 }
 
