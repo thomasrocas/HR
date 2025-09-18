@@ -546,6 +546,39 @@ export const getProgramTemplates = async (
   return normalizeTemplateList(raw);
 };
 
+export const searchTemplates = async (
+  params: { query?: string; programId?: string } = {},
+): Promise<TemplateListResponse> => {
+  const search = new URLSearchParams();
+  if (params.query) search.set('query', params.query);
+  if (params.programId) search.set('programId', params.programId);
+  const query = search.toString();
+  const raw = await apiFetch<unknown>(`/api/templates${query ? `?${query}` : ''}`);
+  return normalizeTemplateList(raw);
+};
+
+export const attachTemplateToProgram = async (
+  programId: string,
+  templateId: string,
+): Promise<Template> => {
+  const raw = await apiFetch<unknown>(`/api/programs/${programId}/templates/attach`, {
+    method: 'POST',
+    body: JSON.stringify({ templateId }),
+  });
+  return normalizeTemplate(raw);
+};
+
+export const detachTemplateFromProgram = async (
+  programId: string,
+  templateId: string,
+): Promise<Template> => {
+  const raw = await apiFetch<unknown>(`/api/programs/${programId}/templates/detach`, {
+    method: 'POST',
+    body: JSON.stringify({ templateId }),
+  });
+  return normalizeTemplate(raw);
+};
+
 export const createTemplate = async (programId: string, payload: Partial<Template>): Promise<Template> => {
   const raw = await apiFetch<unknown>(programTemplatesBase(programId), {
     method: 'POST',
@@ -647,6 +680,48 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { deleted: true } as any;
     case /^\/programs\/[^/]+\/templates\/[^/]+\/restore$/.test(url) && method === 'POST':
       return { restored: true } as any;
+    case (url === '/api/templates' || url.startsWith('/api/templates?')) && method === 'GET': {
+      const query = url.includes('?') ? new URLSearchParams(url.split('?')[1]) : undefined;
+      const searchTerm = query?.get('query')?.toLowerCase() ?? '';
+      const programFilter = query?.get('programId') ?? undefined;
+      const filtered = seed.templates.filter(template => {
+        if (programFilter && template.programId === programFilter) {
+          return false;
+        }
+        return true;
+      });
+      const searched = filtered.filter(template => {
+        if (!searchTerm) return true;
+        return (
+          template.name.toLowerCase().includes(searchTerm) ||
+          template.category.toLowerCase().includes(searchTerm)
+        );
+      });
+      return { data: searched.map(template => ({ ...template })) } as any;
+    }
+    case /^\/api\/programs\/[^/]+\/templates\/attach$/.test(url) && method === 'POST': {
+      const programId = url.split('/')[3];
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      const template = seed.templates.find(t => t.id === payload.templateId);
+      if (!template) {
+        throw new ApiError('Template not found', 404);
+      }
+      template.programId = programId;
+      return { ...template } as any;
+    }
+    case /^\/api\/programs\/[^/]+\/templates\/detach$/.test(url) && method === 'POST': {
+      const programId = url.split('/')[3];
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      const template = seed.templates.find(t => t.id === payload.templateId);
+      if (!template) {
+        throw new ApiError('Template not found', 404);
+      }
+      if (template.programId !== programId) {
+        throw new ApiError('Template is not attached to this program', 409);
+      }
+      template.programId = '';
+      return { ...template } as any;
+    }
     case url.startsWith('/api/programs?'):
       return { data: p, meta: { total: p.length, page: 1 } } as any;
     case /^\/api\/programs\/[^/]+\/publish$/.test(url) && method === 'POST':
@@ -733,6 +808,14 @@ export const seed = {
       name: 'Retail Associate Training',
       category: 'Operations',
       updatedAt: '2024-04-20',
+      status: 'draft',
+    },
+    {
+      id: 't3',
+      programId: '',
+      name: 'Company Overview',
+      category: 'General',
+      updatedAt: '2024-03-01',
       status: 'draft',
     },
   ] as Template[],
