@@ -171,6 +171,7 @@ function normalizeTemplateAssociation(raw, index = 0) {
   const source = raw && typeof raw === 'object' ? raw : {};
   const normalized = { ...source };
   const nestedTemplate = source.template && typeof source.template === 'object' ? source.template : null;
+  const linkMeta = source.link && typeof source.link === 'object' ? source.link : null;
   const templateId = getTemplateId(source) || (nestedTemplate ? getTemplateId(nestedTemplate) : null);
   if (templateId && !normalized.templateId) {
     normalized.templateId = templateId;
@@ -178,17 +179,35 @@ function normalizeTemplateAssociation(raw, index = 0) {
   if (!normalized.id && templateId) {
     normalized.id = templateId;
   }
+  const linkId = source.link_id ?? source.linkId ?? linkMeta?.id ?? null;
+  if (linkId && !normalized.link_id) {
+    normalized.link_id = linkId;
+  }
+  if (linkId && !normalized.linkId) {
+    normalized.linkId = linkId;
+  }
+
+  const weekSource = source.week_number
+    ?? linkMeta?.week_number
+    ?? source.weekNumber
+    ?? source.week
+    ?? (nestedTemplate ? nestedTemplate.week_number ?? nestedTemplate.weekNumber ?? nestedTemplate.week : null);
+  const weekNumber = toNullableNumber(weekSource);
+  normalized.week_number = weekNumber;
+  normalized.weekNumber = weekNumber;
 
   const dueOffsetSource = source.due_offset_days
+    ?? linkMeta?.due_offset_days
     ?? source.dueOffsetDays
     ?? source.due_in_days
     ?? source.dueOffset
-    ?? null;
+    ?? (nestedTemplate ? nestedTemplate.due_offset_days : null);
   const dueOffsetDays = toNullableNumber(dueOffsetSource);
   normalized.due_offset_days = dueOffsetDays;
   normalized.dueOffsetDays = dueOffsetDays;
 
   const requiredSource = source.required
+    ?? linkMeta?.required
     ?? source.is_required
     ?? source.isRequired
     ?? (nestedTemplate ? nestedTemplate.required : null);
@@ -196,6 +215,7 @@ function normalizeTemplateAssociation(raw, index = 0) {
   normalized.required = required;
 
   const visibilitySource = source.visibility
+    ?? linkMeta?.visibility
     ?? source.visible_to
     ?? source.visibleTo
     ?? source.audience
@@ -205,7 +225,12 @@ function normalizeTemplateAssociation(raw, index = 0) {
     : String(visibilitySource);
   normalized.visibility = visibility;
 
+  const visibleSource = source.visible ?? linkMeta?.visible;
+  const visible = visibleSource === null || visibleSource === undefined ? null : toNullableBoolean(visibleSource);
+  normalized.visible = visible;
+
   const notesSource = source.notes
+    ?? linkMeta?.notes
     ?? (nestedTemplate ? nestedTemplate.notes : null)
     ?? source.description
     ?? source.summary
@@ -213,6 +238,7 @@ function normalizeTemplateAssociation(raw, index = 0) {
   normalized.notes = notesSource === null || notesSource === undefined ? '' : String(notesSource);
 
   const sortSource = source.sort_order
+    ?? linkMeta?.sort_order
     ?? source.sortOrder
     ?? source.order
     ?? source.position
@@ -222,6 +248,16 @@ function normalizeTemplateAssociation(raw, index = 0) {
   const fallbackSort = index + 1;
   normalized.sort_order = typeof sortValue === 'number' && Number.isFinite(sortValue) ? sortValue : fallbackSort;
   normalized.sortOrder = normalized.sort_order;
+
+  if (!normalized.created_by && (source.created_by || linkMeta?.created_by)) {
+    normalized.created_by = source.created_by ?? linkMeta?.created_by ?? null;
+  }
+  if (!normalized.updated_by && (source.updated_by || linkMeta?.updated_by)) {
+    normalized.updated_by = source.updated_by ?? linkMeta?.updated_by ?? null;
+  }
+  if (!normalized.updated_at && (source.updated_at || linkMeta?.updated_at)) {
+    normalized.updated_at = source.updated_at ?? linkMeta?.updated_at ?? null;
+  }
 
   return normalized;
 }

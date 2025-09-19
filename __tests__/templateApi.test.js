@@ -72,10 +72,21 @@ describe('template api', () => {
         deleted_at timestamp
       );
       create table public.program_template_links (
+        id uuid primary key default gen_random_uuid(),
         template_id bigint not null references public.program_task_templates(template_id) on delete cascade,
         program_id text not null references public.programs(program_id) on delete cascade,
+        week_number int,
+        sort_order int,
+        due_offset_days int,
+        required boolean,
+        visibility text,
+        visible boolean default true,
+        notes text,
+        created_by uuid,
+        updated_by uuid,
         created_at timestamptz not null default now(),
-        primary key (template_id, program_id)
+        updated_at timestamptz default now(),
+        unique (program_id, template_id)
       );
       create table public.user_roles (
         user_id uuid,
@@ -271,11 +282,13 @@ describe('template api', () => {
       'Template Two',
       'published',
     ]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
       templateOne,
       programId,
     ]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
       templateTwo,
       programId,
     ]);
@@ -323,10 +336,10 @@ describe('template api', () => {
       'Attach Program',
     ]);
     const templateId = nextTemplateId();
-    await pool.query('insert into public.program_task_templates(template_id, label) values ($1,$2)', [
-      templateId,
-      'Attach Template',
-    ]);
+    await pool.query(
+      'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [templateId, 3, 'Attach Template', 'Be prepared', 5, true, 'managers', 4]
+    );
 
     const managerAgent = await loginAgent(managerUsername);
     const otherManagerAgent = await loginAgent(otherManagerUsername);
@@ -337,6 +350,18 @@ describe('template api', () => {
       .expect(200);
     expect(attachRes.body.attached).toBe(true);
     expect(attachRes.body.alreadyAttached).toBe(false);
+    expect(attachRes.body.template).toMatchObject({
+      program_id: 'attach-program',
+      week_number: 3,
+      notes: 'Be prepared',
+      due_offset_days: 5,
+      required: true,
+      visibility: 'managers',
+      visible: true,
+      sort_order: 4,
+    });
+    expect(attachRes.body.template.link_id).toBeTruthy();
+    expect(String(attachRes.body.template.template_id)).toBe(String(templateId));
 
     attachRes = await managerAgent
       .post('/api/programs/attach-program/templates/attach')
@@ -373,5 +398,96 @@ describe('template api', () => {
       .query({ include_deleted: 'true' })
       .expect(200);
     expect(programList.body.meta.total).toBe(0);
+  });
+
+  test('link metadata updates apply to a single program', async () => {
+    const adminUsername = 'admin-link-meta';
+    const adminId = await createUserWithRole(adminUsername, 'admin');
+    await grantPermission('template.update');
+    const adminAgent = await loginAgent(adminUsername);
+
+    await pool.query('insert into public.programs(program_id, title) values ($1,$2), ($3,$4)', [
+      'link-program-a',
+      'Program A',
+      'link-program-b',
+      'Program B',
+    ]);
+    const templateId = nextTemplateId();
+    await pool.query(
+      'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [templateId, 2, 'Shareable Template', 'Base notes', 3, false, 'everyone', 2]
+    );
+
+    await adminAgent
+      .post('/api/programs/link-program-a/templates/attach')
+      .send({ template_id: templateId })
+      .expect(200);
+    await adminAgent
+      .post('/api/programs/link-program-b/templates/attach')
+      .send({ template_id: templateId })
+      .expect(200);
+
+    const patchResponse = await adminAgent
+      .patch('/programs/link-program-a/templates/metadata')
+      .send({
+        updates: [
+          {
+            template_id: templateId,
+            due_offset_days: 9,
+            notes: 'Only for program A',
+            visibility: 'admins',
+            week_number: 5,
+          },
+        ],
+      })
+      .expect(200);
+    expect(patchResponse.body).toEqual({ updated: 1 });
+
+    const programAResponse = await adminAgent
+      .get('/api/programs/link-program-a/templates')
+      .expect(200);
+    const assignmentA = programAResponse.body.data.find(row => String(row.template_id) === String(templateId));
+    expect(assignmentA).toMatchObject({
+      program_id: 'link-program-a',
+      due_offset_days: 9,
+      notes: 'Only for program A',
+      visibility: 'admins',
+      week_number: 5,
+    });
+
+    const programBResponse = await adminAgent
+      .get('/api/programs/link-program-b/templates')
+      .expect(200);
+    const assignmentB = programBResponse.body.data.find(row => String(row.template_id) === String(templateId));
+    expect(assignmentB).toMatchObject({
+      program_id: 'link-program-b',
+      due_offset_days: 3,
+      notes: 'Base notes',
+      visibility: 'everyone',
+      week_number: 2,
+    });
+
+    const { rows: linkRows } = await pool.query(
+      'select due_offset_days, notes, visibility, week_number, updated_by from public.program_template_links where program_id = $1 and template_id = $2',
+      ['link-program-a', templateId]
+    );
+    expect(linkRows[0]).toMatchObject({
+      due_offset_days: 9,
+      notes: 'Only for program A',
+      visibility: 'admins',
+      week_number: 5,
+      updated_by: adminId,
+    });
+
+    const { rows: otherLinkRows } = await pool.query(
+      'select due_offset_days, notes, visibility, week_number from public.program_template_links where program_id = $1 and template_id = $2',
+      ['link-program-b', templateId]
+    );
+    expect(otherLinkRows[0]).toMatchObject({
+      due_offset_days: 3,
+      notes: 'Base notes',
+      visibility: 'everyone',
+      week_number: 2,
+    });
   });
 });

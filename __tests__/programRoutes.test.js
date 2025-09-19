@@ -71,10 +71,21 @@ describe('program routes', () => {
         deleted_at timestamp
       );
       create table public.program_template_links (
+        id uuid primary key default gen_random_uuid(),
         template_id bigint not null references public.program_task_templates(template_id) on delete cascade,
         program_id text not null references public.programs(program_id) on delete cascade,
+        week_number int,
+        sort_order int,
+        due_offset_days int,
+        required boolean,
+        visibility text,
+        visible boolean default true,
+        notes text,
+        created_by uuid,
+        updated_by uuid,
         created_at timestamptz not null default now(),
-        primary key (template_id, program_id)
+        updated_at timestamptz default now(),
+        unique (program_id, template_id)
       );
       create table public.user_roles (
         user_id uuid,
@@ -237,7 +248,11 @@ describe('program routes', () => {
       1,
       'Delete Template'
     ]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
+      tmplId,
+      progId,
+    ]);
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username: 'mgr-template-delete', password: 'passpass' }).expect(200);
@@ -293,8 +308,16 @@ describe('program routes', () => {
       2,
       't2'
     ]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplOne, progId]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplTwo, progId]);
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
+      tmplOne,
+      progId,
+    ]);
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
+      tmplTwo,
+      progId,
+    ]);
 
     await agent.delete(`/programs/${progId}`).expect(200, { deleted: true });
 
@@ -345,7 +368,11 @@ test('patch updates template fields', async () => {
     'n1',
     1,
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
 
   const res = await agent
     .patch(`/programs/${progId}/templates/${tmplId}`)
@@ -357,8 +384,17 @@ test('patch updates template fields', async () => {
   expect(res.body.notes).toBe('n2');
   expect(res.body.sort_order).toBe(5);
 
-  const { rows } = await pool.query('select week_number, label, notes, sort_order from public.program_task_templates where template_id=$1', [tmplId]);
-  expect(rows[0]).toEqual({ week_number: 2, label: 'new', notes: 'n2', sort_order: 5 });
+  const { rows: templateRows } = await pool.query(
+    'select week_number, label, notes, sort_order from public.program_task_templates where template_id=$1',
+    [tmplId]
+  );
+  expect(templateRows[0]).toEqual({ week_number: 1, label: 'new', notes: 'n1', sort_order: 1 });
+
+  const { rows: linkRows } = await pool.query(
+    'select week_number, notes, sort_order from public.program_template_links where template_id=$1 and program_id=$2',
+    [tmplId, progId]
+  );
+  expect(linkRows[0]).toEqual({ week_number: 2, notes: 'n2', sort_order: 5 });
 });
 
 test('patch updates template status', async () => {
@@ -379,7 +415,11 @@ test('patch updates template status', async () => {
     'status-old',
     'draft',
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
 
   const res = await agent
     .patch(`/programs/${progId}/templates/${tmplId}`)
@@ -409,7 +449,11 @@ test('patch rejects invalid template status', async () => {
     1,
     'status-invalid',
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
 
   const res = await agent
     .patch(`/programs/${progId}/templates/${tmplId}`)
@@ -441,7 +485,11 @@ test('patch fails for soft deleted template', async () => {
     'n1',
     1,
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
 
   await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
 
@@ -468,7 +516,11 @@ test('delete soft deletes template row', async () => {
     1,
     'tmp',
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
 
   await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
 
@@ -505,7 +557,11 @@ test('soft deleted template can be restored', async () => {
     1,
     'tmp',
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [tmplId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
 
   await agent.delete(`/programs/${progId}/templates/${tmplId}`).expect(200, { deleted: true });
 
@@ -543,8 +599,16 @@ test('instantiate skips soft deleted templates', async () => {
     2,
     'deleted',
   ]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [activeId, progId]);
-  await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [deletedId, progId]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    activeId,
+    progId,
+  ]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    deletedId,
+    progId,
+  ]);
 
   await agent.delete(`/programs/${progId}/templates/${deletedId}`).expect(200, { deleted: true });
 
