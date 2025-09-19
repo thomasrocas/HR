@@ -332,33 +332,31 @@ describe('template api', () => {
     const otherManagerAgent = await loginAgent(otherManagerUsername);
 
     let attachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/attach')
+      .post('/api/programs/attach-program/templates')
       .send({ template_id: templateId })
-      .expect(200);
+      .expect(201);
     expect(attachRes.body.attached).toBe(true);
     expect(attachRes.body.alreadyAttached).toBe(false);
 
     attachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/attach')
+      .post('/api/programs/attach-program/templates')
       .send({ templateId })
       .expect(200);
     expect(attachRes.body.alreadyAttached).toBe(true);
 
     await otherManagerAgent
-      .post('/api/programs/attach-program/templates/attach')
+      .post('/api/programs/attach-program/templates')
       .send({ template_id: templateId })
       .expect(403);
 
     let detachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/detach')
-      .send({ template_id: templateId })
+      .delete(`/api/programs/attach-program/templates/${templateId}`)
       .expect(200);
     expect(detachRes.body.detached).toBe(true);
     expect(detachRes.body.wasAttached).toBe(true);
 
     detachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/detach')
-      .send({ template_id: templateId })
+      .delete(`/api/programs/attach-program/templates/${templateId}`)
       .expect(200);
     expect(detachRes.body.wasAttached).toBe(false);
 
@@ -373,5 +371,70 @@ describe('template api', () => {
       .query({ include_deleted: 'true' })
       .expect(200);
     expect(programList.body.meta.total).toBe(0);
+  });
+
+  test('PATCH /api/programs/:programId/templates/:templateId updates metadata with RBAC enforcement', async () => {
+    await grantPermission('template.update');
+
+    const managerUsername = 'manager-metadata';
+    const managerId = await createUserWithRole(managerUsername, 'manager');
+    const otherManagerUsername = 'manager-metadata-no-access';
+    await createUserWithRole(otherManagerUsername, 'manager');
+
+    const programId = 'metadata-program';
+    await pool.query('insert into public.programs(program_id, title) values ($1,$2)', [programId, 'Metadata Program']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [
+      managerId,
+      programId,
+      'manager',
+    ]);
+
+    const templateId = nextTemplateId();
+    await pool.query(
+      'insert into public.program_task_templates(template_id, label, notes, due_offset_days, required, status) values ($1,$2,$3,$4,$5,$6)',
+      [templateId, 'Metadata Template', 'Old notes', 1, false, 'draft']
+    );
+    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [
+      templateId,
+      programId,
+    ]);
+
+    const managerAgent = await loginAgent(managerUsername);
+    const otherManagerAgent = await loginAgent(otherManagerUsername);
+
+    await otherManagerAgent
+      .patch(`/api/programs/${programId}/templates/${templateId}`)
+      .send({ notes: 'No access' })
+      .expect(403);
+
+    const patchRes = await managerAgent
+      .patch(`/api/programs/${programId}/templates/${templateId}`)
+      .send({ notes: 'Updated notes', due_offset_days: 5, required: true, status: 'published' })
+      .expect(200);
+
+    expect(patchRes.body.updated).toBe(true);
+    expect(patchRes.body.template).toMatchObject({
+      notes: 'Updated notes',
+      due_offset_days: 5,
+      required: true,
+      status: 'published',
+      program_id: programId,
+    });
+
+    const { rows } = await pool.query(
+      'select notes, due_offset_days, required, status from public.program_task_templates where template_id = $1',
+      [templateId]
+    );
+    expect(rows[0]).toMatchObject({
+      notes: 'Updated notes',
+      due_offset_days: 5,
+      required: true,
+      status: 'published',
+    });
+
+    await managerAgent
+      .patch(`/api/programs/${programId}/templates/${templateId}`)
+      .send({ status: 'invalid-status' })
+      .expect(400);
   });
 });

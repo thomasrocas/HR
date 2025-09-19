@@ -469,6 +469,55 @@ const normalizeTemplateStatus = value => {
   return TEMPLATE_STATUSES.has(normalized) ? normalized : null;
 };
 
+function buildTemplateMetadataPatch(source) {
+  const payload = source && typeof source === 'object' ? source : {};
+  const patch = {};
+  let hasField = false;
+
+  const assign = (key, value) => {
+    patch[key] = value;
+    hasField = true;
+  };
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'notes')) {
+    assign('notes', toNullableString(payload.notes));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'due_offset_days')) {
+    assign('due_offset_days', toNullableInteger(payload.due_offset_days));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'required')) {
+    assign('required', toNullableBoolean(payload.required));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'visibility')) {
+    assign('visibility', toNullableString(payload.visibility));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'sort_order')) {
+    assign('sort_order', toNullableInteger(payload.sort_order));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'week_number')) {
+    assign('week_number', toNullableInteger(payload.week_number));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'label')) {
+    assign('label', toNullableString(payload.label));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+    const statusValue = payload.status;
+    if (statusValue === null || statusValue === undefined || statusValue === '') {
+      return { patch: {}, hasField: false, error: 'invalid_status' };
+    }
+    if (typeof statusValue !== 'string') {
+      return { patch: {}, hasField: false, error: 'invalid_status' };
+    }
+    const normalizedStatus = normalizeTemplateStatus(statusValue);
+    if (!normalizedStatus) {
+      return { patch: {}, hasField: false, error: 'invalid_status' };
+    }
+    assign('status', normalizedStatus);
+  }
+
+  return { patch, hasField, error: null };
+}
+
 const createHttpError = (status, code) => {
   const error = new Error(code || 'error');
   error.status = status;
@@ -500,6 +549,86 @@ async function withTransaction(req, work) {
   } finally {
     client.release();
   }
+}
+
+async function ensureProgramManagementAccess(req, programId) {
+  if (!programId) {
+    throw createHttpError(400, 'invalid_program');
+  }
+  if (req.roles?.includes('admin')) {
+    return true;
+  }
+  const manages = await userManagesProgram(req.user?.id, programId);
+  if (!manages) {
+    throw createHttpError(403, 'forbidden');
+  }
+  return true;
+}
+
+async function attachTemplateToProgram(req, programId, templateId) {
+  return withTransaction(req, async client => {
+    const { rowCount: programExists } = await client.query(
+      'select 1 from public.programs where program_id = $1 limit 1',
+      [programId]
+    );
+    if (!programExists) {
+      throw createHttpError(404, 'program_not_found');
+    }
+    const foundTemplate = await templatesDao.getById({ id: templateId, includeDeleted: false, db: client });
+    if (!foundTemplate) {
+      throw createHttpError(404, 'template_not_found');
+    }
+    const attachResult = await programTemplateLinksDao.attach({
+      programId,
+      templateId,
+      db: client,
+    });
+    return { template: foundTemplate, attachResult };
+  });
+}
+
+async function detachTemplateFromProgram(req, programId, templateId) {
+  return withTransaction(req, async client => {
+    const { rowCount: programExists } = await client.query(
+      'select 1 from public.programs where program_id = $1 limit 1',
+      [programId]
+    );
+    if (!programExists) {
+      throw createHttpError(404, 'program_not_found');
+    }
+    const template = await templatesDao.getById({ id: templateId, includeDeleted: true, db: client });
+    if (!template) {
+      throw createHttpError(404, 'template_not_found');
+    }
+    const detachResult = await programTemplateLinksDao.detach({
+      programId,
+      templateId,
+      db: client,
+    });
+    return { template, detachResult };
+  });
+}
+
+async function updateProgramTemplateMetadata(req, programId, templateId, patch) {
+  return withTransaction(req, async client => {
+    const { rowCount: programExists } = await client.query(
+      'select 1 from public.programs where program_id = $1 limit 1',
+      [programId]
+    );
+    if (!programExists) {
+      throw createHttpError(404, 'program_not_found');
+    }
+    const updateResult = await programTemplateLinksDao.updateMetadata({
+      programId,
+      templateId,
+      patch,
+      db: client,
+    });
+    if (!updateResult.updated) {
+      throw createHttpError(404, 'template_not_found');
+    }
+    return updateResult;
+  });
 }
 
 apiRouter.get('/templates', ensurePerm('template.read'), async (req, res) => {
@@ -732,6 +861,80 @@ apiRouter.get('/programs/:programId/templates', ensurePerm('template.read'), asy
   }
 });
 
+apiRouter.post('/programs/:programId/templates', ensurePerm('template.update'), async (req, res) => {
+  const { programId } = req.params;
+  const templateId = normalizeTemplateId(req.body?.template_id ?? req.body?.templateId);
+  if (!programId || templateId === null) {
+    return res.status(400).json({ error: 'invalid_template_id' });
+  }
+  try {
+    await ensureProgramManagementAccess(req, programId);
+    const { template, attachResult } = await attachTemplateToProgram(req, programId, templateId);
+    const statusCode = attachResult.alreadyAttached ? 200 : 201;
+    res.status(statusCode).json({ attached: true, alreadyAttached: attachResult.alreadyAttached, template });
+  } catch (err) {
+    if (err?.status === 404) {
+      return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    if (err?.status === 403) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    console.error('POST /api/programs/:id/templates error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.patch('/programs/:programId/templates/:templateId', ensurePerm('template.update'), async (req, res) => {
+  const { programId, templateId: templateParam } = req.params;
+  const templateId = normalizeTemplateId(templateParam);
+  if (!programId || templateId === null) {
+    return res.status(400).json({ error: 'invalid_template_id' });
+  }
+  const { patch, hasField, error } = buildTemplateMetadataPatch(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+  if (!hasField) {
+    return res.status(400).json({ error: 'no_fields' });
+  }
+  try {
+    await ensureProgramManagementAccess(req, programId);
+    const result = await updateProgramTemplateMetadata(req, programId, templateId, patch);
+    res.json({ updated: result.updated, template: result.template });
+  } catch (err) {
+    if (err?.status === 404) {
+      return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    if (err?.status === 403) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    console.error('PATCH /api/programs/:id/templates/:templateId error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.delete('/programs/:programId/templates/:templateId', ensurePerm('template.update'), async (req, res) => {
+  const { programId, templateId: templateParam } = req.params;
+  const templateId = normalizeTemplateId(templateParam);
+  if (!programId || templateId === null) {
+    return res.status(400).json({ error: 'invalid_template_id' });
+  }
+  try {
+    await ensureProgramManagementAccess(req, programId);
+    const result = await detachTemplateFromProgram(req, programId, templateId);
+    res.json({ detached: true, wasAttached: result.detachResult.wasAttached });
+  } catch (err) {
+    if (err?.status === 404) {
+      return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    if (err?.status === 403) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    console.error('DELETE /api/programs/:id/templates/:templateId error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
 apiRouter.post('/programs/:programId/templates/attach', ensurePerm('template.update'), async (req, res) => {
   const { programId } = req.params;
   const templateId = normalizeTemplateId(req.body?.template_id ?? req.body?.templateId);
@@ -739,35 +942,15 @@ apiRouter.post('/programs/:programId/templates/attach', ensurePerm('template.upd
     return res.status(400).json({ error: 'invalid_template_id' });
   }
   try {
-    if (!req.roles.includes('admin')) {
-      const manages = await userManagesProgram(req.user.id, programId);
-      if (!manages) {
-        return res.status(403).json({ error: 'forbidden' });
-      }
-    }
-    const { template, attachResult } = await withTransaction(req, async client => {
-      const { rowCount: programExists } = await client.query(
-        'select 1 from public.programs where program_id = $1 limit 1',
-        [programId]
-      );
-      if (!programExists) {
-        throw createHttpError(404, 'program_not_found');
-      }
-      const foundTemplate = await templatesDao.getById({ id: templateId, includeDeleted: false, db: client });
-      if (!foundTemplate) {
-        throw createHttpError(404, 'template_not_found');
-      }
-      const attachResultInner = await programTemplateLinksDao.attach({
-        programId,
-        templateId,
-        db: client,
-      });
-      return { template: foundTemplate, attachResult: attachResultInner };
-    });
+    await ensureProgramManagementAccess(req, programId);
+    const { template, attachResult } = await attachTemplateToProgram(req, programId, templateId);
     res.json({ attached: true, alreadyAttached: attachResult.alreadyAttached, template });
   } catch (err) {
     if (err?.status === 404) {
       return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    if (err?.status === 403) {
+      return res.status(403).json({ error: 'forbidden' });
     }
     console.error('POST /api/programs/:id/templates/attach error', err);
     res.status(500).json({ error: 'internal_server_error' });
@@ -781,35 +964,15 @@ apiRouter.post('/programs/:programId/templates/detach', ensurePerm('template.upd
     return res.status(400).json({ error: 'invalid_template_id' });
   }
   try {
-    if (!req.roles.includes('admin')) {
-      const manages = await userManagesProgram(req.user.id, programId);
-      if (!manages) {
-        return res.status(403).json({ error: 'forbidden' });
-      }
-    }
-    const result = await withTransaction(req, async client => {
-      const { rowCount: programExists } = await client.query(
-        'select 1 from public.programs where program_id = $1 limit 1',
-        [programId]
-      );
-      if (!programExists) {
-        throw createHttpError(404, 'program_not_found');
-      }
-      const template = await templatesDao.getById({ id: templateId, includeDeleted: true, db: client });
-      if (!template) {
-        throw createHttpError(404, 'template_not_found');
-      }
-      const detachResultInner = await programTemplateLinksDao.detach({
-        programId,
-        templateId,
-        db: client,
-      });
-      return { template, detachResult: detachResultInner };
-    });
+    await ensureProgramManagementAccess(req, programId);
+    const result = await detachTemplateFromProgram(req, programId, templateId);
     res.json({ detached: true, wasAttached: result.detachResult.wasAttached });
   } catch (err) {
     if (err?.status === 404) {
       return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    if (err?.status === 403) {
+      return res.status(403).json({ error: 'forbidden' });
     }
     console.error('POST /api/programs/:id/templates/detach error', err);
     res.status(500).json({ error: 'internal_server_error' });
@@ -1270,50 +1433,9 @@ app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.updat
       if (!raw || typeof raw !== 'object') continue;
       const templateId = raw.template_id ?? raw.templateId ?? raw.id;
       if (!templateId) continue;
-      const patch = {};
-      let hasField = false;
-      if (Object.prototype.hasOwnProperty.call(raw, 'notes')) {
-        patch.notes = toNullableString(raw.notes);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'due_offset_days')) {
-        patch.due_offset_days = toNullableInteger(raw.due_offset_days);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'required')) {
-        patch.required = toNullableBoolean(raw.required);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'visibility')) {
-        patch.visibility = toNullableString(raw.visibility);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'sort_order')) {
-        patch.sort_order = toNullableInteger(raw.sort_order);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'week_number')) {
-        patch.week_number = toNullableInteger(raw.week_number);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'label')) {
-        patch.label = toNullableString(raw.label);
-        hasField = true;
-      }
-      if (Object.prototype.hasOwnProperty.call(raw, 'status')) {
-        const statusValue = raw.status;
-        if (statusValue === null || statusValue === undefined || statusValue === '') {
-          return res.status(400).json({ error: 'invalid_status' });
-        }
-        if (typeof statusValue !== 'string') {
-          return res.status(400).json({ error: 'invalid_status' });
-        }
-        const normalizedStatus = statusValue.toLowerCase();
-        if (!TEMPLATE_STATUSES.has(normalizedStatus)) {
-          return res.status(400).json({ error: 'invalid_status' });
-        }
-        patch.status = normalizedStatus;
-        hasField = true;
+      const { patch, hasField, error } = buildTemplateMetadataPatch(raw);
+      if (error) {
+        return res.status(400).json({ error });
       }
       if (!hasField) continue;
       normalized.push({ templateId, patch });
@@ -1329,26 +1451,15 @@ app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.updat
       for (const entry of normalized) {
         const fields = Object.keys(entry.patch);
         if (!fields.length) continue;
-        const values = [];
-        const assignments = fields.map((field, index) => {
-          values.push(entry.patch[field]);
-          return `${field} = $${index + 1}`;
+        const result = await programTemplateLinksDao.updateMetadata({
+          programId: program_id,
+          templateId: entry.templateId,
+          patch: entry.patch,
+          db: client,
         });
-        values.push(program_id);
-        values.push(entry.templateId);
-        const programParamIndex = values.length - 1;
-        const templateParamIndex = values.length;
-        const sql = `
-          update public.program_task_templates t
-             set ${assignments.join(', ')}
-            from public.program_template_links l
-           where t.template_id = $${templateParamIndex}
-             and l.template_id = t.template_id
-             and l.program_id = $${programParamIndex}
-             and t.deleted_at is null
-        `;
-        const result = await client.query(sql, values);
-        totalUpdated += result.rowCount;
+        if (result.updated) {
+          totalUpdated += 1;
+        }
       }
       await client.query('commit');
     } catch (err) {

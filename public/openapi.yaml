@@ -252,7 +252,6 @@ paths:
           description: Missing `template.read` permission.
         '404':
           description: Program not found.
-  /api/programs/{programId}/templates/attach:
     post:
       summary: Attach an existing template to a program
       tags: [Programs]
@@ -268,8 +267,21 @@ paths:
                   type: string
                   description: Identifier of the template to attach.
       responses:
+        '201':
+          description: Template attached to the program.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attached:
+                    type: boolean
+                  alreadyAttached:
+                    type: boolean
+                  template:
+                    $ref: '#/components/schemas/Template'
         '200':
-          description: Template attached or already linked.
+          description: Template was already attached to the program.
           content:
             application/json:
               schema:
@@ -289,9 +301,22 @@ paths:
           description: Missing `template.update` permission or manager not assigned.
         '404':
           description: Program or template not found.
-  /api/programs/{programId}/templates/detach:
-    post:
-      summary: Detach a template from a program
+  /api/programs/{programId}/templates/{templateId}:
+    parameters:
+      - in: path
+        name: programId
+        required: true
+        schema:
+          type: string
+        description: Identifier of the program.
+      - in: path
+        name: templateId
+        required: true
+        schema:
+          type: string
+        description: Identifier of the template assignment.
+    patch:
+      summary: Update template metadata for a program assignment
       tags: [Programs]
       requestBody:
         required: true
@@ -299,11 +324,47 @@ paths:
           application/json:
             schema:
               type: object
-              required: [template_id]
               properties:
-                template_id:
+                notes:
                   type: string
-                  description: Identifier of the template to detach.
+                due_offset_days:
+                  type: integer
+                required:
+                  type: boolean
+                visibility:
+                  type: string
+                sort_order:
+                  type: integer
+                week_number:
+                  type: integer
+                label:
+                  type: string
+                status:
+                  type: string
+                  enum: [draft, published, deprecated]
+      responses:
+        '200':
+          description: Template metadata updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: boolean
+                  template:
+                    $ref: '#/components/schemas/Template'
+        '400':
+          description: Invalid payload.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Missing `template.update` permission or manager not assigned.
+        '404':
+          description: Program or template not found.
+    delete:
+      summary: Detach a template from a program
+      tags: [Programs]
       responses:
         '200':
           description: Template detached if linked.
