@@ -2,6 +2,58 @@
 
 const { TEMPLATE_STATUSES, serializeTemplateRow } = require('./templates');
 
+const LINK_WRITABLE_COLUMNS = new Set([
+  'week_number',
+  'sort_order',
+  'due_offset_days',
+  'required',
+  'visibility',
+  'visible',
+  'notes',
+  'created_by',
+  'updated_by',
+]);
+
+const toNullableBoolean = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', 't', 'yes', 'y', '1'].includes(normalized)) return true;
+    if (['false', 'f', 'no', 'n', '0'].includes(normalized)) return false;
+  }
+  return Boolean(value);
+};
+
+const toNullableString = value => {
+  if (value === null || value === undefined) return null;
+  return String(value);
+};
+
+const formatTemplateLinkRow = row => {
+  const template = serializeTemplateRow(row);
+  return {
+    ...template,
+    program_id: row.program_id ?? null,
+    linked_at: row.created_at ?? null,
+    link_id: row.link_id ?? row.id ?? null,
+    visible: toNullableBoolean(row.visible),
+    created_by: toNullableString(row.created_by ?? null),
+    updated_by: toNullableString(row.updated_by ?? null),
+    updated_at: row.updated_at ?? null,
+  };
+};
+
+const pickLinkColumns = (payload = {}) => {
+  const selected = {};
+  for (const key of Object.keys(payload || {})) {
+    if (!LINK_WRITABLE_COLUMNS.has(key)) continue;
+    selected[key] = payload[key];
+  }
+  return selected;
+};
+
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
 
@@ -53,23 +105,28 @@ function createProgramTemplateLinksDao(pool) {
     params.push(normalizedOffset);
     const sql = `
       select t.template_id,
-             t.week_number,
              t.label,
-             t.notes,
-             t.due_offset_days,
-             t.required,
-             t.visibility,
-             t.sort_order,
              t.status,
              t.deleted_at,
              l.program_id,
-             l.created_at
+             l.id as link_id,
+             l.created_at,
+             l.updated_at,
+             coalesce(l.week_number, t.week_number) as week_number,
+             coalesce(l.notes, t.notes) as notes,
+             coalesce(l.due_offset_days, t.due_offset_days) as due_offset_days,
+             coalesce(l.required, t.required) as required,
+             coalesce(l.visibility, t.visibility) as visibility,
+             coalesce(l.sort_order, t.sort_order) as sort_order,
+             l.visible,
+             l.created_by,
+             l.updated_by
         from public.program_template_links l
         join public.program_task_templates t
           on t.template_id = l.template_id
        ${where}
-       order by t.week_number nulls last,
-                t.sort_order nulls last,
+       order by coalesce(l.week_number, t.week_number) nulls last,
+                coalesce(l.sort_order, t.sort_order) nulls last,
                 t.template_id
        limit $${params.length - 1}
       offset $${params.length}
@@ -84,11 +141,7 @@ function createProgramTemplateLinksDao(pool) {
     const { rows: countRows } = await runQuery(db, countSql, filterParams);
     const total = Number(countRows[0]?.total || 0);
     return {
-      data: rows.map(row => ({
-        ...serializeTemplateRow(row),
-        program_id: row.program_id,
-        linked_at: row.created_at ?? null,
-      })),
+      data: rows.map(formatTemplateLinkRow),
       meta: {
         total,
         limit: normalizedLimit,
@@ -117,7 +170,12 @@ function createProgramTemplateLinksDao(pool) {
       select p.program_id,
              p.title,
              p.deleted_at,
-             l.created_at
+             l.id as link_id,
+             l.created_at,
+             l.updated_at,
+             l.week_number,
+             l.sort_order,
+             l.visible
         from public.program_template_links l
         join public.programs p on p.program_id = l.program_id
        where l.template_id = $1
@@ -139,6 +197,11 @@ function createProgramTemplateLinksDao(pool) {
         title: row.title ?? null,
         deleted_at: row.deleted_at ?? null,
         linked_at: row.created_at ?? null,
+        link_id: row.link_id ?? null,
+        updated_at: row.updated_at ?? null,
+        week_number: row.week_number ?? null,
+        sort_order: row.sort_order ?? null,
+        visible: toNullableBoolean(row.visible),
       })),
       meta: {
         total,
@@ -149,21 +212,51 @@ function createProgramTemplateLinksDao(pool) {
   }
 
   async function attach(options = {}) {
-    const { programId, templateId, db = pool } = options;
+    const { programId, templateId, db = pool, link = {} } = options;
     if (!programId || !templateId) {
       return { attached: false, alreadyAttached: false };
     }
-    const sql = `
-      insert into public.program_template_links (template_id, program_id)
-      values ($1, $2)
-      on conflict do nothing
-      returning created_at
+    const existingSql = `
+      select created_at
+        from public.program_template_links
+       where program_id = $1
+         and template_id = $2
+       limit 1
     `;
-    const { rowCount, rows } = await runQuery(db, sql, [templateId, programId]);
+    const { rowCount: existingCount, rows: existingRows } = await runQuery(db, existingSql, [programId, templateId]);
+    if (existingCount > 0) {
+      return {
+        attached: true,
+        alreadyAttached: true,
+        linked_at: existingRows[0]?.created_at ?? null,
+        link: null,
+      };
+    }
+    const linkFields = pickLinkColumns(link);
+    const columns = ['template_id', 'program_id'];
+    const values = ['$1', '$2'];
+    const params = [templateId, programId];
+    Object.entries(linkFields).forEach(([key, value]) => {
+      if (value === undefined) return;
+      columns.push(key);
+      params.push(value);
+      values.push(`$${params.length}`);
+    });
+    columns.push('id');
+    values.push('gen_random_uuid()');
+    const sql = `
+      insert into public.program_template_links (${columns.join(', ')})
+      values (${values.join(', ')})
+      on conflict (program_id, template_id) do nothing
+      returning id, template_id, program_id, week_number, sort_order, due_offset_days,
+                required, visibility, visible, notes, created_by, updated_by, created_at, updated_at
+    `;
+    const { rowCount, rows } = await runQuery(db, sql, params);
     return {
       attached: true,
       alreadyAttached: rowCount === 0,
       linked_at: rows[0]?.created_at ?? null,
+      link: rows[0] ?? null,
     };
   }
 
@@ -198,12 +291,83 @@ function createProgramTemplateLinksDao(pool) {
     return rowCount > 0;
   }
 
+  async function updateLink(options = {}) {
+    const { programId, templateId, patch = {}, db = pool } = options;
+    if (!programId || !templateId) {
+      return { updated: false, row: null };
+    }
+    const updates = pickLinkColumns(patch);
+    const fields = Object.keys(updates);
+    if (!fields.length) {
+      return { updated: false, row: null };
+    }
+    const assignments = [];
+    const params = [];
+    fields.forEach(field => {
+      params.push(updates[field]);
+      assignments.push(`${field} = $${params.length}`);
+    });
+    params.push(programId);
+    params.push(templateId);
+    const sql = `
+      update public.program_template_links
+         set ${assignments.join(', ')}
+       where program_id = $${params.length - 1}
+         and template_id = $${params.length}
+       returning id, template_id, program_id, week_number, sort_order, due_offset_days,
+                 required, visibility, visible, notes, created_by, updated_by, created_at, updated_at
+    `;
+    const { rowCount, rows } = await runQuery(db, sql, params);
+    return {
+      updated: rowCount > 0,
+      row: rows[0] ?? null,
+    };
+  }
+
+  async function getTemplateForProgram(options = {}) {
+    const { programId, templateId, includeDeleted = false, db = pool } = options;
+    if (!programId || !templateId) return null;
+    const params = [programId, templateId];
+    let where = 'where l.program_id = $1 and l.template_id = $2';
+    if (!includeDeleted) {
+      where += ' and t.deleted_at is null';
+    }
+    const sql = `
+      select t.template_id,
+             t.label,
+             t.status,
+             t.deleted_at,
+             l.program_id,
+             l.id as link_id,
+             l.created_at,
+             l.updated_at,
+             coalesce(l.week_number, t.week_number) as week_number,
+             coalesce(l.notes, t.notes) as notes,
+             coalesce(l.due_offset_days, t.due_offset_days) as due_offset_days,
+             coalesce(l.required, t.required) as required,
+             coalesce(l.visibility, t.visibility) as visibility,
+             coalesce(l.sort_order, t.sort_order) as sort_order,
+             l.visible,
+             l.created_by,
+             l.updated_by
+        from public.program_template_links l
+        join public.program_task_templates t on t.template_id = l.template_id
+       ${where}
+       limit 1
+    `;
+    const { rows } = await runQuery(db, sql, params);
+    if (!rows.length) return null;
+    return formatTemplateLinkRow(rows[0]);
+  }
+
   return {
     listTemplatesForProgram,
     listProgramsForTemplate,
     attach,
     detach,
     isLinked,
+    updateLink,
+    getTemplateForProgram,
   };
 }
 
