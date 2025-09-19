@@ -804,6 +804,17 @@ function withTagifySuppressed(callback) {
 
 function destroyTagifyInstance(options = {}) {
   const { preservePending = false } = options;
+  let shouldPreservePending = false;
+  if (typeof preservePending === 'function') {
+    try {
+      shouldPreservePending = Boolean(preservePending());
+    } catch (error) {
+      console.error(error);
+      shouldPreservePending = false;
+    }
+  } else {
+    shouldPreservePending = Boolean(preservePending);
+  }
   if (tagifyInstance && typeof tagifyInstance.destroy === 'function') {
     try {
       tagifyInstance.destroy();
@@ -813,7 +824,7 @@ function destroyTagifyInstance(options = {}) {
   }
   tagifyInstance = null;
   suppressTagifyEventsFlag = false;
-  if (!preservePending) {
+  if (!shouldPreservePending) {
     pendingAttach.clear();
     pendingAttachState.clear();
     pendingAttachProgramId = null;
@@ -826,6 +837,29 @@ function destroyTagifyInstance(options = {}) {
     }
   }
   updatePanelAddButtonState();
+}
+
+function hasPendingAttachForProgram(programId) {
+  const normalizedProgramId = normalizeId(programId);
+  if (!normalizedProgramId || !pendingAttach.size) {
+    return false;
+  }
+  const fallbackProgramId = normalizeId(pendingAttachProgramId);
+  if (fallbackProgramId && fallbackProgramId === normalizedProgramId) {
+    return true;
+  }
+  for (const id of pendingAttach) {
+    const normalizedId = normalizeId(id);
+    const state = pendingAttachState.get(normalizedId) || pendingAttachState.get(id);
+    const stateProgramId = normalizeId(state?.programId);
+    if (!stateProgramId && !fallbackProgramId) {
+      return true;
+    }
+    if (stateProgramId === normalizedProgramId) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function getTagifyOptionFromTemplate(template, { isAssigned = false } = {}) {
@@ -848,10 +882,33 @@ function getTagifyOptionFromTemplate(template, { isAssigned = false } = {}) {
 
 function initTagifyForProgram(programId, options = {}) {
   const { preservePending = false } = options;
+  const normalizedProgramId = normalizeId(programId);
+  const evaluatePreservePending = () => {
+    let shouldPreserve = false;
+    if (typeof preservePending === 'function') {
+      try {
+        shouldPreserve = Boolean(preservePending());
+      } catch (error) {
+        console.error(error);
+        shouldPreserve = false;
+      }
+    } else {
+      shouldPreserve = Boolean(preservePending);
+    }
+    if (!shouldPreserve && normalizedProgramId) {
+      shouldPreserve = hasPendingAttachForProgram(normalizedProgramId);
+    }
+    return shouldPreserve;
+  };
+
+  destroyTagifyInstance({ preservePending: () => evaluatePreservePending() });
+
+  const shouldRestorePending = evaluatePreservePending();
+
   if (!templateAttachInput) {
+    updatePanelAddButtonState();
     return;
   }
-  destroyTagifyInstance({ preservePending });
   updatePanelAddButtonState();
   if (!programId) {
     return;
@@ -924,15 +981,15 @@ function initTagifyForProgram(programId, options = {}) {
       if (assignedTags.length) {
         tagifyInstance.addTags(assignedTags);
       }
-      if (preservePending && pendingAttach.size && pendingAttachProgramId === programId) {
+      if (shouldRestorePending && pendingAttach.size && hasPendingAttachForProgram(normalizedProgramId)) {
         const pendingTags = [];
         const assignedSet = new Set((tagifyInstance.value || []).map(item => normalizeId(item?.value ?? item?.id)).filter(Boolean));
         for (const id of pendingAttach) {
           const normalizedId = normalizeId(id);
           if (!normalizedId || assignedSet.has(normalizedId)) continue;
           const state = pendingAttachState.get(normalizedId) || pendingAttachState.get(id);
-          const stateProgramId = state?.programId || pendingAttachProgramId;
-          if (stateProgramId && stateProgramId !== programId) {
+          const stateProgramId = normalizeId(state?.programId) || normalizeId(pendingAttachProgramId);
+          if (stateProgramId && stateProgramId !== normalizedProgramId) {
             continue;
           }
           const tagData = state?.tagData
@@ -3398,10 +3455,11 @@ async function loadProgramTemplateAssignments(options = {}) {
       }
     }
 
-    const shouldPreservePending = pendingAttach.size > 0 && pendingAttachProgramId === activeProgramId;
-    renderTemplates();
-    setTemplatePanelMessage('');
-    initTagifyForProgram(activeProgramId, { preservePending: shouldPreservePending });
+      renderTemplates();
+      setTemplatePanelMessage('');
+      initTagifyForProgram(activeProgramId, {
+        preservePending: () => hasPendingAttachForProgram(activeProgramId),
+      });
   } catch (error) {
     console.error(error);
     templates = [];
