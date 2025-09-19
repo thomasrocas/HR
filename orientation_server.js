@@ -18,6 +18,38 @@ const crypto = require('crypto');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isValidUuid = value => typeof value === 'string' && UUID_REGEX.test(value);
+const isBlank = value => value === null || value === undefined || value === '';
+const createValidationError = code => {
+  const error = new Error(code);
+  error.status = 400;
+  error.code = code;
+  return error;
+};
+const toNullableInteger = value => {
+  if (isBlank(value)) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) throw createValidationError('invalid_number');
+  return Math.trunc(numeric);
+};
+const toNullableBoolean = value => {
+  if (isBlank(value)) return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', 't', 'yes', 'y', '1', 'required'].includes(normalized)) return true;
+    if (['false', 'f', 'no', 'n', '0', 'optional'].includes(normalized)) return false;
+  }
+  throw createValidationError('invalid_boolean');
+};
+const toNullableString = value => {
+  if (value === null || value === undefined) return null;
+  const str = String(value);
+  const trimmed = str.trim();
+  return trimmed === '' ? null : trimmed;
+};
 let transporter;
 try {
   const nodemailer = require('nodemailer');
@@ -1063,6 +1095,9 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
                         t.week_number,
                         t.label,
                         t.notes,
+                        t.due_offset_days,
+                        t.required,
+                        t.visibility,
                         t.sort_order,
                         t.status,
                         t.deleted_at
@@ -1082,7 +1117,22 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
 app.post('/programs/:program_id/templates', ensurePerm('template.create'), async (req, res) => {
   try {
     const { program_id } = req.params;
-    const { week_number = null, label, notes = null, sort_order = null } = req.body || {};
+    const {
+      week_number = null,
+      label,
+      notes = null,
+      due_offset_days = null,
+      required = null,
+      visibility = null,
+      sort_order = null,
+    } = req.body || {};
+    const sanitizedWeek = toNullableInteger(week_number);
+    const sanitizedDueOffset = toNullableInteger(due_offset_days);
+    const sanitizedRequired = toNullableBoolean(required);
+    const sanitizedVisibility = toNullableString(visibility);
+    const sanitizedSortOrder = toNullableInteger(sort_order);
+    const sanitizedNotes = notes === null ? null : toNullableString(notes);
+    const sanitizedLabel = label === null || label === undefined ? null : toNullableString(label);
     let status = null;
     if (typeof req.body?.status === 'string') {
       const normalized = req.body.status.toLowerCase();
@@ -1093,12 +1143,12 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
     }
     const sql = `
       with inserted as (
-        insert into public.program_task_templates (week_number, label, notes, sort_order, status)
-        values ($1,$2,$3,$4,$5)
-        returning template_id, week_number, label, notes, sort_order, status, deleted_at
+        insert into public.program_task_templates (week_number, label, notes, due_offset_days, required, visibility, sort_order, status)
+        values ($1,$2,$3,$4,$5,$6,$7,$8)
+        returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
       ), linked as (
         insert into public.program_template_links (template_id, program_id)
-        select template_id, $6 from inserted
+        select template_id, $9 from inserted
         returning template_id, program_id
       )
       select i.template_id,
@@ -1106,21 +1156,30 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
              i.week_number,
              i.label,
              i.notes,
+             i.due_offset_days,
+             i.required,
+             i.visibility,
              i.sort_order,
              i.status,
              i.deleted_at
       from inserted i
       join linked l on l.template_id = i.template_id;`;
     const { rows } = await pool.query(sql, [
-      week_number,
-      label,
-      notes,
-      sort_order,
+      sanitizedWeek,
+      sanitizedLabel,
+      sanitizedNotes,
+      sanitizedDueOffset,
+      sanitizedRequired,
+      sanitizedVisibility,
+      sanitizedSortOrder,
       status ?? 'draft',
       program_id,
     ]);
     res.status(201).json(rows[0]);
   } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_payload' });
+    }
     console.error('POST /programs/:id/templates error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -1137,7 +1196,7 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
     const fields = [];
     const vals = [];
     const updates = req.body || {};
-    for (const key of ['week_number', 'label', 'notes', 'sort_order', 'status']) {
+    for (const key of ['week_number', 'label', 'notes', 'due_offset_days', 'required', 'visibility', 'sort_order', 'status']) {
       if (key in updates) {
         let value = updates[key];
         if (key === 'status') {
@@ -1172,6 +1231,9 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
               t.week_number,
               t.label,
               t.notes,
+              t.due_offset_days,
+              t.required,
+              t.visibility,
               t.sort_order,
               t.status,
               t.deleted_at
@@ -1185,6 +1247,189 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
     res.json(rows[0]);
   } catch (err) {
     console.error('PATCH /programs/:id/templates/:template_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.update'), async (req, res) => {
+  const { program_id } = req.params;
+  if (!program_id) {
+    return res.status(400).json({ error: 'invalid_program' });
+  }
+  const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+  if (!updates.length) {
+    return res.status(400).json({ error: 'no_updates' });
+  }
+  try {
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
+    const normalized = [];
+    for (const raw of updates) {
+      if (!raw || typeof raw !== 'object') continue;
+      const templateId = raw.template_id ?? raw.templateId ?? raw.id;
+      if (!templateId) continue;
+      const patch = {};
+      let hasField = false;
+      if (Object.prototype.hasOwnProperty.call(raw, 'notes')) {
+        patch.notes = toNullableString(raw.notes);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'due_offset_days')) {
+        patch.due_offset_days = toNullableInteger(raw.due_offset_days);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'required')) {
+        patch.required = toNullableBoolean(raw.required);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'visibility')) {
+        patch.visibility = toNullableString(raw.visibility);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'sort_order')) {
+        patch.sort_order = toNullableInteger(raw.sort_order);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'week_number')) {
+        patch.week_number = toNullableInteger(raw.week_number);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'label')) {
+        patch.label = toNullableString(raw.label);
+        hasField = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'status')) {
+        const statusValue = raw.status;
+        if (statusValue === null || statusValue === undefined || statusValue === '') {
+          return res.status(400).json({ error: 'invalid_status' });
+        }
+        if (typeof statusValue !== 'string') {
+          return res.status(400).json({ error: 'invalid_status' });
+        }
+        const normalizedStatus = statusValue.toLowerCase();
+        if (!TEMPLATE_STATUSES.has(normalizedStatus)) {
+          return res.status(400).json({ error: 'invalid_status' });
+        }
+        patch.status = normalizedStatus;
+        hasField = true;
+      }
+      if (!hasField) continue;
+      normalized.push({ templateId, patch });
+    }
+    if (!normalized.length) {
+      return res.status(400).json({ error: 'no_updates' });
+    }
+
+    const client = await pool.connect();
+    let totalUpdated = 0;
+    try {
+      await client.query('begin');
+      for (const entry of normalized) {
+        const fields = Object.keys(entry.patch);
+        if (!fields.length) continue;
+        const values = [];
+        const assignments = fields.map((field, index) => {
+          values.push(entry.patch[field]);
+          return `${field} = $${index + 1}`;
+        });
+        values.push(program_id);
+        values.push(entry.templateId);
+        const programParamIndex = values.length - 1;
+        const templateParamIndex = values.length;
+        const sql = `
+          update public.program_task_templates t
+             set ${assignments.join(', ')}
+            from public.program_template_links l
+           where t.template_id = $${templateParamIndex}
+             and l.template_id = t.template_id
+             and l.program_id = $${programParamIndex}
+             and t.deleted_at is null
+        `;
+        const result = await client.query(sql, values);
+        totalUpdated += result.rowCount;
+      }
+      await client.query('commit');
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally {
+      client.release();
+    }
+    res.json({ updated: totalUpdated });
+  } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_payload' });
+    }
+    console.error('PATCH /programs/:id/templates/metadata error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/programs/:program_id/templates/reorder', ensurePerm('template.update'), async (req, res) => {
+  const { program_id } = req.params;
+  if (!program_id) {
+    return res.status(400).json({ error: 'invalid_program' });
+  }
+  const order = Array.isArray(req.body?.order) ? req.body.order : [];
+  if (!order.length) {
+    return res.status(400).json({ error: 'invalid_order' });
+  }
+  try {
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, program_id);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
+    const normalizedOrder = order
+      .map(value => {
+        if (value === null || value === undefined || value === '') return null;
+        return String(value);
+      })
+      .filter(value => value !== null);
+    if (!normalizedOrder.length) {
+      return res.status(400).json({ error: 'invalid_order' });
+    }
+    const client = await pool.connect();
+    let updated = 0;
+    try {
+      await client.query('begin');
+      const params = [];
+      const tuples = [];
+      normalizedOrder.forEach((templateId, index) => {
+        params.push(templateId);
+        const templateParamIndex = params.length;
+        params.push(index + 1);
+        const sortParamIndex = params.length;
+        tuples.push(`($${templateParamIndex}, $${sortParamIndex})`);
+      });
+      params.push(program_id);
+      const programParamIndex = params.length;
+      const sql = `
+        update public.program_task_templates t
+           set sort_order = v.sort_order
+          from (values ${tuples.join(', ')}) as v(template_id, sort_order)
+          join public.program_template_links l on l.template_id = v.template_id
+         where t.template_id = v.template_id
+           and l.program_id = $${programParamIndex}
+           and t.deleted_at is null
+        returning t.template_id
+      `;
+      const result = await client.query(sql, params);
+      updated = result.rowCount;
+      await client.query('commit');
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally {
+      client.release();
+    }
+    res.json({ updated });
+  } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_payload' });
+    }
+    console.error('POST /programs/:id/templates/reorder error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -31,11 +31,26 @@ const normalizeOffset = value => {
   return Math.floor(numeric);
 };
 
+const toBoolean = value => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', 't', 'yes', 'y', '1', 'required'].includes(normalized)) return true;
+    if (['false', 'f', 'no', 'n', '0', 'optional'].includes(normalized)) return false;
+  }
+  return Boolean(value);
+};
+
 const serializeTemplateRow = row => ({
   template_id: toTemplateId(row.template_id),
   week_number: toNumber(row.week_number),
   label: row.label ?? null,
   notes: row.notes ?? null,
+  due_offset_days: toNumber(row.due_offset_days),
+  required: toBoolean(row.required),
+  visibility: row.visibility ?? null,
   sort_order: toNumber(row.sort_order),
   status: row.status ?? null,
   deleted_at: row.deleted_at ?? null,
@@ -87,6 +102,9 @@ function createTemplatesDao(pool) {
              t.week_number,
              t.label,
              t.notes,
+             t.due_offset_days,
+             t.required,
+             t.visibility,
              t.sort_order,
              t.status,
              t.deleted_at
@@ -129,6 +147,9 @@ function createTemplatesDao(pool) {
              t.week_number,
              t.label,
              t.notes,
+             t.due_offset_days,
+             t.required,
+             t.visibility,
              t.sort_order,
              t.status,
              t.deleted_at
@@ -142,14 +163,33 @@ function createTemplatesDao(pool) {
   }
 
   async function create(options = {}) {
-    const { db = pool, week_number = null, label, notes = null, sort_order = null, status = 'draft' } = options;
+    const {
+      db = pool,
+      week_number = null,
+      label,
+      notes = null,
+      due_offset_days = null,
+      required = null,
+      visibility = null,
+      sort_order = null,
+      status = 'draft',
+    } = options;
     const sql = `
       insert into public.program_task_templates
-        (week_number, label, notes, sort_order, status)
-      values ($1, $2, $3, $4, $5)
-      returning template_id, week_number, label, notes, sort_order, status, deleted_at
+        (week_number, label, notes, due_offset_days, required, visibility, sort_order, status)
+      values ($1, $2, $3, $4, $5, $6, $7, $8)
+      returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
     `;
-    const params = [week_number, label, notes, sort_order, status];
+    const params = [
+      week_number,
+      label,
+      notes,
+      due_offset_days,
+      required,
+      visibility,
+      sort_order,
+      status,
+    ];
     const { rows } = await runQuery(db, sql, params);
     return serializeTemplateRow(rows[0]);
   }
@@ -159,7 +199,7 @@ function createTemplatesDao(pool) {
     if (!id) return null;
     const fields = [];
     const values = [];
-    for (const key of ['week_number', 'label', 'notes', 'sort_order', 'status']) {
+    for (const key of ['week_number', 'label', 'notes', 'due_offset_days', 'required', 'visibility', 'sort_order', 'status']) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) {
         values.push(patch[key]);
         fields.push(`${key} = $${values.length}`);
@@ -173,7 +213,7 @@ function createTemplatesDao(pool) {
       update public.program_task_templates
          set ${fields.join(', ')}
        where template_id = $${values.length}
-       returning template_id, week_number, label, notes, sort_order, status, deleted_at
+       returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
     `;
     const { rows } = await runQuery(db, sql, values);
     if (!rows.length) return null;
@@ -188,7 +228,7 @@ function createTemplatesDao(pool) {
          set deleted_at = coalesce(deleted_at, now())
        where template_id = $1
          and deleted_at is null
-       returning template_id, week_number, label, notes, sort_order, status, deleted_at
+       returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
     `;
     const { rows } = await runQuery(db, sql, [id]);
     if (!rows.length) return null;
@@ -203,7 +243,7 @@ function createTemplatesDao(pool) {
          set deleted_at = null
        where template_id = $1
          and deleted_at is not null
-       returning template_id, week_number, label, notes, sort_order, status, deleted_at
+       returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
     `;
     const { rows } = await runQuery(db, sql, [id]);
     if (!rows.length) return null;
