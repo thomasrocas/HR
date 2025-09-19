@@ -3267,11 +3267,19 @@ async function loadProgramTemplateAssignments(options = {}) {
     const encodedProgramId = encodeURIComponent(activeProgramId);
     const data = await fetchJson(`${API}/programs/${encodedProgramId}/templates?include_deleted=true`);
     const fetchedTemplates = extractAssignmentsFromResponse(data);
+    const assignedTemplateIds = new Set(fetchedTemplates.map(getTemplateId).filter(Boolean));
     let fetchedLibrary = Array.isArray(data) ? [] : extractTemplateLibraryFromResponse(data);
     if (fetchedLibrary === fetchedTemplates) {
       fetchedLibrary = Array.isArray(fetchedLibrary) ? [...fetchedLibrary] : [];
     }
-    templateLibrary = Array.isArray(fetchedLibrary) ? fetchedLibrary : [];
+    let resolvedLibrary = Array.isArray(fetchedLibrary) ? fetchedLibrary : [];
+    if (!resolvedLibrary.length && Array.isArray(globalTemplates) && globalTemplates.length) {
+      resolvedLibrary = globalTemplates.filter(template => {
+        const id = getTemplateId(template);
+        return id && !assignedTemplateIds.has(id);
+      });
+    }
+    templateLibrary = resolvedLibrary;
     templateLibraryIndex.clear();
     templateLibrary.forEach(template => {
       const id = getTemplateId(template);
