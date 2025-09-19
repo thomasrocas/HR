@@ -1307,11 +1307,7 @@ function applyTemplateMetadataToCaches(templateData) {
     const assignedOption = getTagifyOptionFromTemplate(templateData, { isAssigned: true });
     const availableOption = getTagifyOptionFromTemplate(templateData);
 
-    const updateTagCollection = (
-      collection,
-      option,
-      { remove = false, allowInsert = false } = {},
-    ) => {
+    const updateTagCollection = (collection, option, { remove = false } = {}) => {
       if (!Array.isArray(collection)) return;
       const idx = collection.findIndex(item => normalizeId(item?.value ?? item?.id) === templateId);
       if (idx >= 0) {
@@ -1322,23 +1318,17 @@ function applyTemplateMetadataToCaches(templateData) {
         if (!option) return;
         const existing = collection[idx] && typeof collection[idx] === 'object' ? collection[idx] : {};
         collection[idx] = { ...existing, ...option };
-      } else if (!remove && option && allowInsert) {
+      } else if (!remove && option) {
         collection.push({ ...option });
       }
     };
 
-    updateTagCollection(tagifyInstance.value, assignedOption, { allowInsert: false });
+    updateTagCollection(tagifyInstance.value, assignedOption);
     if (tagifyInstance.settings && typeof tagifyInstance.settings === 'object') {
-      updateTagCollection(tagifyInstance.settings.whitelist, availableOption, {
-        remove: isAssigned,
-        allowInsert: true,
-      });
+      updateTagCollection(tagifyInstance.settings.whitelist, availableOption, { remove: isAssigned });
     }
     if (Array.isArray(tagifyInstance.whitelist)) {
-      updateTagCollection(tagifyInstance.whitelist, availableOption, {
-        remove: isAssigned,
-        allowInsert: true,
-      });
+      updateTagCollection(tagifyInstance.whitelist, availableOption, { remove: isAssigned });
     }
   }
 }
