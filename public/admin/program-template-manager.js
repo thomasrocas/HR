@@ -416,6 +416,7 @@ let tagifyInstance = null;
 let suppressTagifyEventsFlag = false;
 const pendingAttach = new Set();
 const pendingAttachState = new Map();
+let pendingAttachProgramId = null;
 let attachSaveTimeout = null;
 let attachInFlightPromise = null;
 
@@ -801,7 +802,8 @@ function withTagifySuppressed(callback) {
   }
 }
 
-function destroyTagifyInstance() {
+function destroyTagifyInstance(options = {}) {
+  const { preservePending = false } = options;
   if (tagifyInstance && typeof tagifyInstance.destroy === 'function') {
     try {
       tagifyInstance.destroy();
@@ -811,14 +813,17 @@ function destroyTagifyInstance() {
   }
   tagifyInstance = null;
   suppressTagifyEventsFlag = false;
-  pendingAttach.clear();
-  pendingAttachState.clear();
-  if (attachSaveTimeout) {
-    clearTimeout(attachSaveTimeout);
-    attachSaveTimeout = null;
-  }
-  if (templateAttachInput) {
-    templateAttachInput.value = '';
+  if (!preservePending) {
+    pendingAttach.clear();
+    pendingAttachState.clear();
+    pendingAttachProgramId = null;
+    if (attachSaveTimeout) {
+      clearTimeout(attachSaveTimeout);
+      attachSaveTimeout = null;
+    }
+    if (templateAttachInput) {
+      templateAttachInput.value = '';
+    }
   }
   updatePanelAddButtonState();
 }
@@ -841,11 +846,12 @@ function getTagifyOptionFromTemplate(template, { isAssigned = false } = {}) {
   return option;
 }
 
-function initTagifyForProgram(programId) {
+function initTagifyForProgram(programId, options = {}) {
+  const { preservePending = false } = options;
   if (!templateAttachInput) {
     return;
   }
-  destroyTagifyInstance();
+  destroyTagifyInstance({ preservePending });
   updatePanelAddButtonState();
   if (!programId) {
     return;
@@ -918,6 +924,27 @@ function initTagifyForProgram(programId) {
       if (assignedTags.length) {
         tagifyInstance.addTags(assignedTags);
       }
+      if (preservePending && pendingAttach.size && pendingAttachProgramId === programId) {
+        const pendingTags = [];
+        const assignedSet = new Set((tagifyInstance.value || []).map(item => normalizeId(item?.value ?? item?.id)).filter(Boolean));
+        for (const id of pendingAttach) {
+          const normalizedId = normalizeId(id);
+          if (!normalizedId || assignedSet.has(normalizedId)) continue;
+          const state = pendingAttachState.get(normalizedId) || pendingAttachState.get(id);
+          const stateProgramId = state?.programId || pendingAttachProgramId;
+          if (stateProgramId && stateProgramId !== programId) {
+            continue;
+          }
+          const tagData = state?.tagData
+            || getTagifyOptionFromTemplate(state?.templateData)
+            || getTagifyOptionFromTemplate(templateLibraryIndex.get(normalizedId))
+            || { value: normalizedId };
+          pendingTags.push(tagData);
+        }
+        if (pendingTags.length) {
+          tagifyInstance.addTags(pendingTags);
+        }
+      }
     } finally {
       if (typeof previousEnforce !== 'undefined') {
         settings.enforceWhitelist = previousEnforce;
@@ -966,9 +993,11 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
     }
     return false;
   }
-  if (!selectedProgramId) {
+  const targetProgramId = pendingAttachProgramId || selectedProgramId;
+  if (!targetProgramId) {
     pendingAttach.clear();
     pendingAttachState.clear();
+    pendingAttachProgramId = null;
     if (attachSaveTimeout) {
       clearTimeout(attachSaveTimeout);
       attachSaveTimeout = null;
@@ -983,10 +1012,42 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
     attachSaveTimeout = null;
   }
 
-  const programId = selectedProgramId;
-  const entries = Array.from(pendingAttach).map(id => ({ id, state: pendingAttachState.get(id) }));
-  pendingAttach.clear();
-  entries.forEach(({ id }) => pendingAttachState.delete(id));
+  const programId = targetProgramId;
+  const entries = [];
+  const processedIds = [];
+  for (const rawId of pendingAttach) {
+    const normalizedId = normalizeId(rawId);
+    const id = normalizedId || rawId;
+    const state = pendingAttachState.get(id) || pendingAttachState.get(rawId);
+    const entryProgramId = state?.programId || programId;
+    if (entryProgramId && entryProgramId !== programId) {
+      continue;
+    }
+    entries.push({ id, state });
+    processedIds.push(id);
+  }
+  processedIds.forEach(id => {
+    if (id !== null && id !== undefined) {
+      pendingAttach.delete(id);
+      pendingAttachState.delete(id);
+    }
+  });
+  if (!pendingAttach.size) {
+    pendingAttachProgramId = null;
+  } else {
+    const nextPending = pendingAttach.values().next();
+    if (!nextPending.done) {
+      const nextId = normalizeId(nextPending.value);
+      const nextState = pendingAttachState.get(nextId) || pendingAttachState.get(nextPending.value);
+      if (nextState?.programId) {
+        pendingAttachProgramId = nextState.programId;
+      } else if (pendingAttachProgramId === programId) {
+        pendingAttachProgramId = null;
+      }
+    } else {
+      pendingAttachProgramId = null;
+    }
+  }
   if (!entries.length) {
     updatePanelAddButtonState();
     return false;
@@ -1026,9 +1087,9 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
           failureCount += 1;
           console.error(error);
           pendingAttach.add(id);
-          if (state) {
-            pendingAttachState.set(id, state);
-          }
+          const nextState = state ? { ...state, programId } : { programId };
+          pendingAttachState.set(id, nextState);
+          pendingAttachProgramId = programId;
           if (typeof state?.revert === 'function') {
             try {
               state.revert();
@@ -1097,9 +1158,8 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
       console.error(error);
       entries.forEach(({ id, state }) => {
         pendingAttach.add(id);
-        if (state) {
-          pendingAttachState.set(id, state);
-        }
+        const nextState = state ? { ...state, programId } : { programId };
+        pendingAttachState.set(id, nextState);
         if (typeof state?.revert === 'function') {
           try {
             state.revert();
@@ -1113,6 +1173,7 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
           });
         }
       });
+      pendingAttachProgramId = programId;
       if (selectedProgramId === programId) {
         const message = error.status === 403
           ? 'You do not have permission to attach templates.'
@@ -1385,13 +1446,18 @@ function handleTagifyAdd(event) {
     renderTemplates();
   };
 
+  const queueWasEmpty = pendingAttach.size === 0;
   pendingAttach.add(templateId);
   pendingAttachState.set(templateId, {
     revert,
     tagData: { ...data },
     templateData,
     payload: {},
+    programId: selectedProgramId || null,
   });
+  if (queueWasEmpty) {
+    pendingAttachProgramId = selectedProgramId || null;
+  }
   updatePanelAddButtonState();
   schedulePendingTemplateAttachments();
 }
@@ -1406,6 +1472,9 @@ function handleTagifyRemove(event) {
     const state = pendingAttachState.get(templateId);
     pendingAttach.delete(templateId);
     pendingAttachState.delete(templateId);
+    if (!pendingAttach.size) {
+      pendingAttachProgramId = null;
+    }
     if (state?.revert) {
       try {
         state.revert();
@@ -3329,9 +3398,10 @@ async function loadProgramTemplateAssignments(options = {}) {
       }
     }
 
+    const shouldPreservePending = pendingAttach.size > 0 && pendingAttachProgramId === activeProgramId;
     renderTemplates();
     setTemplatePanelMessage('');
-    initTagifyForProgram(activeProgramId);
+    initTagifyForProgram(activeProgramId, { preservePending: shouldPreservePending });
   } catch (error) {
     console.error(error);
     templates = [];
