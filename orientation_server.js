@@ -33,6 +33,13 @@ const toNullableInteger = value => {
   if (!Number.isFinite(numeric)) throw createValidationError('invalid_number');
   return Math.trunc(numeric);
 };
+const sanitizeProgramTotalWeeks = value => {
+  const parsed = toNullableInteger(value);
+  if (parsed === null || Number.isNaN(parsed) || parsed < 1) {
+    throw createValidationError('invalid_total_weeks');
+  }
+  return parsed;
+};
 const toNullableBoolean = value => {
   if (isBlank(value)) return null;
   if (typeof value === 'boolean') return value;
@@ -1225,14 +1232,18 @@ app.get('/programs', ensurePerm('program.read'), async (req, res) => {
 
 app.post('/programs', ensurePerm('program.create'), async (req, res) => {
   try {
-    const { program_id = crypto.randomUUID(), title, total_weeks = null, description = null } = req.body || {};
+    const { program_id = crypto.randomUUID(), title, total_weeks, description = null } = req.body || {};
+    const sanitizedTotalWeeks = sanitizeProgramTotalWeeks(total_weeks);
     const sql = `
       insert into public.programs (program_id, title, total_weeks, description, created_by)
       values ($1,$2,$3,$4,$5)
       returning *;`;
-    const { rows } = await pool.query(sql, [program_id, title, total_weeks, description, req.user.id]);
+    const { rows } = await pool.query(sql, [program_id, title, sanitizedTotalWeeks, description, req.user.id]);
     res.status(201).json(rows[0]);
   } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_payload' });
+    }
     console.error('POST /programs error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -1250,7 +1261,11 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
 
     for (const key of ['title', 'total_weeks', 'description']) {
       if (key in req.body) {
-        vals.push(req.body[key]);
+        if (key === 'total_weeks') {
+          vals.push(sanitizeProgramTotalWeeks(req.body[key]));
+        } else {
+          vals.push(req.body[key]);
+        }
         fields.push(`${key} = $${vals.length}`);
       }
     }
@@ -1264,6 +1279,9 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_payload' });
+    }
     console.error('PATCH /programs/:program_id error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
