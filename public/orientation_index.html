@@ -54,7 +54,7 @@
 <div id="root" class="max-w-7xl mx-auto px-4"></div>
 
 <script type="text/babel" data-presets="env,react">
-const { useEffect, useMemo, useState, useRef } = React;
+const { useEffect, useMemo, useState, useRef, useCallback } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
 /* Use same origin the page is served from */
@@ -525,11 +525,10 @@ function App({ me, onSignOut }){
   const [expandedDays, setExpandedDays] = useState(new Set());
   const [needsInstantiate, setNeedsInstantiate] = useState(false);
   const [programs, setPrograms] = useState([]);
+  const [userPrograms, setUserPrograms] = useState([]);
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
   const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [templateProgramId, setTemplateProgramId] = useState(null);
   const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
   const [searchTerm, setSearchTerm] = useState('');
   const [userList, setUserList] = useState([]);
@@ -700,7 +699,31 @@ function App({ me, onSignOut }){
     return active.length;
   }
 
-  
+
+  const updateUserPrograms = useCallback(async (programList, { signal } = {}) => {
+    try {
+      const tasks = await apiGetTasks({ include_deleted: false });
+      const taskList = Array.isArray(tasks) ? tasks : [];
+      const programIds = Array.from(new Set(taskList.map(t => t?.program_id).filter(Boolean)));
+      const list = programList ?? await apiListPrograms();
+      if (signal?.aborted) return;
+      setPrograms(list);
+      const mapped = programIds.map(id => {
+        const program = list.find(p => sameId(p.program_id, id)) || {};
+        const icon = program.icon || program.emoji || '📘';
+        const title = program.title && program.title.trim() ? program.title : 'Untitled Program';
+        return { program_id: id, title, icon };
+      });
+      if (signal?.aborted) return;
+      setUserPrograms(mapped);
+    } catch (err) {
+      if (signal?.aborted) return;
+      console.error('Failed to load user programs', err);
+      setUserPrograms([]);
+    }
+  }, [targetUserId]);
+
+
 /* Load tasks */
 useEffect(() => {
   async function load() {
@@ -737,23 +760,20 @@ useEffect(() => {
   load();
 }, []);
 
-  /* Load programs */
   useEffect(() => {
-    (async () => {
-      try {
-        const list = await apiListPrograms();
-        setPrograms(list);
-      } catch (err) {
-        console.error('Failed to load programs', err);
-      }
-    })();
-  }, []);
+    const signal = { aborted: false };
+    updateUserPrograms(undefined, { signal });
+    return () => {
+      signal.aborted = true;
+    };
+  }, [targetUserId, updateUserPrograms]);
 
   async function handleInstantiate(){
     try {
       const res = await apiInstantiateProgram(QS_PROGRAM_ID);
       if(!res) return;
       await reloadTasks();
+      await updateUserPrograms();
       setNeedsInstantiate(false);
     } catch(err){
       console.error('Failed to instantiate program', err);
@@ -789,7 +809,6 @@ useEffect(() => {
   async function refreshPrograms(newId){
     try {
       const list = await apiListPrograms();
-      setPrograms(list);
       if(newId !== undefined){
         QS_PROGRAM_ID = newId;
       }
@@ -806,6 +825,7 @@ useEffect(() => {
         localStorage.removeItem('anx_program_id');
         setWeeks([]); setDeletedTasks([]); setNeedsInstantiate(false);
       }
+      await updateUserPrograms(list);
     } catch(err){
       console.error('Failed to refresh programs', err);
     }
@@ -1661,67 +1681,21 @@ useEffect(() => {
             {openSections.includes('programs') && (
               <div id="sec-programs" className="mt-2 space-y-3" aria-labelledby="hdr-programs">
                 <div className="space-y-2">
-                  {programs
+                  {userPrograms
                     .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
                     .map(p => (
-                    <div key={p.program_id} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1 flex items-center gap-2 truncate"><span aria-hidden="true">📘</span>{p.title}</span>
                       <button
-                        className="btn btn-ghost"
+                        key={p.program_id}
+                        type="button"
+                        className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-xl hover:bg-slate-100 text-left"
                         onClick={() => refreshPrograms(p.program_id)}
-                        title="Open"
                       >
-                        <span aria-hidden="true">📂</span>
-                        <span className="sr-only">Open</span>
+                        <span className="flex items-center gap-2 truncate">
+                          <span aria-hidden="true">{p.icon}</span>
+                          <span className="truncate">{p.title}</span>
+                        </span>
                       </button>
-                      {hasPerm('template.read') && !isTrainee && (
-                        <button
-                        className="btn btn-ghost"
-                        onClick={() => {
-                          setTemplateProgramId(p.program_id);
-                          setShowTemplates(true);
-                        }}
-                        title="Templates"
-                      >
-                        <span aria-hidden="true">📝</span>
-                        <span className="sr-only">Templates</span>
-                      </button>
-                      )}
-                      {hasPerm('program.update') && !isTrainee && (
-                        <details className="relative">
-                          <summary className="btn btn-ghost px-2 -mr-2" tabIndex={0}>⋯</summary>
-                          <div className="absolute right-0 z-10 mt-1 w-28 bg-white border rounded shadow">
-                            <button
-                              className="btn btn-ghost w-full justify-start"
-                              onClick={() => setProgramModal({ show: true, program: p })}
-                            >
-                              <span aria-hidden="true">✏️</span>
-                              <span>Edit</span>
-                            </button>
-                            {hasPerm('program.delete') && !isTrainee && (
-                              <button
-                                className="btn btn-ghost w-full justify-start"
-                                onClick={() => handleDeleteProgram(p.program_id)}
-                              >
-                                <span aria-hidden="true">🗑️</span>
-                                <span>Delete</span>
-                              </button>
-                            )}
-                          </div>
-                        </details>
-                      )}
-                    </div>
                   ))}
-                </div>
-                <div className="sticky bottom-0 bg-white pt-2">
-                  {(hasPerm('program.create') || hasPerm('program.update')) && !isTrainee && (
-                  <button
-                    className="btn btn-primary w-full"
-                    onClick={() => setProgramModal({ show: true, program: null })}
-                  >
-                    + New Program
-                  </button>
-                  )}
                 </div>
               </div>
             )}
@@ -1768,12 +1742,6 @@ useEffect(() => {
           </div>
         </div>
       </aside>
-    {showTemplates && templateProgramId && hasPerm('template.read') && !isTrainee && (
-      <TemplateModal
-        programId={templateProgramId}
-        onClose={() => setShowTemplates(false)}
-      />
-    )}
   </div>
   );
 }
