@@ -3399,13 +3399,20 @@ async function loadProgramTemplateAssignments(options = {}) {
       fetchedLibrary = Array.isArray(fetchedLibrary) ? [...fetchedLibrary] : [];
     }
     let resolvedLibrary = Array.isArray(fetchedLibrary) ? fetchedLibrary : [];
-    if (!resolvedLibrary.length && Array.isArray(globalTemplates) && globalTemplates.length) {
-      resolvedLibrary = globalTemplates.filter(template => {
-        const id = getTemplateId(template);
-        return id && !assignedTemplateIds.has(id);
-      });
+    const filterAvailableTemplates = template => {
+      const id = getTemplateId(template);
+      return id && !assignedTemplateIds.has(id);
+    };
+    let availableTemplates = resolvedLibrary.filter(filterAvailableTemplates);
+    if (!availableTemplates.length) {
+      const fallbackTemplates = Array.isArray(globalTemplates) && globalTemplates.length
+        ? globalTemplates.filter(filterAvailableTemplates)
+        : [];
+      if (fallbackTemplates.length) {
+        availableTemplates = fallbackTemplates;
+      }
     }
-    templateLibrary = resolvedLibrary;
+    templateLibrary = availableTemplates;
     templateLibraryIndex.clear();
     templateLibrary.forEach(template => {
       const id = getTemplateId(template);
