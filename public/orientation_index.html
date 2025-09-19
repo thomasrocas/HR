@@ -1365,13 +1365,6 @@ useEffect(() => {
 
           </header>
 
-      {!isTrainee && needsInstantiate && (
-        <div className="card p-6">
-          <p className="mb-4">This program has no tasks yet. Load preset tasks?</p>
-          <button className="btn btn-primary" onClick={handleInstantiate}>Load Program Tasks</button>
-        </div>
-      )}
-
       {/* KPIs */}
       {!isTrainee && (
         <div className="grid md:grid-cols-4 gap-4">
