@@ -536,6 +536,11 @@ function App({ me, onSignOut }){
   const touchHover = useRef(null);
   const panelRef = useRef(null);
   const triggerRef = useRef(null);
+  const filteredPrograms = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return userPrograms;
+    return userPrograms.filter(p => (p.title || '').toLowerCase().includes(term));
+  }, [searchTerm, userPrograms]);
   const perms = useMemo(() => new Set(me?.perms || []), [me]);
   const hasPerm = (p) => perms.has(p);
   const isTrainee = (me?.roles || []).includes('trainee');
@@ -707,13 +712,16 @@ function App({ me, onSignOut }){
       const programIds = Array.from(new Set(taskList.map(t => t?.program_id).filter(Boolean)));
       const list = programList ?? await apiListPrograms();
       if (signal?.aborted) return;
-      setPrograms(list);
-      const mapped = programIds.map(id => {
-        const program = list.find(p => sameId(p.program_id, id)) || {};
+      const safeList = Array.isArray(list) ? list : [];
+      setPrograms(safeList);
+      const mapped = programIds.reduce((acc, id) => {
+        const program = safeList.find(p => sameId(p.program_id, id));
+        if (!program) return acc;
         const icon = program.icon || program.emoji || '📘';
         const title = program.title && program.title.trim() ? program.title : 'Untitled Program';
-        return { program_id: id, title, icon };
-      });
+        acc.push({ program_id: id, title, icon });
+        return acc;
+      }, []);
       if (signal?.aborted) return;
       setUserPrograms(mapped);
     } catch (err) {
@@ -1681,9 +1689,8 @@ useEffect(() => {
             {openSections.includes('programs') && (
               <div id="sec-programs" className="mt-2 space-y-3" aria-labelledby="hdr-programs">
                 <div className="space-y-2">
-                  {userPrograms
-                    .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
-                    .map(p => (
+                  {filteredPrograms.length > 0 ? (
+                    filteredPrograms.map(p => (
                       <button
                         key={p.program_id}
                         type="button"
@@ -1695,7 +1702,10 @@ useEffect(() => {
                           <span className="truncate">{p.title}</span>
                         </span>
                       </button>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No programs available.</p>
+                  )}
                 </div>
               </div>
             )}
