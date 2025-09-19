@@ -2779,6 +2779,7 @@ function renderTemplateAssignmentsPanel() {
 function createTemplateAssignmentListItem(template, index, total) {
   const templateId = getTemplateId(template) || '';
   const name = escapeHtml(getTemplateName(template) || 'Untitled template');
+  const weekNumber = getTemplateWeekNumber(template);
   const category = getTemplateCategory(template);
   const status = getTemplateStatus(template);
   const normalizedStatus = (status || '').toLowerCase();
@@ -2815,6 +2816,20 @@ function createTemplateAssignmentListItem(template, index, total) {
     metaParts.push(`<span>${createStatusBadge(status)}</span>`);
   }
   const metaHtml = metaParts.length ? `<div class="flex flex-wrap items-center gap-2">${metaParts.join('')}</div>` : '';
+  const nameLineHtml = (() => {
+    if (weekNumber !== null && weekNumber !== undefined && weekNumber !== '') {
+      const weekLabel = escapeHtml(String(weekNumber));
+      return `
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="badge bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200" aria-label="Week ${weekLabel}">
+            <span aria-hidden="true">Week ${weekLabel}</span>
+          </span>
+          <p class="font-medium truncate min-w-0 flex-1" title="${name}">${name}</p>
+        </div>
+      `;
+    }
+    return `<p class="font-medium truncate" title="${name}">${name}</p>`;
+  })();
   const notesEscaped = escapeHtml(notesValue);
   const isActive = selectedTemplateId && templateId && selectedTemplateId === templateId;
   const itemClasses = ['rounded-xl', 'border', 'border-slate-200', 'bg-white', 'p-4', 'space-y-4'];
@@ -2830,7 +2845,7 @@ function createTemplateAssignmentListItem(template, index, total) {
     <li class="${itemClasses.join(' ')}" data-template-id="${templateId}" data-order-index="${index}">
       <div class="flex items-start justify-between gap-3">
         <div class="space-y-1 min-w-0">
-          <p class="font-medium truncate" title="${name}">${name}</p>
+          ${nameLineHtml}
           ${metaHtml}
         </div>
         <div class="flex items-center gap-1">
