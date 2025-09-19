@@ -174,6 +174,76 @@ describe('program routes', () => {
     expect(res.body.title).toBe('New');
   });
 
+  test('rejects invalid total_weeks when creating a program', async () => {
+    const adminId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+      adminId,
+      'admin-create',
+      hash,
+      'local'
+    ]);
+    await pool.query(
+      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='admin'",
+      [adminId]
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'admin-create', password: 'passpass' }).expect(200);
+
+    const countBefore = await pool.query('select count(*)::int as count from public.programs');
+
+    const invalidPayloads = [
+      { title: 'Missing weeks' },
+      { title: 'Null weeks', total_weeks: null },
+      { title: 'Zero weeks', total_weeks: 0 },
+      { title: 'Non numeric weeks', total_weeks: 'nope' }
+    ];
+
+    for (const payload of invalidPayloads) {
+      const res = await agent.post('/programs').send(payload).expect(400);
+      expect(['invalid_total_weeks', 'invalid_number']).toContain(res.body.error);
+    }
+
+    const countAfter = await pool.query('select count(*)::int as count from public.programs');
+    expect(countAfter.rows[0].count).toBe(countBefore.rows[0].count);
+  });
+
+  test('rejects invalid total_weeks when updating a program', async () => {
+    const adminId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+      adminId,
+      'admin-update',
+      hash,
+      'local'
+    ]);
+    await pool.query(
+      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='admin'",
+      [adminId]
+    );
+
+    const programId = 'update-invalid-total-weeks';
+    await pool.query('insert into public.programs(program_id, title, total_weeks, created_by) values ($1,$2,$3,$4)', [
+      programId,
+      'Existing Program',
+      6,
+      adminId
+    ]);
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'admin-update', password: 'passpass' }).expect(200);
+
+    const invalidValues = [null, '', 0, 'nope'];
+    for (const value of invalidValues) {
+      const res = await agent.patch(`/programs/${programId}`).send({ total_weeks: value }).expect(400);
+      expect(['invalid_total_weeks', 'invalid_number']).toContain(res.body.error);
+    }
+
+    const { rows } = await pool.query('select total_weeks from public.programs where program_id=$1', [programId]);
+    expect(rows[0].total_weeks).toBe(6);
+  });
+
   test('manager with delete permission can soft delete managed program', async () => {
     await pool.query(
       "insert into public.role_permissions(role_id, perm_key) select role_id, 'program.delete' from public.roles where role_key='manager'"
