@@ -1636,20 +1636,22 @@ async function flushPendingMetadataUpdates({ immediate = false } = {}) {
     }
     let success = false;
     try {
-      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/metadata`, {
+      const response = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/metadata`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: batch }),
       });
+      const updatedCount = Number(response?.updated ?? 0);
       success = true;
       if (selectedProgramId === programId) {
+        const messageToShow = updatedCount === 0 ? 'No changes were applied.' : successMessage;
         if (shouldReload) {
           await loadProgramTemplateAssignments({ preserveSelection: true });
         }
-        setTemplatePanelMessage(successMessage);
+        setTemplatePanelMessage(messageToShow);
         setTimeout(() => {
-          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === messageToShow) {
             setTemplatePanelMessage('');
           }
         }, 2500);
@@ -1800,18 +1802,22 @@ async function flushPendingTemplateOrder({ immediate = false } = {}) {
     }
     let success = false;
     try {
-      await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/reorder`, {
+      const response = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/reorder`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order: filteredOrder }),
       });
+      const updatedCount = Number(response?.updated ?? 0);
       success = true;
       if (selectedProgramId === programId) {
-        await loadProgramTemplateAssignments({ preserveSelection: true });
-        setTemplatePanelMessage(successMessage);
+        if (updatedCount > 0) {
+          await loadProgramTemplateAssignments({ preserveSelection: true });
+        }
+        const messageToShow = updatedCount === 0 ? 'Order already up to date.' : successMessage;
+        setTemplatePanelMessage(messageToShow);
         setTimeout(() => {
-          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === successMessage) {
+          if (programTemplatePanelMessage && programTemplatePanelMessage.textContent === messageToShow) {
             setTemplatePanelMessage('');
           }
         }, 2500);

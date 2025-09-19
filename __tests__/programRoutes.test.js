@@ -63,6 +63,9 @@ describe('program routes', () => {
         week_number int,
         label text not null,
         notes text,
+        due_offset_days int,
+        required boolean,
+        visibility text,
         sort_order int,
         status text default 'draft',
         deleted_at timestamp
