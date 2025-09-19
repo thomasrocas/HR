@@ -345,9 +345,9 @@ describe('template api', () => {
     const otherManagerAgent = await loginAgent(otherManagerUsername);
 
     let attachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/attach')
+      .post('/api/programs/attach-program/templates')
       .send({ template_id: templateId })
-      .expect(200);
+      .expect(201);
     expect(attachRes.body.attached).toBe(true);
     expect(attachRes.body.alreadyAttached).toBe(false);
     expect(attachRes.body.template).toMatchObject({
@@ -364,26 +364,24 @@ describe('template api', () => {
     expect(String(attachRes.body.template.template_id)).toBe(String(templateId));
 
     attachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/attach')
+      .post('/api/programs/attach-program/templates')
       .send({ templateId })
       .expect(200);
     expect(attachRes.body.alreadyAttached).toBe(true);
 
     await otherManagerAgent
-      .post('/api/programs/attach-program/templates/attach')
+      .post('/api/programs/attach-program/templates')
       .send({ template_id: templateId })
       .expect(403);
 
     let detachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/detach')
-      .send({ template_id: templateId })
+      .delete(`/api/programs/attach-program/templates/${templateId}`)
       .expect(200);
     expect(detachRes.body.detached).toBe(true);
     expect(detachRes.body.wasAttached).toBe(true);
 
     detachRes = await managerAgent
-      .post('/api/programs/attach-program/templates/detach')
-      .send({ template_id: templateId })
+      .delete(`/api/programs/attach-program/templates/${templateId}`)
       .expect(200);
     expect(detachRes.body.wasAttached).toBe(false);
 
@@ -400,94 +398,70 @@ describe('template api', () => {
     expect(programList.body.meta.total).toBe(0);
   });
 
-  test('link metadata updates apply to a single program', async () => {
-    const adminUsername = 'admin-link-meta';
-    const adminId = await createUserWithRole(adminUsername, 'admin');
-    await grantPermission('template.update');
-    const adminAgent = await loginAgent(adminUsername);
 
-    await pool.query('insert into public.programs(program_id, title) values ($1,$2), ($3,$4)', [
-      'link-program-a',
-      'Program A',
-      'link-program-b',
-      'Program B',
+  test('PATCH /api/programs/:programId/templates/:templateId updates metadata with RBAC enforcement', async () => {
+    await grantPermission('template.update');
+
+    const managerUsername = 'manager-metadata';
+    const managerId = await createUserWithRole(managerUsername, 'manager');
+    const otherManagerUsername = 'manager-metadata-no-access';
+    await createUserWithRole(otherManagerUsername, 'manager');
+
+    const programId = 'metadata-program';
+    await pool.query('insert into public.programs(program_id, title) values ($1,$2)', [programId, 'Metadata Program']);
+    await pool.query('insert into public.program_memberships(user_id, program_id, role) values ($1,$2,$3)', [
+      managerId,
+      programId,
+      'manager',
     ]);
+
     const templateId = nextTemplateId();
     await pool.query(
-      'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order) values ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [templateId, 2, 'Shareable Template', 'Base notes', 3, false, 'everyone', 2]
+      'insert into public.program_task_templates(template_id, label, notes, due_offset_days, required, status) values ($1,$2,$3,$4,$5,$6)',
+      [templateId, 'Metadata Template', 'Old notes', 1, false, 'draft']
     );
+    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [
+      templateId,
+      programId,
+    ]);
 
-    await adminAgent
-      .post('/api/programs/link-program-a/templates/attach')
-      .send({ template_id: templateId })
-      .expect(200);
-    await adminAgent
-      .post('/api/programs/link-program-b/templates/attach')
-      .send({ template_id: templateId })
+    const managerAgent = await loginAgent(managerUsername);
+    const otherManagerAgent = await loginAgent(otherManagerUsername);
+
+    await otherManagerAgent
+      .patch(`/api/programs/${programId}/templates/${templateId}`)
+      .send({ notes: 'No access' })
+      .expect(403);
+
+    const patchRes = await managerAgent
+      .patch(`/api/programs/${programId}/templates/${templateId}`)
+      .send({ notes: 'Updated notes', due_offset_days: 5, required: true, status: 'published' })
       .expect(200);
 
-    const patchResponse = await adminAgent
-      .patch('/programs/link-program-a/templates/metadata')
-      .send({
-        updates: [
-          {
-            template_id: templateId,
-            due_offset_days: 9,
-            notes: 'Only for program A',
-            visibility: 'admins',
-            week_number: 5,
-          },
-        ],
-      })
-      .expect(200);
-    expect(patchResponse.body).toEqual({ updated: 1 });
-
-    const programAResponse = await adminAgent
-      .get('/api/programs/link-program-a/templates')
-      .expect(200);
-    const assignmentA = programAResponse.body.data.find(row => String(row.template_id) === String(templateId));
-    expect(assignmentA).toMatchObject({
-      program_id: 'link-program-a',
-      due_offset_days: 9,
-      notes: 'Only for program A',
-      visibility: 'admins',
-      week_number: 5,
+    expect(patchRes.body.updated).toBe(true);
+    expect(patchRes.body.template).toMatchObject({
+      notes: 'Updated notes',
+      due_offset_days: 5,
+      required: true,
+      status: 'published',
+      program_id: programId,
     });
 
-    const programBResponse = await adminAgent
-      .get('/api/programs/link-program-b/templates')
-      .expect(200);
-    const assignmentB = programBResponse.body.data.find(row => String(row.template_id) === String(templateId));
-    expect(assignmentB).toMatchObject({
-      program_id: 'link-program-b',
-      due_offset_days: 3,
-      notes: 'Base notes',
-      visibility: 'everyone',
-      week_number: 2,
-    });
-
-    const { rows: linkRows } = await pool.query(
-      'select due_offset_days, notes, visibility, week_number, updated_by from public.program_template_links where program_id = $1 and template_id = $2',
-      ['link-program-a', templateId]
+    const { rows } = await pool.query(
+      'select notes, due_offset_days, required, status from public.program_task_templates where template_id = $1',
+      [templateId]
     );
-    expect(linkRows[0]).toMatchObject({
-      due_offset_days: 9,
-      notes: 'Only for program A',
-      visibility: 'admins',
-      week_number: 5,
-      updated_by: adminId,
+    expect(rows[0]).toMatchObject({
+      notes: 'Updated notes',
+      due_offset_days: 5,
+      required: true,
+      status: 'published',
     });
 
-    const { rows: otherLinkRows } = await pool.query(
-      'select due_offset_days, notes, visibility, week_number from public.program_template_links where program_id = $1 and template_id = $2',
-      ['link-program-b', templateId]
-    );
-    expect(otherLinkRows[0]).toMatchObject({
-      due_offset_days: 3,
-      notes: 'Base notes',
-      visibility: 'everyone',
-      week_number: 2,
-    });
+    await managerAgent
+      .patch(`/api/programs/${programId}/templates/${templateId}`)
+      .send({ status: 'invalid-status' })
+      .expect(400);
+
   });
 });

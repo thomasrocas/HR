@@ -1006,7 +1006,7 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
         const basePayload = state?.payload && typeof state.payload === 'object' ? state.payload : {};
         const payload = { template_id: id, ...basePayload };
         try {
-          const result = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates/attach`, {
+          const result = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -1480,11 +1480,10 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
   let detachResult = { wasAttached: false };
   try {
     try {
-      detachResult = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates/detach`, {
-        method: 'POST',
+      detachResult = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
+        method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_id: templateId }),
       });
     } catch (error) {
       if (error.status === 404) {
@@ -1671,14 +1670,26 @@ async function flushPendingMetadataUpdates({ immediate = false } = {}) {
       setTemplatePanelMessage(savingMessage);
     }
     let success = false;
+    let updatedCount = 0;
     try {
-      const response = await fetchJson(`${API}/programs/${encodeURIComponent(programId)}/templates/metadata`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: batch }),
-      });
-      const updatedCount = Number(response?.updated ?? 0);
+      for (const entry of batch) {
+        const templateId = entry?.template_id;
+        if (!templateId) continue;
+        const payload = { ...entry };
+        delete payload.template_id;
+        const response = await fetchJson(`${API}/api/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (response?.template) {
+          applyTemplateMetadataToCaches(response.template);
+        }
+        if (response?.updated) {
+          updatedCount += 1;
+        }
+      }
       success = true;
       if (selectedProgramId === programId) {
         const messageToShow = updatedCount === 0 ? 'No changes were applied.' : successMessage;
