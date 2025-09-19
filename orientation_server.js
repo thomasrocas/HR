@@ -595,11 +595,7 @@ async function withTransaction(req, work) {
   try {
     await client.query('BEGIN');
     if (req?.user?.id) {
-      try {
-        await client.query('SET LOCAL app.current_user = $1', [req.user.id]);
-      } catch (_err) {
-        /* ignore audit context errors */
-      }
+      await client.query("select set_config('app.current_user', $1::text, true)", [req.user.id]);
     }
     const result = await work(client);
     await client.query('COMMIT');
