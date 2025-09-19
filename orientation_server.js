@@ -456,6 +456,71 @@ const coerceNotes = value => {
   return String(value);
 };
 
+const sanitizeLinkMetadata = (raw = {}) => {
+  const sanitized = {};
+  if (Object.prototype.hasOwnProperty.call(raw, 'week_number')) {
+    sanitized.week_number = toNullableInteger(raw.week_number);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'sort_order')) {
+    sanitized.sort_order = toNullableInteger(raw.sort_order);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'due_offset_days')) {
+    sanitized.due_offset_days = toNullableInteger(raw.due_offset_days);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'required')) {
+    sanitized.required = toNullableBoolean(raw.required);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'visibility')) {
+    sanitized.visibility = toNullableString(raw.visibility);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'visible')) {
+    sanitized.visible = toNullableBoolean(raw.visible);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'notes')) {
+    const rawNotes = coerceNotes(raw.notes);
+    if (rawNotes === null) {
+      sanitized.notes = null;
+    } else {
+      const trimmed = rawNotes.trim();
+      sanitized.notes = trimmed === '' ? null : rawNotes;
+    }
+  }
+  return sanitized;
+};
+
+const buildLinkPayloadFromTemplate = (template = {}, overrides = {}, userId = null) => {
+  const sanitizedOverrides = sanitizeLinkMetadata(overrides);
+  const payload = { ...sanitizedOverrides };
+  if (!Object.prototype.hasOwnProperty.call(payload, 'week_number')) {
+    payload.week_number = template.week_number ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'sort_order')) {
+    payload.sort_order = template.sort_order ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'due_offset_days')) {
+    payload.due_offset_days = template.due_offset_days ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'required')) {
+    payload.required = template.required ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'visibility')) {
+    payload.visibility = template.visibility ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'visible')) {
+    payload.visible = true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'notes')) {
+    payload.notes = template.notes ?? null;
+  }
+  if (userId) {
+    if (!Object.prototype.hasOwnProperty.call(payload, 'created_by')) {
+      payload.created_by = userId;
+    }
+    payload.updated_by = userId;
+  }
+  return payload;
+};
+
 const normalizeTemplateId = value => {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
@@ -876,6 +941,7 @@ apiRouter.post('/programs/:programId/templates', ensurePerm('template.update'), 
     if (err?.status === 404) {
       return res.status(404).json({ error: err.code || 'not_found' });
     }
+
     if (err?.status === 403) {
       return res.status(403).json({ error: 'forbidden' });
     }
@@ -944,6 +1010,7 @@ apiRouter.post('/programs/:programId/templates/attach', ensurePerm('template.upd
   try {
     await ensureProgramManagementAccess(req, programId);
     const { template, attachResult } = await attachTemplateToProgram(req, programId, templateId);
+
     res.json({ attached: true, alreadyAttached: attachResult.alreadyAttached, template });
   } catch (err) {
     if (err?.status === 404) {
@@ -1255,20 +1322,26 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
     const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
     const sql = `select t.template_id,
                         l.program_id,
-                        t.week_number,
+                        coalesce(l.week_number, t.week_number) as week_number,
                         t.label,
-                        t.notes,
-                        t.due_offset_days,
-                        t.required,
-                        t.visibility,
-                        t.sort_order,
+                        coalesce(l.notes, t.notes) as notes,
+                        coalesce(l.due_offset_days, t.due_offset_days) as due_offset_days,
+                        coalesce(l.required, t.required) as required,
+                        coalesce(l.visibility, t.visibility) as visibility,
+                        l.visible,
+                        coalesce(l.sort_order, t.sort_order) as sort_order,
                         t.status,
-                        t.deleted_at
+                        t.deleted_at,
+                        l.id as link_id,
+                        l.created_at,
+                        l.updated_at,
+                        l.created_by,
+                        l.updated_by
                  from public.program_task_templates t
                  join public.program_template_links l
                    on l.template_id = t.template_id
                  where l.program_id = $1${includeDeleted ? '' : ' and t.deleted_at is null'}
-                 order by t.week_number, t.sort_order, t.template_id`;
+                 order by coalesce(l.week_number, t.week_number), coalesce(l.sort_order, t.sort_order), t.template_id`;
     const { rows } = await pool.query(sql, [program_id]);
     res.json(rows);
   } catch (err) {
@@ -1288,6 +1361,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
       required = null,
       visibility = null,
       sort_order = null,
+      visible = null,
     } = req.body || {};
     const sanitizedWeek = toNullableInteger(week_number);
     const sanitizedDueOffset = toNullableInteger(due_offset_days);
@@ -1296,6 +1370,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
     const sanitizedSortOrder = toNullableInteger(sort_order);
     const sanitizedNotes = notes === null ? null : toNullableString(notes);
     const sanitizedLabel = label === null || label === undefined ? null : toNullableString(label);
+    const sanitizedVisible = toNullableBoolean(visible);
     let status = null;
     if (typeof req.body?.status === 'string') {
       const normalized = req.body.status.toLowerCase();
@@ -1310,21 +1385,63 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
         values ($1,$2,$3,$4,$5,$6,$7,$8)
         returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
       ), linked as (
-        insert into public.program_template_links (template_id, program_id)
-        select template_id, $9 from inserted
-        returning template_id, program_id
+        insert into public.program_template_links (
+          template_id,
+          program_id,
+          week_number,
+          sort_order,
+          due_offset_days,
+          required,
+          visibility,
+          visible,
+          notes,
+          created_by,
+          updated_by
+        )
+        select template_id,
+               $9,
+               week_number,
+               sort_order,
+               due_offset_days,
+               required,
+               visibility,
+               coalesce($10, true),
+               notes,
+               $11,
+               $11
+          from inserted
+        returning id as link_id,
+                  template_id,
+                  program_id,
+                  week_number,
+                  sort_order,
+                  due_offset_days,
+                  required,
+                  visibility,
+                  visible,
+                  notes,
+                  created_by,
+                  updated_by,
+                  created_at,
+                  updated_at
       )
       select i.template_id,
              l.program_id,
-             i.week_number,
+             l.week_number,
              i.label,
-             i.notes,
-             i.due_offset_days,
-             i.required,
-             i.visibility,
-             i.sort_order,
+             l.notes,
+             l.due_offset_days,
+             l.required,
+             l.visibility,
+             l.visible,
+             l.sort_order,
              i.status,
-             i.deleted_at
+             i.deleted_at,
+             l.link_id,
+             l.created_at,
+             l.updated_at,
+             l.created_by,
+             l.updated_by
       from inserted i
       join linked l on l.template_id = i.template_id;`;
     const { rows } = await pool.query(sql, [
@@ -1337,6 +1454,8 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
       sanitizedSortOrder,
       status ?? 'draft',
       program_id,
+      sanitizedVisible,
+      req.user?.id ?? null,
     ]);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -1344,72 +1463,6 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
       return res.status(400).json({ error: err.code || 'invalid_payload' });
     }
     console.error('POST /programs/:id/templates error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.update'), async (req, res) => {
-  try {
-    const { program_id, template_id } = req.params;
-    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
-    if (!req.roles.includes('admin')) {
-      const ok = await userManagesProgram(req.user.id, program_id);
-      if (!ok) return res.status(403).json({ error: 'forbidden' });
-    }
-    const fields = [];
-    const vals = [];
-    const updates = req.body || {};
-    for (const key of ['week_number', 'label', 'notes', 'due_offset_days', 'required', 'visibility', 'sort_order', 'status']) {
-      if (key in updates) {
-        let value = updates[key];
-        if (key === 'status') {
-          if (typeof value !== 'string') return res.status(400).json({ error: 'invalid_status' });
-          const normalized = value.toLowerCase();
-          if (!TEMPLATE_STATUSES.has(normalized)) {
-            return res.status(400).json({ error: 'invalid_status' });
-          }
-          value = normalized;
-        }
-        vals.push(value);
-        fields.push(`${key} = $${vals.length}`);
-      }
-    }
-    if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
-
-    vals.push(program_id);
-    vals.push(template_id);
-    const updateSql = `update public.program_task_templates
-                         set ${fields.join(', ')}
-                       from public.program_template_links l
-                       where public.program_task_templates.template_id = $${vals.length}
-                         and l.template_id = public.program_task_templates.template_id
-                         and l.program_id = $${vals.length-1}
-                         and public.program_task_templates.deleted_at is null;`;
-    const result = await pool.query(updateSql, vals);
-    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
-
-    const { rows } = await pool.query(
-      `select t.template_id,
-              l.program_id,
-              t.week_number,
-              t.label,
-              t.notes,
-              t.due_offset_days,
-              t.required,
-              t.visibility,
-              t.sort_order,
-              t.status,
-              t.deleted_at
-         from public.program_task_templates t
-         join public.program_template_links l on l.template_id = t.template_id
-        where t.template_id = $1
-          and l.program_id = $2`,
-      [template_id, program_id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('PATCH /programs/:id/templates/:template_id error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1433,12 +1486,14 @@ app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.updat
       if (!raw || typeof raw !== 'object') continue;
       const templateId = raw.template_id ?? raw.templateId ?? raw.id;
       if (!templateId) continue;
+
       const { patch, hasField, error } = buildTemplateMetadataPatch(raw);
       if (error) {
         return res.status(400).json({ error });
+
       }
-      if (!hasField) continue;
-      normalized.push({ templateId, patch });
+      if (!Object.keys(linkPatch).length && !Object.keys(templatePatch).length) continue;
+      normalized.push({ templateId, linkPatch, templatePatch });
     }
     if (!normalized.length) {
       return res.status(400).json({ error: 'no_updates' });
@@ -1449,6 +1504,7 @@ app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.updat
     try {
       await client.query('begin');
       for (const entry of normalized) {
+
         const fields = Object.keys(entry.patch);
         if (!fields.length) continue;
         const result = await programTemplateLinksDao.updateMetadata({
@@ -1460,6 +1516,7 @@ app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.updat
         if (result.updated) {
           totalUpdated += 1;
         }
+
       }
       await client.query('commit');
     } catch (err) {
@@ -1474,6 +1531,103 @@ app.patch('/programs/:program_id/templates/metadata', ensurePerm('template.updat
       return res.status(400).json({ error: err.code || 'invalid_payload' });
     }
     console.error('PATCH /programs/:id/templates/metadata error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.update'), async (req, res) => {
+  try {
+    const { program_id, template_id } = req.params;
+    if (!program_id || !template_id) return res.status(400).json({ error: 'Invalid id' });
+    const programId = program_id;
+    const templateId = template_id;
+    if (!req.roles.includes('admin')) {
+      const ok = await userManagesProgram(req.user.id, programId);
+      if (!ok) return res.status(403).json({ error: 'forbidden' });
+    }
+    const updates = req.body || {};
+    const linkPatch = sanitizeLinkMetadata(updates);
+    const templatePatch = {};
+    if (Object.prototype.hasOwnProperty.call(updates, 'label')) {
+      templatePatch.label = toNullableString(updates.label);
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'status')) {
+      const statusValue = updates.status;
+      if (typeof statusValue !== 'string') {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      const normalizedStatus = statusValue.toLowerCase();
+      if (!TEMPLATE_STATUSES.has(normalizedStatus)) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      templatePatch.status = normalizedStatus;
+    }
+    if (!Object.keys(linkPatch).length && !Object.keys(templatePatch).length) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    try {
+      const updatedTemplate = await withTransaction(req, async client => {
+        let rowsUpdated = 0;
+        if (Object.keys(linkPatch).length) {
+          linkPatch.updated_by = req.user?.id ?? null;
+          const { updated } = await programTemplateLinksDao.updateLink({
+            programId,
+            templateId,
+            patch: linkPatch,
+            db: client,
+          });
+          if (updated) rowsUpdated += 1;
+        }
+        if (Object.keys(templatePatch).length) {
+          const assignments = [];
+          const params = [];
+          Object.entries(templatePatch).forEach(([field, value]) => {
+            params.push(value);
+            assignments.push(`${field} = $${params.length}`);
+          });
+          params.push(programId);
+          const programPlaceholder = `$${params.length}`;
+          params.push(templateId);
+          const templatePlaceholder = `$${params.length}`;
+          const sql = `
+            update public.program_task_templates
+               set ${assignments.join(', ')}
+             where template_id = ${templatePlaceholder}
+               and deleted_at is null
+               and exists (
+                 select 1
+                   from public.program_template_links
+                  where template_id = ${templatePlaceholder}
+                    and program_id = ${programPlaceholder}
+               )
+          `;
+          const result = await client.query(sql, params);
+          rowsUpdated += result.rowCount;
+        }
+        if (!rowsUpdated) {
+          throw createHttpError(404, 'not_found');
+        }
+        const refreshed = await programTemplateLinksDao.getTemplateForProgram({
+          programId,
+          templateId,
+          includeDeleted: false,
+          db: client,
+        });
+        if (!refreshed) {
+          throw createHttpError(404, 'not_found');
+        }
+        return refreshed;
+      });
+      res.json(updatedTemplate);
+    } catch (err) {
+      if (err?.status === 404) {
+        return res.status(404).json({ error: err.code || 'Not found' });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('PATCH /programs/:id/templates/:template_id error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1516,15 +1670,15 @@ app.post('/programs/:program_id/templates/reorder', ensurePerm('template.update'
       });
       params.push(program_id);
       const programParamIndex = params.length;
+      params.push(req.user?.id ?? null);
+      const updatedByIndex = params.length;
       const sql = `
-        update public.program_task_templates t
-           set sort_order = v.sort_order
+        update public.program_template_links l
+           set sort_order = v.sort_order,
+               updated_by = $${updatedByIndex}
           from (values ${tuples.join(', ')}) as v(template_id, sort_order)
-          join public.program_template_links l on l.template_id = v.template_id
-         where t.template_id = v.template_id
+         where l.template_id = v.template_id
            and l.program_id = $${programParamIndex}
-           and t.deleted_at is null
-        returning t.template_id
       `;
       const result = await client.query(sql, params);
       updated = result.rowCount;
@@ -1553,16 +1707,19 @@ app.delete('/programs/:program_id/templates/:template_id', ensurePerm('template.
       const ok = await userManagesProgram(req.user.id, program_id);
       if (!ok) return res.status(403).json({ error: 'forbidden' });
     }
-    const result = await pool.query(
-      `update public.program_task_templates
-          set deleted_at = now()
-        from public.program_template_links l
-        where public.program_task_templates.template_id = $2
-          and l.template_id = public.program_task_templates.template_id
-          and l.program_id = $1
-          and public.program_task_templates.deleted_at is null`,
-      [program_id, template_id]
-    );
+    const sql = `
+      update public.program_task_templates
+         set deleted_at = now()
+       where template_id = $2
+         and deleted_at is null
+         and exists (
+           select 1
+             from public.program_template_links
+            where template_id = $2
+              and program_id = $1
+         )
+    `;
+    const result = await pool.query(sql, [program_id, template_id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
     res.json({ deleted: true });
   } catch (err) {
@@ -1579,16 +1736,19 @@ app.post('/programs/:program_id/templates/:template_id/restore', ensurePerm('tem
       const ok = await userManagesProgram(req.user.id, program_id);
       if (!ok) return res.status(403).json({ error: 'forbidden' });
     }
-    const result = await pool.query(
-      `update public.program_task_templates
-          set deleted_at = null
-        from public.program_template_links l
-        where public.program_task_templates.template_id = $2
-          and l.template_id = public.program_task_templates.template_id
-          and l.program_id = $1
-          and public.program_task_templates.deleted_at is not null`,
-      [program_id, template_id]
-    );
+    const sql = `
+      update public.program_task_templates
+         set deleted_at = null
+       where template_id = $2
+         and deleted_at is not null
+         and exists (
+           select 1
+             from public.program_template_links
+            where template_id = $2
+              and program_id = $1
+         )
+    `;
+    const result = await pool.query(sql, [program_id, template_id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
     res.json({ restored: true });
   } catch (err) {
@@ -1605,19 +1765,19 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
 const sql = `
   insert into public.orientation_tasks
     (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, l.program_id, t.week_number, t.notes
+  select $1, $2, t.label, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes)
   from public.program_task_templates t
   join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
     on ot.user_id = $1
    and ot.program_id = l.program_id
    and ot.label = t.label
-   and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
+   and coalesce(ot.week_number, -1) = coalesce(coalesce(l.week_number, t.week_number), -1)
    and ot.deleted = false
   where l.program_id = $3
     and t.deleted_at is null
     and ot.task_id is null
-  order by t.week_number, t.sort_order
+  order by coalesce(l.week_number, t.week_number), coalesce(l.sort_order, t.sort_order), t.template_id
   returning *;`;
 
     const { rows } = await pool.query(sql, [req.user.id, trainee, program_id]);
@@ -1667,19 +1827,19 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
 const copySql = `
   insert into public.orientation_tasks
     (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, l.program_id, t.week_number, t.notes
+  select $1, $2, t.label, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes)
   from public.program_task_templates t
   join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
     on ot.user_id = $1
    and ot.program_id = l.program_id
    and ot.label = t.label
-   and coalesce(ot.week_number, -1) = coalesce(t.week_number, -1)
+   and coalesce(ot.week_number, -1) = coalesce(coalesce(l.week_number, t.week_number), -1)
    and ot.deleted = false
   where l.program_id = $3
     and t.deleted_at is null
     and ot.task_id is null
-  order by t.week_number, t.sort_order
+  order by coalesce(l.week_number, t.week_number), coalesce(l.sort_order, t.sort_order), t.template_id
   returning task_id;`;
 
     const { rowCount } = await pool.query(copySql, [targetUserId, trainee, program_id]);

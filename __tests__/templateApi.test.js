@@ -72,10 +72,21 @@ describe('template api', () => {
         deleted_at timestamp
       );
       create table public.program_template_links (
+        id uuid primary key default gen_random_uuid(),
         template_id bigint not null references public.program_task_templates(template_id) on delete cascade,
         program_id text not null references public.programs(program_id) on delete cascade,
+        week_number int,
+        sort_order int,
+        due_offset_days int,
+        required boolean,
+        visibility text,
+        visible boolean default true,
+        notes text,
+        created_by uuid,
+        updated_by uuid,
         created_at timestamptz not null default now(),
-        primary key (template_id, program_id)
+        updated_at timestamptz default now(),
+        unique (program_id, template_id)
       );
       create table public.user_roles (
         user_id uuid,
@@ -271,11 +282,13 @@ describe('template api', () => {
       'Template Two',
       'published',
     ]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
       templateOne,
       programId,
     ]);
-    await pool.query('insert into public.program_template_links(template_id, program_id) values ($1,$2)', [
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
       templateTwo,
       programId,
     ]);
@@ -323,10 +336,10 @@ describe('template api', () => {
       'Attach Program',
     ]);
     const templateId = nextTemplateId();
-    await pool.query('insert into public.program_task_templates(template_id, label) values ($1,$2)', [
-      templateId,
-      'Attach Template',
-    ]);
+    await pool.query(
+      'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [templateId, 3, 'Attach Template', 'Be prepared', 5, true, 'managers', 4]
+    );
 
     const managerAgent = await loginAgent(managerUsername);
     const otherManagerAgent = await loginAgent(otherManagerUsername);
@@ -337,6 +350,18 @@ describe('template api', () => {
       .expect(201);
     expect(attachRes.body.attached).toBe(true);
     expect(attachRes.body.alreadyAttached).toBe(false);
+    expect(attachRes.body.template).toMatchObject({
+      program_id: 'attach-program',
+      week_number: 3,
+      notes: 'Be prepared',
+      due_offset_days: 5,
+      required: true,
+      visibility: 'managers',
+      visible: true,
+      sort_order: 4,
+    });
+    expect(attachRes.body.template.link_id).toBeTruthy();
+    expect(String(attachRes.body.template.template_id)).toBe(String(templateId));
 
     attachRes = await managerAgent
       .post('/api/programs/attach-program/templates')
@@ -372,6 +397,7 @@ describe('template api', () => {
       .expect(200);
     expect(programList.body.meta.total).toBe(0);
   });
+
 
   test('PATCH /api/programs/:programId/templates/:templateId updates metadata with RBAC enforcement', async () => {
     await grantPermission('template.update');
@@ -436,5 +462,6 @@ describe('template api', () => {
       .patch(`/api/programs/${programId}/templates/${templateId}`)
       .send({ status: 'invalid-status' })
       .expect(400);
+
   });
 });
