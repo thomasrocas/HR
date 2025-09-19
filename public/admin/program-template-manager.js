@@ -1254,19 +1254,37 @@ function applyTemplateMetadataToCaches(templateData) {
   const templateId = getTemplateId(templateData);
   if (!templateId) return;
 
-  const mergeIntoCollection = collection => {
+  const assignmentIndex = templates.findIndex(template => getTemplateId(template) === templateId);
+  const isAssigned = assignmentIndex >= 0;
+
+  const mergeIntoCollection = (collection, { allowInsert = true } = {}) => {
     if (!Array.isArray(collection)) return;
     const index = collection.findIndex(item => getTemplateId(item) === templateId);
     if (index >= 0) {
       const existing = collection[index] && typeof collection[index] === 'object' ? collection[index] : {};
       collection[index] = { ...existing, ...templateData };
-    } else {
+    } else if (allowInsert) {
       collection.push({ ...templateData });
     }
   };
 
   mergeIntoCollection(globalTemplates);
-  mergeIntoCollection(templateLibrary);
+
+  if (Array.isArray(templateLibrary)) {
+    const libraryIndex = templateLibrary.findIndex(item => getTemplateId(item) === templateId);
+    if (libraryIndex >= 0) {
+      if (isAssigned) {
+        templateLibrary.splice(libraryIndex, 1);
+      } else {
+        const existing = templateLibrary[libraryIndex] && typeof templateLibrary[libraryIndex] === 'object'
+          ? templateLibrary[libraryIndex]
+          : {};
+        templateLibrary[libraryIndex] = { ...existing, ...templateData };
+      }
+    } else if (!isAssigned) {
+      templateLibrary.push({ ...templateData });
+    }
+  }
 
   const existingLibraryEntry = templateLibraryIndex.get(templateId);
   if (existingLibraryEntry && typeof existingLibraryEntry === 'object') {
@@ -1275,7 +1293,6 @@ function applyTemplateMetadataToCaches(templateData) {
     templateLibraryIndex.set(templateId, { ...templateData });
   }
 
-  const assignmentIndex = templates.findIndex(template => getTemplateId(template) === templateId);
   if (assignmentIndex >= 0) {
     const existingAssignment = templates[assignmentIndex];
     const mergedAssignment = {
@@ -1290,21 +1307,28 @@ function applyTemplateMetadataToCaches(templateData) {
     const assignedOption = getTagifyOptionFromTemplate(templateData, { isAssigned: true });
     const availableOption = getTagifyOptionFromTemplate(templateData);
 
-    const updateTagCollection = (collection, option) => {
-      if (!Array.isArray(collection) || !option) return;
+    const updateTagCollection = (collection, option, { remove = false } = {}) => {
+      if (!Array.isArray(collection)) return;
       const idx = collection.findIndex(item => normalizeId(item?.value ?? item?.id) === templateId);
       if (idx >= 0) {
+        if (remove) {
+          collection.splice(idx, 1);
+          return;
+        }
+        if (!option) return;
         const existing = collection[idx] && typeof collection[idx] === 'object' ? collection[idx] : {};
         collection[idx] = { ...existing, ...option };
+      } else if (!remove && option) {
+        collection.push({ ...option });
       }
     };
 
     updateTagCollection(tagifyInstance.value, assignedOption);
     if (tagifyInstance.settings && typeof tagifyInstance.settings === 'object') {
-      updateTagCollection(tagifyInstance.settings.whitelist, availableOption);
+      updateTagCollection(tagifyInstance.settings.whitelist, availableOption, { remove: isAssigned });
     }
     if (Array.isArray(tagifyInstance.whitelist)) {
-      updateTagCollection(tagifyInstance.whitelist, availableOption);
+      updateTagCollection(tagifyInstance.whitelist, availableOption, { remove: isAssigned });
     }
   }
 }
