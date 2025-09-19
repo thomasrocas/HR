@@ -17,6 +17,9 @@
 - [ ] Deprecating removes from new assignments.
 - [ ] Archive hides program unless “Include archived” is toggled.
 
+## Program template assignments
+- [ ] Attaching templates to a program displays the assigned week badge next to each template name.
+
 ## Error states
 - [ ] 403 responses show toast “Not authorized” and button remains disabled.
 - [ ] 422 shows inline field errors.
