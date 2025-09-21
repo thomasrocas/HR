@@ -369,6 +369,8 @@ const PROGRAM_SORT_ACCESSORS = {
   archivedAt: getProgramArchivedAt,
 };
 
+const DEFAULT_PROGRAM_PAGE_SIZE = 10;
+
 function parseCell(program, key, type = 'string') {
   const accessor = PROGRAM_SORT_ACCESSORS[key];
   const raw = typeof accessor === 'function' ? accessor(program) : program?.[key];
@@ -486,6 +488,11 @@ const programTemplateList = document.getElementById('programTemplateList');
 const templateAttachInput = document.getElementById('programTemplateAttachInput');
 const btnAttachTags = document.getElementById('btnPanelAttachTemplate');
 const templateVisibilityOptions = document.getElementById('templateVisibilityOptions');
+const programPageSizeSelect = document.getElementById('programPageSize');
+const programPager = document.getElementById('pager');
+const programPagerLabel = document.getElementById('programPagerLabel');
+const programPagerPrev = document.getElementById('programPagerPrev');
+const programPagerNext = document.getElementById('programPagerNext');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -494,6 +501,16 @@ if (!programTableBody || !templateTableBody || !programActionsContainer || !temp
 let programs = [];
 let programSortKey = null;
 let programSortDirection = 'asc';
+let programPageSize = DEFAULT_PROGRAM_PAGE_SIZE;
+let programCurrentPage = 1;
+let currentProgramPageItems = [];
+let lastProgramPagination = {
+  totalItems: 0,
+  totalPages: 0,
+  currentPage: 1,
+  pageSize: DEFAULT_PROGRAM_PAGE_SIZE,
+  isAll: false,
+};
 let templates = [];
 let globalTemplates = [];
 let templateLibrary = [];
@@ -620,11 +637,11 @@ function getSortedPrograms(source = programs) {
     .map(entry => entry.program);
 }
 
-function getFilteredPrograms() {
-  const sorted = getSortedPrograms();
+function getFilteredPrograms(source = programs) {
+  const list = Array.isArray(source) ? source.slice() : [];
   const term = (programSearchInput?.value || '').trim().toLowerCase();
-  if (!term) return sorted;
-  return sorted.filter(p => {
+  if (!term) return list;
+  return list.filter(p => {
     const values = [
       getProgramTitle(p),
       getProgramLifecycle(p),
@@ -641,6 +658,45 @@ function getFilteredPrograms() {
       .filter(value => value !== null && value !== undefined && value !== '')
       .some(value => value.toString().toLowerCase().includes(term));
   });
+}
+
+function getFilteredSortedPrograms() {
+  const filtered = getFilteredPrograms();
+  return getSortedPrograms(filtered);
+}
+
+function parsePageSize(value) {
+  if (value === null || value === undefined || value === '') {
+    return DEFAULT_PROGRAM_PAGE_SIZE;
+  }
+  if (value === 'all') return Infinity;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PROGRAM_PAGE_SIZE;
+}
+
+function paginate(data, page = 1, size = DEFAULT_PROGRAM_PAGE_SIZE) {
+  const list = Array.isArray(data) ? data : [];
+  const totalItems = list.length;
+  const useAll = size === Infinity;
+  const normalizedSize = useAll ? (totalItems === 0 ? 1 : totalItems) : Math.max(1, Math.trunc(size));
+  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / normalizedSize);
+  const hasPages = totalPages > 0;
+  const currentPage = hasPages ? Math.min(Math.max(1, page), totalPages) : 1;
+  const startIndex = !hasPages ? 0 : useAll ? 0 : (currentPage - 1) * normalizedSize;
+  const endIndex = useAll ? totalItems : startIndex + normalizedSize;
+  const items = hasPages ? list.slice(startIndex, endIndex) : [];
+  return {
+    items,
+    totalItems,
+    totalPages,
+    currentPage,
+    pageSize: useAll ? totalItems : normalizedSize,
+    isAll: useAll,
+  };
+}
+
+function getVisiblePrograms() {
+  return Array.isArray(currentProgramPageItems) ? currentProgramPageItems.slice() : [];
 }
 
 function getFilteredTemplates() {
@@ -697,15 +753,22 @@ function getProgramById(id) {
   return programs.find(program => getProgramId(program) === id) || null;
 }
 
-function getPrimaryProgramId(displayedPrograms = getFilteredPrograms()) {
+function getPrimaryProgramId(displayedPrograms = getFilteredSortedPrograms()) {
   if (selectedProgramIds.size > 1) return null;
   if (selectedProgramIds.size === 1) {
     const { value } = selectedProgramIds.values().next();
     if (value) return value;
   }
   if (!selectedProgramId) return null;
-  const pool = Array.isArray(displayedPrograms) && displayedPrograms.length ? displayedPrograms : programs;
-  const exists = pool.some(program => getProgramId(program) === selectedProgramId);
+  const filteredSorted = getFilteredSortedPrograms();
+  const pools = [];
+  if (Array.isArray(displayedPrograms) && displayedPrograms.length) {
+    pools.push(displayedPrograms);
+  }
+  if (filteredSorted.length) {
+    pools.push(filteredSorted);
+  }
+  const exists = pools.some(pool => pool.some(program => getProgramId(program) === selectedProgramId));
   return exists ? selectedProgramId : null;
 }
 
@@ -3019,10 +3082,46 @@ function updateProgramSortIndicators() {
   });
 }
 
+function updateProgramPager(pagination) {
+  if (!programPager) return;
+  const totalPages = pagination?.totalPages ?? 0;
+  const currentPage = pagination?.currentPage ?? 1;
+  const displayCurrent = totalPages > 0 ? currentPage : 0;
+  const label = totalPages > 0
+    ? `Page ${displayCurrent} of ${totalPages}`
+    : 'Page 0 of 0';
+  if (programPagerLabel) {
+    programPagerLabel.textContent = label;
+  }
+  const disablePrev = totalPages <= 1 || displayCurrent <= 1;
+  const disableNext = totalPages === 0 || displayCurrent >= totalPages;
+  if (programPagerPrev) {
+    programPagerPrev.disabled = disablePrev;
+    programPagerPrev.setAttribute('aria-disabled', disablePrev ? 'true' : 'false');
+  }
+  if (programPagerNext) {
+    programPagerNext.disabled = disableNext;
+    programPagerNext.setAttribute('aria-disabled', disableNext ? 'true' : 'false');
+  }
+  programPager.setAttribute('data-total-items', String(pagination?.totalItems ?? 0));
+}
+
 function renderPrograms() {
   syncProgramSelection();
   updateProgramSortIndicators();
-  const displayed = getFilteredPrograms();
+  const filtered = getFilteredPrograms();
+  const sorted = getSortedPrograms(filtered);
+  const pagination = paginate(sorted, programCurrentPage, programPageSize);
+  programCurrentPage = pagination.currentPage;
+  currentProgramPageItems = pagination.items;
+  lastProgramPagination = {
+    totalItems: pagination.totalItems,
+    totalPages: pagination.totalPages,
+    currentPage: pagination.currentPage,
+    pageSize: pagination.pageSize,
+    isAll: pagination.isAll,
+  };
+  const displayed = currentProgramPageItems;
   if (!displayed.length) {
     programTableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No programs found.</td></tr>';
   } else {
@@ -3056,6 +3155,7 @@ function renderPrograms() {
   updateProgramSelectionSummary();
   updateProgramActionsState(displayed);
   updateActiveProgramIndicators();
+  updateProgramPager(pagination);
 }
 
 function updateActiveProgramIndicators() {
@@ -3430,6 +3530,7 @@ async function loadPrograms() {
       selectedProgramId = validIds[0];
     }
     selectedProgramIds.clear();
+    programCurrentPage = 1;
     renderPrograms();
     programMessage.textContent = '';
   } catch (error) {
@@ -3438,6 +3539,7 @@ async function loadPrograms() {
     selectedProgramIds.clear();
     selectedProgramId = null;
     lastLoadedTemplateProgramId = null;
+    programCurrentPage = 1;
     renderPrograms();
     if (error.status === 403) {
       programMessage.textContent = 'You do not have permission to load programs.';
@@ -3909,7 +4011,7 @@ programTableBody.addEventListener('change', async event => {
   nextSelectedIds.forEach(value => selectedProgramIds.add(value));
   selectedProgramId = nextActiveId;
   updateProgramSelectionSummary();
-  const displayed = getFilteredPrograms();
+  const displayed = getVisiblePrograms();
   updateProgramActionsState(displayed);
   if (selectedProgramId !== previousActiveId) {
     updateActiveProgramIndicators();
@@ -3961,6 +4063,37 @@ templateTableBody.addEventListener('change', event => {
 
 if (programSearchInput) {
   programSearchInput.addEventListener('input', () => {
+    programCurrentPage = 1;
+    renderPrograms();
+  });
+}
+
+if (programPageSizeSelect) {
+  programPageSize = parsePageSize(programPageSizeSelect.value || DEFAULT_PROGRAM_PAGE_SIZE);
+  programPageSizeSelect.value = programPageSize === Infinity
+    ? 'all'
+    : String(programPageSize);
+  programPageSizeSelect.addEventListener('change', () => {
+    programPageSize = parsePageSize(programPageSizeSelect.value);
+    programCurrentPage = 1;
+    renderPrograms();
+  });
+}
+
+if (programPagerPrev) {
+  programPagerPrev.addEventListener('click', () => {
+    if (programPagerPrev.disabled) return;
+    if (lastProgramPagination.totalPages <= 1 || lastProgramPagination.currentPage <= 1) return;
+    programCurrentPage = Math.max(1, lastProgramPagination.currentPage - 1);
+    renderPrograms();
+  });
+}
+
+if (programPagerNext) {
+  programPagerNext.addEventListener('click', () => {
+    if (programPagerNext.disabled) return;
+    if (lastProgramPagination.totalPages === 0 || lastProgramPagination.currentPage >= lastProgramPagination.totalPages) return;
+    programCurrentPage = Math.max(1, lastProgramPagination.currentPage + 1);
     renderPrograms();
   });
 }
@@ -3978,7 +4111,7 @@ if (programSelectAll) {
       return;
     }
     const previousActiveId = selectedProgramId;
-    const displayed = getFilteredPrograms();
+    const displayed = getVisiblePrograms();
     if (programSelectAll.checked) {
       displayed.forEach(p => {
         const programId = getProgramId(p);
@@ -4246,6 +4379,7 @@ if (programTableHead) {
     const isSameKey = programSortKey === key;
     programSortKey = key;
     programSortDirection = isSameKey && programSortDirection === 'asc' ? 'desc' : 'asc';
+    programCurrentPage = 1;
     renderPrograms();
   });
 }
