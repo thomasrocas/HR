@@ -2052,11 +2052,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 
 <script>
   (function(){
-    const calendar = document.getElementById('orientationCalendar');
-    const modal = document.getElementById('orientationTaskModal');
-    if (!calendar || !modal) return;
+    const scheduleRetry = (callback) => {
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(callback);
+      } else {
+        window.setTimeout(callback, 16);
+      }
+    };
 
-    const form = document.getElementById('orientationTaskForm');
+    const setupModal = (calendar, modal) => {
+      const form = document.getElementById('orientationTaskForm');
     const journalField = document.getElementById('orientationTaskJournal');
     const fieldMap = {
       title: modal.querySelector('[data-modal-field="title"]'),
@@ -2211,12 +2216,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       }
     });
 
-    closeButtons.forEach((btn) => {
-      btn.addEventListener('click', (event) => {
-        event.preventDefault();
-        closeModal();
+      closeButtons.forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+          event.preventDefault();
+          closeModal();
+        });
       });
-    });
+    };
+
+    const init = () => {
+      const calendar = document.getElementById('orientationCalendar');
+      const modal = document.getElementById('orientationTaskModal');
+      if (!calendar || !modal) {
+        scheduleRetry(init);
+        return;
+      }
+      setupModal(calendar, modal);
+    };
+
+    init();
   })();
 </script>
 </body>
