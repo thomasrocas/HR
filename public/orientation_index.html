@@ -839,11 +839,30 @@ useEffect(() => {
   }, [startDate, numWeeks]);
 
   const scheduledMap = useMemo(()=>{
+    const parseScheduledTime = (task) => {
+      if (!task) return null;
+      const explicit = task.scheduled_time !== undefined && task.scheduled_time !== null
+        ? String(task.scheduled_time).trim()
+        : '';
+      if (explicit && /^([01]?\d|2[0-3]):[0-5]\d$/.test(explicit)) {
+        return explicit;
+      }
+      const source = task.scheduled_for !== undefined && task.scheduled_for !== null
+        ? String(task.scheduled_for).trim()
+        : '';
+      if (!source) return null;
+      const parsed = dayjs(source);
+      if (!parsed.isValid()) return null;
+      const hasTime = /\b\d{1,2}:\d{2}\b/.test(source);
+      if (!hasTime) return null;
+      return parsed.format('HH:mm');
+    };
     const map = {};
     weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
       if(t.scheduled_for){
         const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
         map[key] = map[key] || [];
+        const scheduledTime = parseScheduledTime(t);
         map[key].push({
           label:`W${w.wk}: ${t.title}`,
           done: typeof t.done === 'boolean' ? t.done : t.completed,
@@ -854,10 +873,21 @@ useEffect(() => {
           week: typeof t.week_number === 'number' ? t.week_number : ensureDisplayValue(t.week_number),
           journal_entry: ensureDisplayValue(t.journal_entry),
           responsible_person: ensureDisplayValue(t.responsible_person),
-          scheduled_for: ensureDisplayValue(t.scheduled_for)
+          scheduled_for: ensureDisplayValue(t.scheduled_for),
+          scheduled_time: scheduledTime
         });
       }
     }));
+    Object.keys(map).forEach((key)=>{
+      map[key].sort((a,b)=>{
+        const aHas = Boolean(a.scheduled_time);
+        const bHas = Boolean(b.scheduled_time);
+        if (aHas && bHas) return a.scheduled_time.localeCompare(b.scheduled_time);
+        if (aHas) return -1;
+        if (bHas) return 1;
+        return 0;
+      });
+    });
     return map;
   }, [weeks]);
 
@@ -1495,6 +1525,7 @@ useEffect(() => {
                          data-journal_entry={toDisplayString(it.journal_entry)}
                          data-responsible_person={toDisplayString(it.responsible_person)}
                          data-scheduled_for={toDisplayString(it.scheduled_for)}
+                         data-scheduled_time={it.scheduled_time ? it.scheduled_time : ''}
                          data-done={typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done)}
                          onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
                          onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
@@ -2100,6 +2131,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         if (!timeField || timeOptionsReady) return;
         const minutes = ['00', '15', '30', '45'];
         const fragment = document.createDocumentFragment();
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'No time';
+        fragment.appendChild(emptyOption);
         for (let hour = 7; hour <= 19; hour += 1) {
           minutes.forEach((min) => {
             if (hour === 19 && min !== '00') return;
@@ -2162,11 +2197,40 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       };
 
       const combineScheduledWithTime = (scheduledValue, timeValue, fallbackDate) => {
-        if (!timeValue || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(timeValue)) return scheduledValue;
-        const [hourStr, minuteStr] = timeValue.split(':');
+        const normalizedTime = timeValue && /^([01]?\d|2[0-3]):[0-5]\d$/.test(timeValue)
+          ? timeValue
+          : '';
+        const trimmed = scheduledValue && scheduledValue !== '—' ? scheduledValue.trim() : '';
+
+        if (!normalizedTime) {
+          if (dayjsGlobal && trimmed) {
+            let parsed = dayjsGlobal(trimmed);
+            if (!parsed.isValid()) {
+              const dateMatch = trimmed.match(/\d{4}-\d{2}-\d{2}/);
+              if (dateMatch) {
+                parsed = dayjsGlobal(dateMatch[0], 'YYYY-MM-DD');
+              }
+            }
+            if (parsed.isValid()) {
+              return parsed.startOf('day').format('YYYY-MM-DD');
+            }
+          }
+          if (trimmed) {
+            const dateMatch = trimmed.match(/\d{4}-\d{2}-\d{2}/);
+            if (dateMatch) {
+              return dateMatch[0];
+            }
+            return trimmed;
+          }
+          if (fallbackDate) {
+            return fallbackDate;
+          }
+          return '';
+        }
+
+        const [hourStr, minuteStr] = normalizedTime.split(':');
         const hour = parseInt(hourStr, 10);
         const minute = parseInt(minuteStr, 10);
-        const trimmed = scheduledValue && scheduledValue !== '—' ? scheduledValue.trim() : '';
 
         if (dayjsGlobal && trimmed) {
           let parsed = dayjsGlobal(trimmed);
@@ -2199,12 +2263,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         }
 
         if (trimmed) {
-          return `${trimmed} ${timeValue}`;
+          return `${trimmed} ${normalizedTime}`;
         }
         if (fallbackDate) {
-          return `${fallbackDate} ${timeValue}`;
+          return `${fallbackDate} ${normalizedTime}`;
         }
-        return timeValue;
+        return normalizedTime;
       };
 
     const closeButtons = modal.querySelectorAll('[data-close-modal]');
@@ -2299,8 +2363,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           }
           return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
         };
-        const validTime = clampTimeToWindow(existingTime) || '07:00';
-        timeField.value = validTime;
+        const clampedTime = clampTimeToWindow(existingTime);
+        timeField.value = clampedTime || '';
       }
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
       const journalValue = dataset.journal_entry && dataset.journal_entry !== '—' ? dataset.journal_entry : '';
@@ -2337,26 +2401,34 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const datasetValue = entryValue.trim() === '' ? '—' : entryValue;
       const responsibleValue = responsibleField ? responsibleField.value : '';
       const responsibleDatasetValue = responsibleValue.trim() === '' ? '—' : responsibleValue;
+      const previousScheduledFor = activeTrigger.dataset.scheduled_for || '';
       const timeValue = timeField ? timeField.value : '';
+      const normalizedTime = timeValue && /^([01]?\d|2[0-3]):[0-5]\d$/.test(timeValue) ? timeValue : '';
       const parentDay = activeTrigger.closest('[data-date]');
       const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
-      const scheduledForValue = combineScheduledWithTime(activeTrigger.dataset.scheduled_for || '', timeValue, parentDate);
+      const scheduledForValue = combineScheduledWithTime(previousScheduledFor, normalizedTime, parentDate);
       activeTrigger.dataset.journal_entry = datasetValue;
       activeTrigger.dataset.responsible_person = responsibleDatasetValue;
       if (timeField) {
-        activeTrigger.dataset.scheduled_time = timeValue || '';
+        if (normalizedTime) {
+          activeTrigger.dataset.scheduled_time = normalizedTime;
+        } else {
+          delete activeTrigger.dataset.scheduled_time;
+          activeTrigger.removeAttribute('data-scheduled_time');
+        }
         activeTrigger.dataset.scheduled_for = scheduledForValue || '';
       }
+      const finalScheduledFor = activeTrigger.dataset.scheduled_for || scheduledForValue || '';
       if (fieldMap.scheduled) {
-        fieldMap.scheduled.textContent = formatScheduledForDisplay(scheduledForValue || activeTrigger.dataset.scheduled_for, timeValue);
+        fieldMap.scheduled.textContent = formatScheduledForDisplay(finalScheduledFor, normalizedTime || null);
       }
       window.dispatchEvent(new CustomEvent('orientation:journal:update', {
         detail: {
           taskId,
           journal_entry: entryValue,
           responsible_person: responsibleValue,
-          scheduled_time: timeValue,
-          scheduled_for: scheduledForValue
+          scheduled_time: normalizedTime || null,
+          scheduled_for: finalScheduledFor || null
         }
       }));
       closeModal();
