@@ -3119,8 +3119,9 @@ function updateProgramActionsState(displayedPrograms) {
       return;
     }
     if (ADMIN_ONLY_PROGRAM_ACTIONS.has(action) && !IS_ADMIN) {
+      const actionLabel = action ? `${action.charAt(0).toUpperCase()}${action.slice(1)}` : 'perform this';
       btn.disabled = true;
-      btn.title = 'Only admins can archive or restore programs.';
+      btn.title = `Only admins can ${actionLabel.toLowerCase()} programs.`;
       return;
     }
     btn.disabled = !hasSelection;
