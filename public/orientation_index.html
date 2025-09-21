@@ -2100,8 +2100,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         if (!timeField || timeOptionsReady) return;
         const minutes = ['00', '15', '30', '45'];
         const fragment = document.createDocumentFragment();
-        for (let hour = 0; hour < 24; hour += 1) {
+        for (let hour = 7; hour <= 19; hour += 1) {
           minutes.forEach((min) => {
+            if (hour === 19 && min !== '00') return;
             const option = document.createElement('option');
             option.value = `${String(hour).padStart(2, '0')}:${min}`;
             option.textContent = option.value;
@@ -2278,9 +2279,27 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         const existingTime = dataset.scheduled_time && dataset.scheduled_time !== '—'
           ? dataset.scheduled_time
           : parseTimeString(dataset.scheduled_for);
-        const validTime = existingTime && /^([01]?\d|2[0-3]):[0-5]\d$/.test(existingTime)
-          ? existingTime
-          : '00:00';
+        const clampTimeToWindow = (value) => {
+          if (!value || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(value)) return null;
+          let [hourStr, minuteStr] = value.split(':');
+          let hour = parseInt(hourStr, 10);
+          let minute = parseInt(minuteStr, 10);
+          if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+          if (hour < 7) {
+            hour = 7;
+            minute = 0;
+          } else if (hour > 19) {
+            hour = 19;
+            minute = 0;
+          } else if (hour === 19 && minute > 0) {
+            minute = 0;
+          }
+          if (minute < 0 || minute > 59) {
+            minute = 0;
+          }
+          return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        };
+        const validTime = clampTimeToWindow(existingTime) || '07:00';
         timeField.value = validTime;
       }
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
