@@ -1204,11 +1204,21 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
       }
 
       if (hasSuccess && attachedStillSelected) {
-        await loadProgramTemplateAssignments({ preserveSelection: true });
+        await loadProgramTemplateAssignments({
+          preserveSelection: true,
+          skipAttachWaitFor: perform,
+        });
       }
 
       if (failureCount) {
         return false;
+      }
+      pendingAttach.clear();
+      pendingAttachState.clear();
+      pendingAttachProgramId = null;
+      if (attachSaveTimeout) {
+        clearTimeout(attachSaveTimeout);
+        attachSaveTimeout = null;
       }
       return true;
     } catch (error) {
@@ -3385,8 +3395,12 @@ function extractTemplateLibraryFromResponse(payload) {
 }
 
 async function loadProgramTemplateAssignments(options = {}) {
-  const { focusTemplateId = null, preserveSelection = false } = options;
-  if (attachInFlightPromise) {
+  const {
+    focusTemplateId = null,
+    preserveSelection = false,
+    skipAttachWaitFor = null,
+  } = options;
+  if (attachInFlightPromise && attachInFlightPromise !== skipAttachWaitFor) {
     try {
       await attachInFlightPromise;
     } catch (error) {
