@@ -172,6 +172,9 @@ function normalizeTemplateAssociation(raw, index = 0) {
   const normalized = { ...source };
   const nestedTemplate = source.template && typeof source.template === 'object' ? source.template : null;
   const linkMeta = source.link && typeof source.link === 'object' ? source.link : null;
+  if (linkMeta && (typeof normalized.link !== 'object' || normalized.link === null)) {
+    normalized.link = { ...linkMeta };
+  }
   const templateId = getTemplateId(source) || (nestedTemplate ? getTemplateId(nestedTemplate) : null);
   if (templateId && !normalized.templateId) {
     normalized.templateId = templateId;
@@ -246,7 +249,30 @@ function normalizeTemplateAssociation(raw, index = 0) {
     ?? linkMeta?.link_url
     ?? linkMeta?.linkUrl
     ?? null;
-  normalized.hyperlink = hyperlinkSource === null || hyperlinkSource === undefined ? '' : String(hyperlinkSource);
+  const hyperlinkValue = hyperlinkSource === null || hyperlinkSource === undefined
+    ? ''
+    : String(hyperlinkSource);
+  normalized.hyperlink = hyperlinkValue;
+  if (hyperlinkValue && typeof normalized.link === 'object' && normalized.link !== null) {
+    normalized.link.hyperlink = hyperlinkValue;
+  }
+
+  const linkCreatedAtSource = source.link_created_at
+    ?? source.linkCreatedAt
+    ?? linkMeta?.created_at
+    ?? linkMeta?.createdAt
+    ?? null;
+  if (linkCreatedAtSource !== null && linkCreatedAtSource !== undefined) {
+    normalized.link_created_at = linkCreatedAtSource;
+    normalized.linkCreatedAt = linkCreatedAtSource;
+    if (typeof normalized.link !== 'object' || normalized.link === null) {
+      normalized.link = { created_at: linkCreatedAtSource };
+    } else if (normalized.link && typeof normalized.link === 'object') {
+      if (normalized.link.created_at === undefined && normalized.link.createdAt === undefined) {
+        normalized.link.created_at = linkCreatedAtSource;
+      }
+    }
+  }
 
   const sortSource = source.sort_order
     ?? linkMeta?.sort_order
@@ -1717,40 +1743,6 @@ function resetPendingMetadataState() {
 function buildAssociationUpdatePayload(updates) {
   const payload = {};
   if (!updates || typeof updates !== 'object') return payload;
-  if ('dueOffsetDays' in updates) {
-    const value = updates.dueOffsetDays;
-    if (value === null || value === undefined || value === '') {
-      payload.due_offset_days = null;
-    } else {
-      const asNumber = typeof value === 'number' ? value : Number(value);
-      payload.due_offset_days = Number.isFinite(asNumber) ? asNumber : null;
-    }
-  }
-  if ('required' in updates) {
-    const value = updates.required;
-    if (value === null || value === undefined) {
-      payload.required = null;
-    } else if (typeof value === 'boolean') {
-      payload.required = value;
-    } else if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      if (['true', '1', 'yes', 'required', 'y'].includes(normalized)) {
-        payload.required = true;
-      } else if (['false', '0', 'no', 'optional', 'n'].includes(normalized)) {
-        payload.required = false;
-      } else {
-        payload.required = Boolean(normalized);
-      }
-    } else {
-      payload.required = Boolean(value);
-    }
-  }
-  if ('visibility' in updates) {
-    const value = updates.visibility;
-    payload.visibility = value === null || value === undefined || value === ''
-      ? null
-      : String(value);
-  }
   if ('notes' in updates) {
     const value = updates.notes;
     if (value === null) {
@@ -3080,100 +3072,63 @@ async function handleAssociationFieldChange(templateId, field, element) {
     setTemplatePanelMessage('Select a program before editing template assignments.', true);
     return;
   }
+  if (field !== 'notes' && field !== 'hyperlink') {
+    return;
+  }
   const template = getTemplateById(templateId);
   if (!template) return;
 
-  const previousValue = field === 'dueOffsetDays'
-    ? (template?.dueOffsetDays ?? template?.due_offset_days ?? null)
-    : template[field];
+  const previousValue = field === 'notes'
+    ? (template?.notes ?? '')
+    : (template?.hyperlink ?? '');
 
   let nextValue;
-  if (field === 'dueOffsetDays') {
+  if (field === 'notes') {
     const raw = element.value;
+    nextValue = raw && raw.trim() !== '' ? raw : '';
+  } else {
+    const raw = element.value.trim();
     if (raw === '') {
       nextValue = null;
     } else {
-      const parsed = Number(raw);
-      if (!Number.isFinite(parsed)) {
-        setTemplatePanelMessage('Enter a valid number of days for the due offset.', true);
-        element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
+      let parsed;
+      try {
+        parsed = new URL(raw);
+      } catch (error) {
+        setTemplatePanelMessage('Enter a valid hyperlink URL (including http:// or https://).', true);
+        element.value = previousValue || '';
         return;
       }
-      nextValue = parsed;
+      if (!parsed?.protocol || !/^https?:$/i.test(parsed.protocol)) {
+        setTemplatePanelMessage('Enter a valid hyperlink URL (including http:// or https://).', true);
+        element.value = previousValue || '';
+        return;
+      }
+      nextValue = raw;
     }
-  } else if (field === 'required') {
-    const raw = element.value;
-    if (raw === 'inherit') {
-      nextValue = null;
-    } else if (raw === 'true') {
-      nextValue = true;
-    } else if (raw === 'false') {
-      nextValue = false;
-    } else {
-      nextValue = toNullableBoolean(raw);
-    }
-  } else if (field === 'visibility') {
-    const raw = element.value.trim();
-    nextValue = raw === '' ? null : raw;
-  } else if (field === 'notes') {
-    const raw = element.value;
-    nextValue = raw && raw.trim() !== '' ? raw : '';
-  } else if (field === 'hyperlink') {
-    const raw = element.value.trim();
-    nextValue = raw === '' ? null : raw;
-  } else {
+  }
+
+  const previousComparable = previousValue || '';
+  const nextComparable = (nextValue || '');
+  if (previousComparable === nextComparable) {
     return;
   }
 
-  const previousComparable = previousValue === undefined ? null : previousValue;
-  const nextComparable = nextValue === undefined ? null : nextValue;
   if (field === 'notes') {
-    if ((previousComparable || '') === (nextComparable || '')) {
-      return;
-    }
-  } else if (field === 'hyperlink') {
-    if ((previousComparable || '') === (nextComparable || '')) {
-      return;
-    }
-  } else if (previousComparable === nextComparable) {
-    return;
-  }
-
-  if (field === 'dueOffsetDays') {
-    template.dueOffsetDays = nextValue;
-    template.due_offset_days = nextValue;
-  } else if (field === 'notes') {
     template.notes = nextValue || '';
-  } else if (field === 'visibility') {
-    template.visibility = nextValue === null ? null : String(nextValue);
-  } else if (field === 'required') {
-    template.required = nextValue;
-  } else if (field === 'hyperlink') {
+  } else {
     template.hyperlink = nextValue === null ? '' : String(nextValue);
   }
 
-  const updates = field === 'dueOffsetDays'
-    ? { dueOffsetDays: nextValue }
-    : { [field]: nextValue };
+  const updates = { [field]: nextValue };
 
   const revert = () => {
-    if (field === 'dueOffsetDays') {
-      template.dueOffsetDays = previousValue;
-      template.due_offset_days = previousValue;
-      element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
-    } else if (field === 'required') {
-      template.required = previousValue;
-      const revertValue = previousValue === null || previousValue === undefined ? 'inherit' : (previousValue ? 'true' : 'false');
-      element.value = revertValue;
-    } else if (field === 'visibility') {
-      template.visibility = previousValue === null || previousValue === undefined ? null : String(previousValue);
-      element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
-    } else if (field === 'notes') {
+    if (field === 'notes') {
       template.notes = previousValue ?? '';
       element.value = previousValue ?? '';
-    } else if (field === 'hyperlink') {
-      template.hyperlink = previousValue === null || previousValue === undefined ? '' : String(previousValue);
-      element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
+    } else {
+      template.hyperlink = previousValue || '';
+      element.value = previousValue || '';
     }
   };
 
