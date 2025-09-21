@@ -147,6 +147,43 @@ const toDisplayString = (value) => {
   return String(ensured);
 };
 
+const normalizeTimeValue = (value) => {
+  const raw = typeof value === 'number' ? String(value) : (value || '');
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === '—') return '';
+  const isoMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (isoMatch) {
+    const hours = isoMatch[1].padStart(2, '0');
+    const minutes = isoMatch[2];
+    return `${hours}:${minutes}`;
+  }
+  const meridianMatch = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (meridianMatch) {
+    let hours = parseInt(meridianMatch[1], 10);
+    const minutes = (meridianMatch[2] || '00').padStart(2, '0');
+    const meridian = meridianMatch[3].toUpperCase();
+    if (meridian === 'PM' && hours < 12) hours += 12;
+    if (meridian === 'AM' && hours === 12) hours = 0;
+    if (Number.isNaN(hours) || hours < 0 || hours > 23) return '';
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  }
+  if (trimmed.includes('T')) {
+    const parsed = dayjs(trimmed);
+    if (parsed.isValid()) {
+      return parsed.format('HH:mm');
+    }
+  }
+  return '';
+};
+
+const deriveTimeFromRow = (row = {}) => (
+  normalizeTimeValue(row.time || row.scheduled_time) || normalizeTimeValue(row.scheduled_for)
+);
+
+const deriveTimeFromTask = (task = {}) => (
+  normalizeTimeValue(task.scheduled_time) || normalizeTimeValue(task.scheduled_for)
+);
+
 function useFocusTrap(active, ref) {
   useEffect(() => {
     if (!active) return;
@@ -714,6 +751,7 @@ function App({ me, onSignOut }){
       if (!byWeek[wk]) {
         byWeek[wk] = { id: uid(), wk, title:'', theme:'', result:'', purpose:'', actions:'', tasks: [] };
       }
+      const scheduledTime = deriveTimeFromRow(r);
       byWeek[wk].tasks.push({
         id: r.task_id,
         task_id: r.task_id,
@@ -721,6 +759,7 @@ function App({ me, onSignOut }){
         notes: r.notes || '',
         completed: r.done,
         scheduled_for: r.scheduled_for,
+        scheduled_time: scheduledTime,
         labels: toLabelList(r.labels),
         week_number: typeof r.week_number === 'number' ? r.week_number : ensureDisplayValue(r.week_number),
         journal_entry: ensureDisplayValue(r.journal_entry),
@@ -844,6 +883,7 @@ useEffect(() => {
       if(t.scheduled_for){
         const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
         map[key] = map[key] || [];
+        const scheduledTime = deriveTimeFromTask(t);
         map[key].push({
           label:`W${w.wk}: ${t.title}`,
           done: typeof t.done === 'boolean' ? t.done : t.completed,
@@ -854,7 +894,8 @@ useEffect(() => {
           week: typeof t.week_number === 'number' ? t.week_number : ensureDisplayValue(t.week_number),
           journal_entry: ensureDisplayValue(t.journal_entry),
           responsible_person: ensureDisplayValue(t.responsible_person),
-          scheduled_for: ensureDisplayValue(t.scheduled_for)
+          scheduled_for: ensureDisplayValue(t.scheduled_for),
+          scheduled_time: scheduledTime
         });
       }
     }));
@@ -991,6 +1032,7 @@ useEffect(() => {
           notes: created.notes || '',
           completed: created.done,
           scheduled_for: created.scheduled_for,
+          scheduled_time: deriveTimeFromRow(created),
           labels: toLabelList(created.labels),
           week_number: typeof created.week_number === 'number' ? created.week_number : ensureDisplayValue(created.week_number),
           journal_entry: ensureDisplayValue(created.journal_entry),
@@ -1042,6 +1084,7 @@ useEffect(() => {
           notes: res.notes || '',
           completed: res.done,
           scheduled_for: res.scheduled_for,
+          scheduled_time: deriveTimeFromRow(res),
           labels: toLabelList(res.labels),
           week_number: typeof res.week_number === 'number' ? res.week_number : ensureDisplayValue(res.week_number),
           journal_entry: ensureDisplayValue(res.journal_entry),
@@ -1495,11 +1538,15 @@ useEffect(() => {
                          data-journal_entry={toDisplayString(it.journal_entry)}
                          data-responsible_person={toDisplayString(it.responsible_person)}
                          data-scheduled_for={toDisplayString(it.scheduled_for)}
+                         data-scheduled_time={it.scheduled_time || ''}
                          data-done={typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done)}
                          onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
                          onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
                          onTouchEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined}>
-                      {it.label}
+                      <div>{it.label}</div>
+                      {it.scheduled_time && (
+                        <div className="mt-0.5 text-[10px] text-slate-600">Assigned • {it.scheduled_time}</div>
+                      )}
                       {hasPerm('task.assign') && isPrivileged && !isTrainee && (
                         <button type="button" aria-label="Remove"
                                 className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
@@ -1540,27 +1587,30 @@ useEffect(() => {
                   <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
-                  {(w.tasks||[]).map((t,ti)=> (
-                    <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
-                      {hasPerm('task.delete') && isPrivileged && !isTrainee && (
-                        <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
-                                onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
-                      )}
-                      <div className="flex items-start gap-3">
-                        <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
-                        <div className="flex-1">
-                          <div className="font-medium">{t.title}</div>
-                          {hasPerm('task.assign') && isPrivileged && !isTrainee && (
-                            <div className="mt-2 flex items-center gap-2 text-sm">
-                              <span className="text-slate-600">Assigned:</span>
-                              <input type="date" className="input w-auto" value={t.scheduled_for||''}
-                                     onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
-                            </div>
-                          )}
+                  {(w.tasks||[]).map((t,ti)=> {
+                    const taskTimeDisplay = deriveTimeFromTask(t);
+                    return (
+                      <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
+                        {hasPerm('task.delete') && isPrivileged && !isTrainee && (
+                          <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
+                                  onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
+                        )}
+                        <div className="flex items-start gap-3">
+                          <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
+                          <div className="flex-1">
+                            <div className="font-medium">{t.title}</div>
+                            {hasPerm('task.assign') && isPrivileged && !isTrainee && (
+                              <div className="mt-2 flex items-center gap-2 text-sm">
+                                <span className="text-slate-600">Assigned{taskTimeDisplay ? ` • ${taskTimeDisplay}` : ''}:</span>
+                                <input type="date" className="input w-auto" value={t.scheduled_for||''}
+                                       onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {hasPerm('task.create') && !isTrainee && (
                   <button className="btn btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
