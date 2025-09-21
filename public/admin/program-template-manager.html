@@ -161,6 +161,61 @@
       color: #991b1b;
     }
 
+    .sort-trigger {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      width: 100%;
+      padding: 0;
+      margin: 0;
+      border: none;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-transform: inherit;
+      letter-spacing: inherit;
+      cursor: pointer;
+    }
+
+    .sort-trigger:focus {
+      outline: none;
+    }
+
+    .sort-trigger:focus-visible {
+      outline: 2px solid rgba(14, 165, 233, 0.4);
+      outline-offset: 2px;
+      border-radius: 0.375rem;
+    }
+
+    .sort-indicator {
+      display: inline-flex;
+      flex-direction: column;
+      line-height: 0.75;
+      font-size: 0.55rem;
+      margin-left: 0.125rem;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    .sort-indicator .sort-arrow {
+      opacity: 0.25;
+      transition: opacity 0.15s ease;
+    }
+
+    th[data-key]:hover .sort-indicator,
+    th[data-key]:focus-within .sort-indicator {
+      opacity: 0.5;
+    }
+
+    .sort-indicator[data-state="active"] {
+      opacity: 1;
+    }
+
+    .sort-indicator[data-direction="asc"] .sort-arrow-asc,
+    .sort-indicator[data-direction="desc"] .sort-arrow-desc {
+      opacity: 1;
+    }
+
     body.modal-open {
       overflow: hidden;
     }
@@ -324,12 +379,60 @@
                 <th class="w-10">
                   <input type="checkbox" id="programSelectAll" class="rounded border-slate-300">
                 </th>
-                <th>Title</th>
-                <th>Lifecycle</th>
-                <th>Weeks</th>
-                <th>Description</th>
-                <th>Created</th>
-                <th class="text-right">Archived</th>
+                <th data-key="title" data-type="string">
+                  <button type="button" class="sort-trigger">
+                    <span>Title</span>
+                    <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                      <span class="sort-arrow sort-arrow-asc">▲</span>
+                      <span class="sort-arrow sort-arrow-desc">▼</span>
+                    </span>
+                  </button>
+                </th>
+                <th data-key="lifecycle" data-type="string">
+                  <button type="button" class="sort-trigger">
+                    <span>Lifecycle</span>
+                    <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                      <span class="sort-arrow sort-arrow-asc">▲</span>
+                      <span class="sort-arrow sort-arrow-desc">▼</span>
+                    </span>
+                  </button>
+                </th>
+                <th data-key="weeks" data-type="number">
+                  <button type="button" class="sort-trigger">
+                    <span>Weeks</span>
+                    <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                      <span class="sort-arrow sort-arrow-asc">▲</span>
+                      <span class="sort-arrow sort-arrow-desc">▼</span>
+                    </span>
+                  </button>
+                </th>
+                <th data-key="description" data-type="string">
+                  <button type="button" class="sort-trigger">
+                    <span>Description</span>
+                    <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                      <span class="sort-arrow sort-arrow-asc">▲</span>
+                      <span class="sort-arrow sort-arrow-desc">▼</span>
+                    </span>
+                  </button>
+                </th>
+                <th data-key="createdAt" data-type="date">
+                  <button type="button" class="sort-trigger">
+                    <span>Created</span>
+                    <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                      <span class="sort-arrow sort-arrow-asc">▲</span>
+                      <span class="sort-arrow sort-arrow-desc">▼</span>
+                    </span>
+                  </button>
+                </th>
+                <th class="text-right" data-key="archivedAt" data-type="date">
+                  <button type="button" class="sort-trigger justify-end">
+                    <span>Archived</span>
+                    <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                      <span class="sort-arrow sort-arrow-asc">▲</span>
+                      <span class="sort-arrow sort-arrow-desc">▼</span>
+                    </span>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody id="programTableBody" class="bg-white text-sm"></tbody>
