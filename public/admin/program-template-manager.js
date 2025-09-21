@@ -237,6 +237,17 @@ function normalizeTemplateAssociation(raw, index = 0) {
     ?? '';
   normalized.notes = notesSource === null || notesSource === undefined ? '' : String(notesSource);
 
+  const hyperlinkSource = source.hyperlink
+    ?? linkMeta?.hyperlink
+    ?? source.url
+    ?? linkMeta?.url
+    ?? source.link_url
+    ?? source.linkUrl
+    ?? linkMeta?.link_url
+    ?? linkMeta?.linkUrl
+    ?? null;
+  normalized.hyperlink = hyperlinkSource === null || hyperlinkSource === undefined ? '' : String(hyperlinkSource);
+
   const sortSource = source.sort_order
     ?? linkMeta?.sort_order
     ?? source.sortOrder
@@ -1749,6 +1760,15 @@ function buildAssociationUpdatePayload(updates) {
       payload.notes = trimmed.trim() === '' ? null : trimmed;
     }
   }
+  if ('hyperlink' in updates) {
+    const value = updates.hyperlink;
+    if (value === null || value === undefined) {
+      payload.hyperlink = null;
+    } else {
+      const trimmed = String(value).trim();
+      payload.hyperlink = trimmed === '' ? null : trimmed;
+    }
+  }
   if ('sortOrder' in updates) {
     const value = updates.sortOrder;
     if (value === null || value === undefined || value === '') {
@@ -2902,7 +2922,7 @@ function renderTemplateAssignmentsPanel() {
     programTemplatePanelTitle.textContent = `Templates for ${programTitle}`;
   }
   if (programTemplatePanelDescription) {
-    programTemplatePanelDescription.textContent = 'Adjust due offsets, requirements, visibility, and notes for each assignment.';
+    programTemplatePanelDescription.textContent = 'Update the hyperlink and notes for each assignment.';
   }
 
   const ordered = templates.slice().sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
@@ -2940,16 +2960,11 @@ function createTemplateAssignmentListItem(template, index, total) {
   const templateId = getTemplateId(template) || '';
   const name = escapeHtml(getTemplateName(template) || 'Untitled template');
   const weekNumber = getTemplateWeekNumber(template);
-  const category = getTemplateCategory(template);
   const status = getTemplateStatus(template);
   const normalizedStatus = (status || '').toLowerCase();
   const isArchived = normalizedStatus === 'archived';
-  const dueOffsetRaw = template?.dueOffsetDays ?? template?.due_offset_days ?? null;
-  const dueOffsetValue = dueOffsetRaw === null || dueOffsetRaw === undefined ? '' : String(dueOffsetRaw);
-  const requiredRaw = template?.required;
-  const requiredValue = requiredRaw === null || requiredRaw === undefined ? 'inherit' : (requiredRaw ? 'true' : 'false');
-  const visibilityValue = template?.visibility ?? '';
   const notesValue = template?.notes ?? '';
+  const hyperlinkValue = template?.hyperlink ?? '';
   const disableControls = !CAN_MANAGE_TEMPLATES;
   const disableUp = disableControls || index === 0;
   const disableDown = disableControls || index === total - 1;
@@ -2959,23 +2974,52 @@ function createTemplateAssignmentListItem(template, index, total) {
       ? 'Archived templates cannot be removed.'
       : 'Only admins or managers can remove templates.')
     : 'Remove template';
-  const requiredOptions = [
-    { value: 'inherit', label: 'Inherit program setting' },
-    { value: 'true', label: 'Required' },
-    { value: 'false', label: 'Optional' },
-  ];
-  const requiredSelect = requiredOptions.map(opt => {
-    const selected = opt.value === requiredValue ? ' selected' : '';
-    return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
-  }).join('');
-  const metaParts = [];
-  if (category) {
-    metaParts.push(`<span class="text-xs text-slate-500">${escapeHtml(category)}</span>`);
-  }
-  if (status) {
-    metaParts.push(`<span>${createStatusBadge(status)}</span>`);
-  }
-  const metaHtml = metaParts.length ? `<div class="flex flex-wrap items-center gap-2">${metaParts.join('')}</div>` : '';
+  const statusBadgeHtml = status ? createStatusBadge(status) : '';
+  const createdAtRaw = template?.created_at
+    ?? template?.createdAt
+    ?? template?.link?.created_at
+    ?? template?.link?.createdAt
+    ?? template?.template?.created_at
+    ?? template?.template?.createdAt
+    ?? null;
+  const createdAtText = escapeHtml(formatDate(createdAtRaw));
+  const createdByRaw = template?.created_by
+    ?? template?.createdBy
+    ?? template?.created_by_name
+    ?? template?.createdByName
+    ?? template?.creator
+    ?? template?.link?.created_by
+    ?? template?.link?.createdBy
+    ?? template?.link?.created_by_name
+    ?? template?.link?.createdByName
+    ?? template?.template?.created_by
+    ?? template?.template?.createdBy
+    ?? template?.template?.created_by_name
+    ?? template?.template?.createdByName
+    ?? null;
+  const createdByText = (() => {
+    if (createdByRaw === null || createdByRaw === undefined) return '—';
+    if (typeof createdByRaw === 'string') return createdByRaw;
+    if (typeof createdByRaw === 'object') {
+      const name = createdByRaw.name
+        ?? createdByRaw.full_name
+        ?? createdByRaw.fullName
+        ?? createdByRaw.displayName
+        ?? createdByRaw.email
+        ?? null;
+      if (name !== null && name !== undefined && name !== '') {
+        return String(name);
+      }
+    }
+    return String(createdByRaw);
+  })();
+  const createdByEscaped = escapeHtml(createdByText || '—');
+  const metaHtml = `
+    <div class="space-y-1 text-xs text-slate-500">
+      ${statusBadgeHtml ? `<div>${statusBadgeHtml}</div>` : ''}
+      <p>Created ${createdAtText} by ${createdByEscaped}</p>
+    </div>
+  `;
   const nameLineHtml = (() => {
     if (weekNumber !== null && weekNumber !== undefined && weekNumber !== '') {
       const weekLabel = escapeHtml(String(weekNumber));
@@ -3015,20 +3059,10 @@ function createTemplateAssignmentListItem(template, index, total) {
           <button type="button" class="btn btn-danger-outline text-xs" data-assignment-action="remove" ${disableRemove ? 'disabled' : ''} aria-label="Remove template from program" title="${removeButtonTitle}">Remove</button>
         </div>
       </div>
-      <div class="grid gap-3 md:grid-cols-2">
-        <label class="space-y-1">
-          <span class="label-text">Due offset (days)</span>
-          <input type="number" class="input" data-association-field="dueOffsetDays" placeholder="e.g. 7" value="${escapeHtml(dueOffsetValue)}" ${disableControls ? 'disabled' : ''}>
-        </label>
-        <label class="space-y-1">
-          <span class="label-text">Required</span>
-          <select class="input" data-association-field="required" ${disableControls ? 'disabled' : ''}>${requiredSelect}</select>
-        </label>
-        <label class="space-y-1 md:col-span-2">
-          <span class="label-text">Visibility</span>
-          <input class="input" data-association-field="visibility" list="templateVisibilityOptions" placeholder="inherit" value="${escapeHtml(visibilityValue)}" ${disableControls ? 'disabled' : ''}>
-        </label>
-      </div>
+      <label class="space-y-1 block">
+        <span class="label-text">Hyperlink</span>
+        <input type="url" class="input" data-association-field="hyperlink" placeholder="https://example.com" value="${escapeHtml(hyperlinkValue)}" ${disableControls ? 'disabled' : ''}>
+      </label>
       <label class="space-y-1 block">
         <span class="label-text">Notes</span>
         <textarea class="textarea" data-association-field="notes" rows="3" ${disableControls ? 'disabled' : ''}>${notesEscaped}</textarea>
@@ -3084,6 +3118,9 @@ async function handleAssociationFieldChange(templateId, field, element) {
   } else if (field === 'notes') {
     const raw = element.value;
     nextValue = raw && raw.trim() !== '' ? raw : '';
+  } else if (field === 'hyperlink') {
+    const raw = element.value.trim();
+    nextValue = raw === '' ? null : raw;
   } else {
     return;
   }
@@ -3091,6 +3128,10 @@ async function handleAssociationFieldChange(templateId, field, element) {
   const previousComparable = previousValue === undefined ? null : previousValue;
   const nextComparable = nextValue === undefined ? null : nextValue;
   if (field === 'notes') {
+    if ((previousComparable || '') === (nextComparable || '')) {
+      return;
+    }
+  } else if (field === 'hyperlink') {
     if ((previousComparable || '') === (nextComparable || '')) {
       return;
     }
@@ -3107,6 +3148,8 @@ async function handleAssociationFieldChange(templateId, field, element) {
     template.visibility = nextValue === null ? null : String(nextValue);
   } else if (field === 'required') {
     template.required = nextValue;
+  } else if (field === 'hyperlink') {
+    template.hyperlink = nextValue === null ? '' : String(nextValue);
   }
 
   const updates = field === 'dueOffsetDays'
@@ -3128,6 +3171,9 @@ async function handleAssociationFieldChange(templateId, field, element) {
     } else if (field === 'notes') {
       template.notes = previousValue ?? '';
       element.value = previousValue ?? '';
+    } else if (field === 'hyperlink') {
+      template.hyperlink = previousValue === null || previousValue === undefined ? '' : String(previousValue);
+      element.value = previousValue === null || previousValue === undefined ? '' : String(previousValue);
     }
   };
 
