@@ -839,6 +839,7 @@ useEffect(() => {
   }, [startDate, numWeeks]);
 
   const scheduledMap = useMemo(()=>{
+
     const parseScheduledTime = (task) => {
       if (!task) return null;
       const explicit = task.scheduled_time !== undefined && task.scheduled_time !== null
@@ -854,6 +855,7 @@ useEffect(() => {
       const parsed = dayjs(source);
       if (!parsed.isValid()) return null;
       const hasTime = /\b\d{1,2}:\d{2}\b/.test(source);
+
       if (!hasTime) return null;
       return parsed.format('HH:mm');
     };
@@ -862,7 +864,9 @@ useEffect(() => {
       if(t.scheduled_for){
         const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
         map[key] = map[key] || [];
+
         const scheduledTime = parseScheduledTime(t);
+
         map[key].push({
           label:`W${w.wk}: ${t.title}`,
           done: typeof t.done === 'boolean' ? t.done : t.completed,
