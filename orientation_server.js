@@ -1791,6 +1791,10 @@ app.post('/programs/:program_id/templates/:template_id/restore', ensurePerm('tem
   }
 });
 
+const FIELD_ALIASES = {
+  time: 'scheduled_time'
+};
+
 app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
   try {
     const { program_id } = req.params;
@@ -1798,8 +1802,8 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
     
 const sql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes)
+    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, journal_entry, responsible_person)
+  select $1, $2, t.label, null, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes), null, null
   from public.program_task_templates t
   join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
@@ -1860,8 +1864,8 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     
 const copySql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-  select $1, $2, t.label, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes)
+    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, journal_entry, responsible_person)
+  select $1, $2, t.label, null, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes), null, null
   from public.program_task_templates t
   join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
@@ -1941,10 +1945,24 @@ app.get('/tasks', ensureAuth, async (req, res) => {
 app.post('/tasks', ensurePerm('task.create'), async (req, res) => {
   try {
     const {
-      label, scheduled_for = null,
-      done = false, program_id = null, week_number = null, notes = null,
+      label,
+      scheduled_for = null,
+      scheduled_time: scheduledTimeField,
+      time: timeField,
+      done = false,
+      program_id = null,
+      week_number = null,
+      notes = null,
+      journal_entry = null,
+      responsible_person = null,
       user_id = req.user.id
     } = req.body || {};
+
+    const scheduled_time = typeof timeField !== 'undefined'
+      ? timeField
+      : typeof scheduledTimeField !== 'undefined'
+        ? scheduledTimeField
+        : null;
 
     const roles = Array.isArray(req.roles) ? req.roles : [];
     const isAdmin = roles.includes('admin');
@@ -1970,10 +1988,22 @@ app.post('/tasks', ensurePerm('task.create'), async (req, res) => {
 
     const sql = `
       INSERT INTO public.orientation_tasks
-        (user_id, trainee, label, scheduled_for, done, program_id, week_number, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, journal_entry, responsible_person)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING *;`;
-    const vals = [user_id, trainee, label, scheduled_for, !!done, program_id, week_number, notes];
+    const vals = [
+      user_id,
+      trainee,
+      label,
+      scheduled_for,
+      scheduled_time,
+      !!done,
+      program_id,
+      week_number,
+      notes,
+      journal_entry,
+      responsible_person
+    ];
     const { rows } = await pool.query(sql, vals);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -1989,7 +2019,7 @@ app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, re
     const task = existing[0];
     if (!task) return res.status(404).json({ error: 'Not found' });
 
-    const allFields = ['label','scheduled_for','done','program_id','week_number','notes'];
+    const allFields = ['label','scheduled_for','time','done','program_id','week_number','notes','journal_entry','responsible_person'];
     const roles = Array.isArray(req.roles) ? req.roles : [];
     const isAdmin = roles.includes('admin');
     const hasManagerRole = roles.includes('manager');
@@ -2009,7 +2039,7 @@ app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, re
     let allowed;
     if (canManageTask) {
       if (!hasTaskUpdatePerm && hasTaskAssignPerm) {
-        allowed = ['scheduled_for'];
+        allowed = ['scheduled_for', 'time'];
       } else {
         allowed = allFields;
       }
@@ -2019,8 +2049,11 @@ app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, re
       return res.status(403).json({ error: 'forbidden' });
     }
 
+    const allowedCanonical = new Set(allowed.map(field => FIELD_ALIASES[field] || field));
+
     for (const k of Object.keys(req.body)) {
-      if (!allowed.includes(k)) return res.status(403).json({ error: 'forbidden' });
+      const canonical = FIELD_ALIASES[k] || k;
+      if (!allowedCanonical.has(canonical)) return res.status(403).json({ error: 'forbidden' });
     }
 
     if ('program_id' in req.body && req.body.program_id !== task.program_id) {
@@ -2032,11 +2065,12 @@ app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, re
 
     const fields = [];
     const vals = [];
-    for (const key of allowed) {
-      if (key in req.body) {
-        vals.push(key === 'done' ? !!req.body[key] : req.body[key]);
-        fields.push(`${key} = $${vals.length}`);
-      }
+    for (const [key, rawValue] of Object.entries(req.body)) {
+      const canonical = FIELD_ALIASES[key] || key;
+      if (!allowedCanonical.has(canonical)) continue;
+      const value = canonical === 'done' ? !!rawValue : rawValue;
+      vals.push(value);
+      fields.push(`${canonical} = $${vals.length}`);
     }
 
     if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
