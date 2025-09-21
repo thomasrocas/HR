@@ -6,6 +6,8 @@ import {
   archiveProgram,
   restoreProgram,
   getProgramTemplates,
+  deleteTemplate,
+  restoreTemplate,
   Program,
   Template,
 } from '../api';
@@ -14,12 +16,23 @@ import { can, User } from '../rbac';
 type TabKey = 'programs' | 'templates' | 'assignments';
 type FeedbackState = { type: 'success' | 'error'; message: string } | null;
 type ProgramAction = 'publish' | 'deprecate' | 'archive' | 'restore';
+type TemplateAction = 'delete' | 'restore';
 
 const successMessages: Record<ProgramAction, string> = {
   publish: 'Program published successfully.',
   deprecate: 'Program deprecated successfully.',
   archive: 'Program archived successfully.',
   restore: 'Program restored successfully.',
+};
+
+const templateSuccessMessages: Record<TemplateAction, string> = {
+  delete: 'Template deleted successfully.',
+  restore: 'Template restored successfully.',
+};
+
+const templateFailureVerbs: Record<TemplateAction, string> = {
+  delete: 'delete',
+  restore: 'restore',
 };
 
 const getErrorMessage = (error: unknown) =>
@@ -62,7 +75,7 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
         setTemplates([]);
         return [] as Template[];
       }
-      const response = await getProgramTemplates(targetProgramId);
+      const response = await getProgramTemplates(targetProgramId, { includeDeleted: true });
       setTemplates(response.data);
       return response.data;
     },
@@ -129,6 +142,50 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
       setPendingAction(prev => (prev === actionKey ? null : prev));
     }
   };
+
+  const templateActionKey = (action: TemplateAction, templateId: string) =>
+    `template-${action}:${templateId}`;
+
+  const handleTemplateAction = async (template: Template, action: TemplateAction) => {
+    if (!selectedProgramId) {
+      return;
+    }
+    const actionKey = templateActionKey(action, template.id);
+    setPendingAction(actionKey);
+    setFeedback(null);
+
+    try {
+      if (action === 'delete') {
+        await deleteTemplate(selectedProgramId, template.id);
+      } else {
+        await restoreTemplate(selectedProgramId, template.id);
+      }
+      await refreshTemplates(selectedProgramId);
+      setFeedback({ type: 'success', message: templateSuccessMessages[action] });
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        message: `Unable to ${templateFailureVerbs[action]} ${template.name}. ${getErrorMessage(error)}`,
+      });
+    } finally {
+      setPendingAction(prev => (prev === actionKey ? null : prev));
+    }
+  };
+
+  const activeTemplates = templates.filter(template => !template.deletedAt);
+  const archivedTemplates = templates.filter(template => !!template.deletedAt);
+  const hasActiveTemplates = activeTemplates.length > 0;
+  const hasArchivedTemplates = archivedTemplates.length > 0;
+
+  const templateEmptyMessage = (() => {
+    if (programs.length === 0) {
+      return 'Create a program to manage templates.';
+    }
+    if (!hasActiveTemplates && hasArchivedTemplates) {
+      return `All templates for ${selectedProgram?.name ?? 'this program'} are archived. Restore one to make it active.`;
+    }
+    return `No templates for ${selectedProgram?.name ?? 'this program'} yet.`;
+  })();
 
   return (
     <div className="p-8 space-y-6">
@@ -309,20 +366,22 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
               </button>
             )}
           </div>
-          {templates.length > 0 ? (
+          {hasActiveTemplates ? (
             <div className="grid gap-4 md:grid-cols-3">
-              {templates.map(template => (
+              {activeTemplates.map(template => (
                 <div key={template.id} className="panel space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h3 className="font-semibold">{template.name}</h3>
                       <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
                     </div>
-                    {template.status && (
-                      <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                        {template.status}
-                      </span>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      {template.status && (
+                        <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                          {template.status}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <p className="text-sm">Updated: {template.updatedAt || '--'}</p>
                   <div className="flex flex-wrap gap-2 pt-2">
@@ -332,8 +391,13 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                       </button>
                     )}
                     {can(currentUser, 'delete', 'template') && (
-                      <button type="button" className="btn btn-outline text-sm">
-                        Delete
+                      <button
+                        type="button"
+                        className="btn btn-outline text-sm"
+                        onClick={() => handleTemplateAction(template, 'delete')}
+                        disabled={pendingAction === templateActionKey('delete', template.id)}
+                      >
+                        {pendingAction === templateActionKey('delete', template.id) ? 'Deleting…' : 'Delete'}
                       </button>
                     )}
                   </div>
@@ -341,10 +405,49 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
               ))}
             </div>
           ) : (
-            <div className="panel p-4 text-sm text-[var(--text-muted)]">
-              {programs.length === 0
-                ? 'Create a program to view its templates.'
-                : `No templates for ${selectedProgram?.name ?? 'this program'} yet.`}
+            <div className="panel p-4 text-sm text-[var(--text-muted)]">{templateEmptyMessage}</div>
+          )}
+
+          {hasArchivedTemplates && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Archived Templates
+              </h3>
+              <div className="grid gap-4 md:grid-cols-3">
+                {archivedTemplates.map(template => (
+                  <div key={template.id} className="panel space-y-3 p-4 opacity-80">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-semibold">{template.name}</h3>
+                        <p className="text-sm text-[var(--text-muted)]">{template.category}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {template.status && (
+                          <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                            {template.status}
+                          </span>
+                        )}
+                        <span className="badge bg-[var(--surface-alt)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                          Archived
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm">Archived: {template.deletedAt || '--'}</p>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      {can(currentUser, 'delete', 'template') && (
+                        <button
+                          type="button"
+                          className="btn btn-primary text-sm"
+                          onClick={() => handleTemplateAction(template, 'restore')}
+                          disabled={pendingAction === templateActionKey('restore', template.id)}
+                        >
+                          {pendingAction === templateActionKey('restore', template.id) ? 'Restoring…' : 'Restore'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </section>

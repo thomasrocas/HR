@@ -250,6 +250,42 @@ function createProgramTemplateLinksDao(pool) {
     return mapLinkedTemplateRow(rows[0]);
   }
 
+  async function getTemplateForProgram(options = {}) {
+    const { programId, templateId, includeDeleted = false, db = pool } = options;
+    if (!programId || !templateId) return null;
+    const params = [programId, templateId];
+    let where = 'where l.program_id = $1 and t.template_id = $2';
+    if (!includeDeleted) {
+      where += ' and t.deleted_at is null';
+    }
+    const sql = `
+      select t.template_id,
+             t.label,
+             t.status,
+             t.deleted_at,
+             l.program_id,
+             l.id as link_id,
+             l.created_at,
+             l.updated_at,
+             coalesce(l.week_number, t.week_number) as week_number,
+             coalesce(l.notes, t.notes) as notes,
+             coalesce(l.due_offset_days, t.due_offset_days) as due_offset_days,
+             coalesce(l.required, t.required) as required,
+             coalesce(l.visibility, t.visibility) as visibility,
+             coalesce(l.sort_order, t.sort_order) as sort_order,
+             l.visible,
+             l.created_by,
+             l.updated_by
+        from public.program_template_links l
+        join public.program_task_templates t on t.template_id = l.template_id
+       ${where}
+       limit 1
+    `;
+    const { rows } = await runQuery(db, sql, params);
+    if (!rows.length) return null;
+    return formatTemplateLinkRow(rows[0]);
+  }
+
   async function attach(options = {}) {
     const { programId, templateId, db = pool, link = {} } = options;
     if (!programId || !templateId) {
@@ -366,15 +402,49 @@ function createProgramTemplateLinksDao(pool) {
 
   }
 
+  async function updateLink(options = {}) {
+    const { programId, templateId, patch = {}, db = pool } = options;
+    if (!programId || !templateId) {
+      return { updated: false, link: null };
+    }
+    const linkPatch = pickLinkColumns(patch);
+    if (!Object.keys(linkPatch).length) {
+      return { updated: false, link: null };
+    }
+    const assignments = [];
+    const params = [];
+    Object.entries(linkPatch).forEach(([key, value]) => {
+      assignments.push(`${key} = $${params.length + 1}`);
+      params.push(value);
+    });
+    assignments.push('updated_at = now()');
+    params.push(programId);
+    params.push(templateId);
+    const sql = `
+      update public.program_template_links
+         set ${assignments.join(', ')}
+       where program_id = $${params.length - 1}
+         and template_id = $${params.length}
+    `;
+    const { rowCount } = await runQuery(db, sql, params);
+    if (!rowCount) {
+      return { updated: false, link: null };
+    }
+    const link = await getTemplateForProgram({ programId, templateId, includeDeleted: true, db });
+    return { updated: true, link };
+  }
+
   return {
     listTemplatesForProgram,
     listProgramsForTemplate,
     getLinkedTemplate,
+    getTemplateForProgram,
     attach,
     detach,
     isLinked,
 
     updateMetadata,
+    updateLink,
 
   };
 }
