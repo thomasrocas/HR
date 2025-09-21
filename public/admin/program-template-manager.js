@@ -158,6 +158,16 @@ function isPublishedTemplate(template) {
   return isPublishedTemplateStatus(getTemplateStatus(template));
 }
 
+function isTemplateArchived(template) {
+  return normalizeTemplateStatusValue(getTemplateStatus(template)) === 'archived';
+}
+
+function getTemplateStatusLabel(template) {
+  const normalized = normalizeTemplateStatusValue(getTemplateStatus(template));
+  if (!normalized) return '—';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function getTemplateDescription(template) {
   const value = [
     template?.description,
@@ -398,6 +408,7 @@ const TEMPLATE_SORT_ACCESSORS = {
 };
 
 const DEFAULT_PROGRAM_PAGE_SIZE = 10;
+const DEFAULT_TEMPLATE_PAGE_SIZE = 10;
 
 function parseCell(record, key, type = 'string', accessors = PROGRAM_SORT_ACCESSORS) {
   const accessor = accessors?.[key];
@@ -494,6 +505,21 @@ const PROGRAM_CSV_ACCESSORS = {
   archivedAt: program => formatDate(getProgramArchivedAt(program)),
 };
 
+const TEMPLATE_CSV_ACCESSORS = {
+  week: template => {
+    const weekNumber = getTemplateWeekNumber(template);
+    if (weekNumber === null || weekNumber === undefined || weekNumber === '') return '—';
+    return String(weekNumber);
+  },
+  name: template => getTemplateName(template) || '—',
+  auditInserted: template => {
+    const display = getTemplateAuditDisplay(template);
+    return display && display !== '—' ? display : '—';
+  },
+  status: template => getTemplateStatusLabel(template),
+  updatedAt: template => formatDate(getTemplateUpdatedAt(template)),
+};
+
 function toCSV() {
   if (!programTable) return '';
   const headerCells = Array.from(programTable.querySelectorAll('thead th')).filter(isElementVisible);
@@ -513,6 +539,34 @@ function toCSV() {
       if (!key) return '';
       const accessor = PROGRAM_CSV_ACCESSORS[key];
       const rawValue = typeof accessor === 'function' ? accessor(program) : program?.[key];
+      if (rawValue === null || rawValue === undefined) return '';
+      return rawValue;
+    });
+    rows.push(cells.map(escapeCsvCell).join(','));
+  });
+  return `\uFEFF${rows.join('\r\n')}`;
+}
+
+function templatesToCSV() {
+  if (!templateTable) return '';
+  const headerCells = Array.from(templateTable.querySelectorAll('thead th')).filter(isElementVisible);
+  if (!headerCells.length) return '';
+  const headerLabels = headerCells.map(cell => {
+    const clone = cell.cloneNode(true);
+    const redundantElements = clone.querySelectorAll('input, [data-sort-indicator]');
+    redundantElements.forEach(el => el.remove());
+    const label = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+    return label;
+  });
+  const headerKeys = headerCells.map(cell => cell.dataset.key || null);
+  const rows = [headerLabels.map(escapeCsvCell).join(',')];
+  const templatesToExport = getFilteredSortedTemplates();
+  templatesToExport.forEach(template => {
+    ensureTemplateAudit(template);
+    const cells = headerKeys.map(key => {
+      if (!key) return '';
+      const accessor = TEMPLATE_CSV_ACCESSORS[key];
+      const rawValue = typeof accessor === 'function' ? accessor(template) : template?.[key];
       if (rawValue === null || rawValue === undefined) return '';
       return rawValue;
     });
@@ -555,11 +609,13 @@ const programActionHint = document.getElementById('programActionHint');
 const templateActionHint = document.getElementById('templateActionHint');
 const programActionsContainer = document.getElementById('programActions');
 const templateActionsContainer = document.getElementById('templateActions');
+const templateHideArchivedCheckbox = document.getElementById('tmplHideArchived');
 const btnRefreshPrograms = document.getElementById('btnRefreshPrograms');
 const btnRefreshTemplates = document.getElementById('btnRefreshTemplates');
 const btnNewProgram = document.getElementById('btnNewProgram');
 const btnEditProgram = document.getElementById('btnEditProgram');
 const btnExportProgramsCsv = document.getElementById('exportCsv');
+const btnExportTemplatesCsv = document.getElementById('tmplExportCsv');
 const btnNewTemplate = document.getElementById('btnNewTemplate');
 const btnEditTemplate = document.getElementById('btnEditTemplate');
 const programModal = document.getElementById('programModal');
@@ -608,6 +664,11 @@ const programPager = document.getElementById('pager');
 const programPagerLabel = document.getElementById('programPagerLabel');
 const programPagerPrev = document.getElementById('programPagerPrev');
 const programPagerNext = document.getElementById('programPagerNext');
+const templatePageSizeSelect = document.getElementById('tmplPageSize');
+const templatePager = document.getElementById('tmplPager');
+const templatePagerLabel = document.getElementById('tmplPagerLabel');
+const templatePagerPrev = document.getElementById('tmplPagerPrev');
+const templatePagerNext = document.getElementById('tmplPagerNext');
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -632,6 +693,17 @@ let globalTemplates = [];
 let templateLibrary = [];
 let templateSortKey = null;
 let templateSortDirection = 'asc';
+let templatePageSize = DEFAULT_TEMPLATE_PAGE_SIZE;
+let templateCurrentPage = 1;
+let hideArchivedTemplates = false;
+let currentTemplatePageItems = [];
+let lastTemplatePagination = {
+  totalItems: 0,
+  totalPages: 0,
+  currentPage: 1,
+  pageSize: DEFAULT_TEMPLATE_PAGE_SIZE,
+  isAll: false,
+};
 const templateLibraryIndex = new Map();
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
@@ -1277,13 +1349,14 @@ function getSortedTemplates(source = globalTemplates) {
     .map(entry => entry.template);
 }
 
-function parsePageSize(value) {
+function parsePageSize(value, fallback = DEFAULT_PROGRAM_PAGE_SIZE) {
+  const defaultSize = fallback === null || fallback === undefined ? DEFAULT_PROGRAM_PAGE_SIZE : fallback;
   if (value === null || value === undefined || value === '') {
-    return DEFAULT_PROGRAM_PAGE_SIZE;
+    return defaultSize;
   }
   if (value === 'all') return Infinity;
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PROGRAM_PAGE_SIZE;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultSize;
 }
 
 function paginate(data, page = 1, size = DEFAULT_PROGRAM_PAGE_SIZE) {
@@ -1311,10 +1384,18 @@ function getVisiblePrograms() {
   return Array.isArray(currentProgramPageItems) ? currentProgramPageItems.slice() : [];
 }
 
-function getFilteredTemplates() {
+function getVisibleTemplates() {
+  return Array.isArray(currentTemplatePageItems) ? currentTemplatePageItems.slice() : [];
+}
+
+function getFilteredTemplates(source = globalTemplates) {
+  let list = Array.isArray(source) ? source.slice() : [];
+  if (hideArchivedTemplates) {
+    list = list.filter(template => !isTemplateArchived(template));
+  }
   const term = (templateSearchInput?.value || '').trim().toLowerCase();
-  if (!term) return [...globalTemplates];
-  return globalTemplates.filter(t => {
+  if (!term) return list;
+  return list.filter(t => {
     const values = [
       getTemplateName(t),
       getTemplateStatus(t),
@@ -1334,6 +1415,11 @@ function getFilteredTemplates() {
       .filter(value => value !== null && value !== undefined && value !== '')
       .some(value => value.toString().toLowerCase().includes(term));
   });
+}
+
+function getFilteredSortedTemplates() {
+  const filtered = getFilteredTemplates();
+  return getSortedTemplates(filtered);
 }
 
 function syncProgramSelection() {
@@ -1382,10 +1468,30 @@ function syncTemplateSelection() {
     const id = getTemplateId(template);
     if (id) validIds.add(id);
   });
+  let shouldResetActive = false;
   for (const id of Array.from(selectedTemplateIds)) {
-    if (!validIds.has(id)) selectedTemplateIds.delete(id);
+    const template = getTemplateById(id);
+    const isValid = validIds.has(id);
+    const isHidden = hideArchivedTemplates && template && isTemplateArchived(template);
+    if (!isValid || isHidden) {
+      if (selectedTemplateId === id) {
+        shouldResetActive = true;
+      }
+      selectedTemplateIds.delete(id);
+    }
   }
-  if (selectedTemplateId && !validIds.has(selectedTemplateId)) {
+  if (selectedTemplateId) {
+    const template = getTemplateById(selectedTemplateId);
+    const isValid = template ? validIds.has(selectedTemplateId) : false;
+    const isHidden = hideArchivedTemplates && template && isTemplateArchived(template);
+    if (!isValid || isHidden) {
+      shouldResetActive = true;
+    }
+  }
+  if (shouldResetActive) {
+    selectedTemplateId = null;
+  }
+  if (!selectedTemplateId && selectedTemplateIds.size) {
     const nextSelected = selectedTemplateIds.values().next();
     selectedTemplateId = nextSelected.done ? null : nextSelected.value;
   }
@@ -1444,15 +1550,25 @@ function getTemplateById(id) {
   return globalTemplates.find(template => getTemplateId(template) === id) || null;
 }
 
-function getPrimaryTemplateId(displayedTemplates = getFilteredTemplates()) {
+function getPrimaryTemplateId(displayedTemplates = getFilteredSortedTemplates()) {
   if (selectedTemplateIds.size > 1) return null;
   if (selectedTemplateIds.size === 1) {
     const { value } = selectedTemplateIds.values().next();
     if (value) return value;
   }
   if (!selectedTemplateId) return null;
-  const pool = Array.isArray(displayedTemplates) && displayedTemplates.length ? displayedTemplates : templates;
-  const exists = pool.some(template => getTemplateId(template) === selectedTemplateId);
+  const pools = [];
+  if (Array.isArray(displayedTemplates) && displayedTemplates.length) {
+    pools.push(displayedTemplates);
+  }
+  const filteredSorted = getFilteredSortedTemplates();
+  if (filteredSorted.length) {
+    pools.push(filteredSorted);
+  }
+  if (templates.length) {
+    pools.push(templates);
+  }
+  const exists = pools.some(pool => pool.some(template => getTemplateId(template) === selectedTemplateId));
   return exists ? selectedTemplateId : null;
 }
 
@@ -3782,6 +3898,30 @@ function updateProgramPager(pagination) {
   programPager.setAttribute('data-total-items', String(pagination?.totalItems ?? 0));
 }
 
+function updateTemplatePager(pagination) {
+  if (!templatePager) return;
+  const totalPages = pagination?.totalPages ?? 0;
+  const currentPage = pagination?.currentPage ?? 1;
+  const displayCurrent = totalPages > 0 ? currentPage : 0;
+  const label = totalPages > 0
+    ? `Page ${displayCurrent} of ${totalPages}`
+    : 'Page 0 of 0';
+  if (templatePagerLabel) {
+    templatePagerLabel.textContent = label;
+  }
+  const disablePrev = totalPages <= 1 || displayCurrent <= 1;
+  const disableNext = totalPages === 0 || displayCurrent >= totalPages;
+  if (templatePagerPrev) {
+    templatePagerPrev.disabled = disablePrev;
+    templatePagerPrev.setAttribute('aria-disabled', disablePrev ? 'true' : 'false');
+  }
+  if (templatePagerNext) {
+    templatePagerNext.disabled = disableNext;
+    templatePagerNext.setAttribute('aria-disabled', disableNext ? 'true' : 'false');
+  }
+  templatePager.setAttribute('data-total-items', String(pagination?.totalItems ?? 0));
+}
+
 function renderPrograms() {
   const previousActiveProgramId = selectedProgramId;
   syncProgramSelection();
@@ -3859,7 +3999,17 @@ function renderTemplates() {
   updateTemplateSortIndicators();
   const filtered = getFilteredTemplates();
   const sorted = getSortedTemplates(filtered);
-  const displayed = sorted;
+  const pagination = paginate(sorted, templateCurrentPage, templatePageSize);
+  templateCurrentPage = pagination.currentPage;
+  currentTemplatePageItems = pagination.items;
+  lastTemplatePagination = {
+    totalItems: pagination.totalItems,
+    totalPages: pagination.totalPages,
+    currentPage: pagination.currentPage,
+    pageSize: pagination.pageSize,
+    isAll: pagination.isAll,
+  };
+  const displayed = currentTemplatePageItems;
   if (!displayed.length) {
     templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="6">No templates found.</td></tr>';
   } else {
@@ -3889,6 +4039,7 @@ function renderTemplates() {
   }
   updateTemplateSelectionSummary();
   updateTemplateActionsState(displayed);
+  updateTemplatePager(pagination);
   renderTemplateAssignmentsPanel();
 }
 
@@ -4300,6 +4451,7 @@ async function loadTemplates(options = {}) {
       }
     }
 
+    templateCurrentPage = 1;
     renderTemplates();
     templateMessage.textContent = '';
   } catch (error) {
@@ -4309,6 +4461,7 @@ async function loadTemplates(options = {}) {
       selectedTemplateIds.clear();
       selectedTemplateId = null;
     }
+    templateCurrentPage = 1;
     renderTemplates();
     if (error.status === 403) {
       templateMessage.textContent = 'You do not have permission to load templates.';
@@ -4761,7 +4914,7 @@ templateTableBody.addEventListener('change', event => {
     }
   }
   updateTemplateSelectionSummary();
-  const displayed = getFilteredTemplates();
+  const displayed = getVisibleTemplates();
   updateTemplateActionsState(displayed);
 });
 
@@ -4781,6 +4934,15 @@ if (hideArchivedCheckbox) {
   });
 }
 
+if (templateHideArchivedCheckbox) {
+  hideArchivedTemplates = templateHideArchivedCheckbox.checked;
+  templateHideArchivedCheckbox.addEventListener('change', () => {
+    hideArchivedTemplates = templateHideArchivedCheckbox.checked;
+    templateCurrentPage = 1;
+    renderTemplates();
+  });
+}
+
 if (programPageSizeSelect) {
   programPageSize = parsePageSize(programPageSizeSelect.value || DEFAULT_PROGRAM_PAGE_SIZE);
   programPageSizeSelect.value = programPageSize === Infinity
@@ -4790,6 +4952,18 @@ if (programPageSizeSelect) {
     programPageSize = parsePageSize(programPageSizeSelect.value);
     programCurrentPage = 1;
     renderPrograms();
+  });
+}
+
+if (templatePageSizeSelect) {
+  templatePageSize = parsePageSize(templatePageSizeSelect.value || DEFAULT_TEMPLATE_PAGE_SIZE, DEFAULT_TEMPLATE_PAGE_SIZE);
+  templatePageSizeSelect.value = templatePageSize === Infinity
+    ? 'all'
+    : String(templatePageSize);
+  templatePageSizeSelect.addEventListener('change', () => {
+    templatePageSize = parsePageSize(templatePageSizeSelect.value, DEFAULT_TEMPLATE_PAGE_SIZE);
+    templateCurrentPage = 1;
+    renderTemplates();
   });
 }
 
@@ -4811,8 +4985,27 @@ if (programPagerNext) {
   });
 }
 
+if (templatePagerPrev) {
+  templatePagerPrev.addEventListener('click', () => {
+    if (templatePagerPrev.disabled) return;
+    if (lastTemplatePagination.totalPages <= 1 || lastTemplatePagination.currentPage <= 1) return;
+    templateCurrentPage = Math.max(1, lastTemplatePagination.currentPage - 1);
+    renderTemplates();
+  });
+}
+
+if (templatePagerNext) {
+  templatePagerNext.addEventListener('click', () => {
+    if (templatePagerNext.disabled) return;
+    if (lastTemplatePagination.totalPages === 0 || lastTemplatePagination.currentPage >= lastTemplatePagination.totalPages) return;
+    templateCurrentPage = Math.max(1, lastTemplatePagination.currentPage + 1);
+    renderTemplates();
+  });
+}
+
 if (templateSearchInput) {
   templateSearchInput.addEventListener('input', () => {
+    templateCurrentPage = 1;
     renderTemplates();
   });
 }
@@ -4862,20 +5055,30 @@ if (templateSelectAll) {
       templateSelectAll.checked = false;
       return;
     }
-    const displayed = getFilteredTemplates();
+    const displayed = getVisibleTemplates();
     if (templateSelectAll.checked) {
       displayed.forEach(t => {
         const templateId = getTemplateId(t);
         if (templateId) selectedTemplateIds.add(templateId);
       });
       const firstDisplayed = displayed.map(getTemplateId).find(Boolean) || null;
-      selectedTemplateId = firstDisplayed;
+      if (firstDisplayed) {
+        selectedTemplateId = firstDisplayed;
+      } else if (!selectedTemplateId && selectedTemplateIds.size) {
+        const nextSelected = selectedTemplateIds.values().next();
+        selectedTemplateId = nextSelected.done ? null : nextSelected.value;
+      }
     } else {
       displayed.forEach(t => {
         const templateId = getTemplateId(t);
         if (templateId) selectedTemplateIds.delete(templateId);
       });
-      selectedTemplateId = null;
+      if (!selectedTemplateIds.size) {
+        selectedTemplateId = null;
+      } else if (!selectedTemplateIds.has(selectedTemplateId)) {
+        const nextSelected = selectedTemplateIds.values().next();
+        selectedTemplateId = nextSelected.done ? null : nextSelected.value;
+      }
     }
     renderTemplates();
   });
@@ -5106,6 +5309,7 @@ if (templateTableHead) {
     const isSameKey = templateSortKey === key;
     templateSortKey = key;
     templateSortDirection = isSameKey && templateSortDirection === 'asc' ? 'desc' : 'asc';
+    templateCurrentPage = 1;
     renderTemplates();
   });
 }
@@ -5127,6 +5331,23 @@ if (btnExportProgramsCsv) {
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.setAttribute('download', 'programs.csv');
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  });
+}
+
+if (btnExportTemplatesCsv) {
+  btnExportTemplatesCsv.addEventListener('click', () => {
+    const csv = templatesToCSV();
+    if (!csv) return;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.setAttribute('download', 'templates.csv');
     anchor.style.display = 'none';
     document.body.appendChild(anchor);
     anchor.click();

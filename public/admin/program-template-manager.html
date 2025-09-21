@@ -496,6 +496,25 @@
             <div id="templateSelectionSummary" class="text-xs text-slate-500 md:text-right">No templates selected.</div>
           </div>
 
+          <div class="flex items-center justify-between gap-3 flex-wrap text-xs text-slate-500">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" id="tmplHideArchived" class="rounded border-slate-300">
+              Hide archived
+            </label>
+            <div class="flex items-center gap-2 flex-wrap">
+              <label class="flex items-center gap-2 font-semibold uppercase tracking-wide">
+                <span>Rows per page</span>
+                <select id="tmplPageSize" class="input w-24 text-sm font-medium normal-case">
+                  <option value="10" selected>10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <button id="tmplExportCsv" class="btn btn-outline text-sm">Export CSV</button>
+            </div>
+          </div>
+
           <div class="panel-section overflow-hidden">
             <div class="overflow-x-auto">
               <table class="table min-w-full" id="templateTable">
@@ -553,6 +572,14 @@
                 </thead>
                 <tbody id="templateTableBody" class="bg-white text-sm"></tbody>
               </table>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 text-xs text-slate-500">
+            <div id="tmplPager" class="flex items-center gap-2">
+              <button type="button" id="tmplPagerPrev" class="btn btn-outline text-xs">Prev</button>
+              <span id="tmplPagerLabel" class="text-xs">Page 0 of 0</span>
+              <button type="button" id="tmplPagerNext" class="btn btn-outline text-xs">Next</button>
             </div>
           </div>
 
