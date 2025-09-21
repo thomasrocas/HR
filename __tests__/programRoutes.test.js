@@ -63,12 +63,15 @@ describe('program routes', () => {
         week_number int,
         label text not null,
         notes text,
+        organization text,
+        sub_unit text,
         due_offset_days int,
         required boolean,
         visibility text,
         sort_order int,
         status text default 'draft',
-        deleted_at timestamp
+        deleted_at timestamp,
+        external_link text
       );
       create table public.program_template_links (
         id uuid primary key default gen_random_uuid(),
