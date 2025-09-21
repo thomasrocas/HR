@@ -114,10 +114,13 @@ describe('program routes', () => {
         trainee text,
         label text not null,
         scheduled_for date,
+        scheduled_time time,
         done boolean,
         program_id text,
         week_number int,
         notes text,
+        journal_entry text,
+        responsible_person text,
         deleted boolean default false
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');

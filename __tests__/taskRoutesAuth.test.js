@@ -49,10 +49,13 @@ describe('task routes authorization', () => {
         trainee text,
         label text not null,
         scheduled_for date,
+        scheduled_time time,
         done boolean,
         program_id text,
         week_number int,
         notes text,
+        journal_entry text,
+        responsible_person text,
         deleted boolean default false
       );
       create table public.user_roles (
@@ -204,9 +207,10 @@ describe('task routes authorization', () => {
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
     const res = await agent
       .patch(`/tasks/${taskId}`)
-      .send({ scheduled_for: '2024-02-02' })
+      .send({ scheduled_for: '2024-02-02', time: '09:45:00' })
       .expect(200);
     expect(new Date(res.body.scheduled_for).toISOString().startsWith('2024-02-02')).toBe(true);
+    expect(res.body.scheduled_time).toBe('09:45:00');
   });
 
   test('manager with only task.assign cannot modify other fields', async () => {
@@ -231,7 +235,7 @@ describe('task routes authorization', () => {
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
     const res = await agent
       .patch(`/tasks/${taskId}`)
-      .send({ label: 'new title' })
+      .send({ journal_entry: 'not allowed' })
       .expect(403);
     expect(res.body.error).toBe('forbidden');
   });
@@ -262,8 +266,14 @@ describe('task routes authorization', () => {
 
     const mgrAgent = request.agent(app);
     await mgrAgent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
-    const res = await mgrAgent.patch(`/tasks/${taskId}`).send({ label:'mgr edit' }).expect(200);
+    const res = await mgrAgent
+      .patch(`/tasks/${taskId}`)
+      .send({ label:'mgr edit', journal_entry: 'updated journal', responsible_person: 'Alex', time: '11:15:00' })
+      .expect(200);
     expect(res.body.label).toBe('mgr edit');
+    expect(res.body.journal_entry).toBe('updated journal');
+    expect(res.body.responsible_person).toBe('Alex');
+    expect(res.body.scheduled_time).toBe('11:15:00');
   });
 
   test('task owner without admin or manager role cannot move task', async () => {
