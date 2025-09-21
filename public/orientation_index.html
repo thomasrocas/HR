@@ -1974,6 +1974,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
   #orientationTaskModal .orientation-modal__value.muted {
     color: #64748b;
   }
+  #orientationTaskModal .orientation-modal__input {
+    width: 100%;
+    border-radius: 0.75rem;
+    border: 1px solid #cbd5f5;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+    color: #1f2937;
+  }
+  #orientationTaskModal .orientation-modal__input::placeholder {
+    color: #94a3b8;
+  }
   #orientationTaskModal textarea {
     width: 100%;
     min-height: 140px;
@@ -2026,7 +2037,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         </div>
         <div class="orientation-modal__field">
           <span class="orientation-modal__label">Responsible</span>
-          <span class="orientation-modal__value muted" data-modal-field="responsible">—</span>
+          <input
+            type="text"
+            id="orientationTaskResponsible"
+            class="orientation-modal__input"
+            name="responsible_person"
+            placeholder="Add a responsible person…"
+          />
         </div>
         <div class="orientation-modal__field">
           <span class="orientation-modal__label">Status</span>
@@ -2058,11 +2075,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
     const setupModal = (calendar, modal) => {
       const form = document.getElementById('orientationTaskForm');
     const journalField = document.getElementById('orientationTaskJournal');
+    const responsibleField = document.getElementById('orientationTaskResponsible');
     const fieldMap = {
       title: modal.querySelector('[data-modal-field="title"]'),
       week: modal.querySelector('[data-modal-field="week"]'),
       scheduled: modal.querySelector('[data-modal-field="scheduled"]'),
-      responsible: modal.querySelector('[data-modal-field="responsible"]'),
       done: modal.querySelector('[data-modal-field="done"]')
     };
 
@@ -2124,7 +2141,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       if (fieldMap.title) fieldMap.title.textContent = toDisplay(dataset.title || trigger.textContent || '—');
       if (fieldMap.week) fieldMap.week.textContent = toDisplay(dataset.week);
       if (fieldMap.scheduled) fieldMap.scheduled.textContent = toDisplay(dataset.scheduled_for);
-      if (fieldMap.responsible) fieldMap.responsible.textContent = toDisplay(dataset.responsible_person);
+      if (responsibleField) {
+        const responsibleValue = dataset.responsible_person && dataset.responsible_person !== '—'
+          ? dataset.responsible_person
+          : '';
+        responsibleField.value = responsibleValue;
+      }
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
       const journalValue = dataset.journal_entry && dataset.journal_entry !== '—' ? dataset.journal_entry : '';
       journalField.value = journalValue;
@@ -2158,9 +2180,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const taskId = activeTrigger.dataset.taskId;
       const entryValue = journalField.value;
       const datasetValue = entryValue.trim() === '' ? '—' : entryValue;
+      const responsibleValue = responsibleField ? responsibleField.value : '';
+      const responsibleDatasetValue = responsibleValue.trim() === '' ? '—' : responsibleValue;
       activeTrigger.dataset.journal_entry = datasetValue;
+      activeTrigger.dataset.responsible_person = responsibleDatasetValue;
       window.dispatchEvent(new CustomEvent('orientation:journal:update', {
-        detail: { taskId, journal_entry: entryValue }
+        detail: {
+          taskId,
+          journal_entry: entryValue,
+          responsible_person: responsibleValue
+        }
       }));
       closeModal();
     };
