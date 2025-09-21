@@ -1731,7 +1731,7 @@ useEffect(() => {
 
       {/* Weeks & Tasks */}
       <Section title="Weeks & Tasks">
-        <div className="space-y-6">
+        <div id="weeksTasks" data-weeks-root className="space-y-6">
           {weeks.map((w, wi)=>{
             const pct = Math.round(100*((w.tasks||[]).filter(t=>t.completed).length / ((w.tasks||[]).length||1)));
             return (
@@ -1746,6 +1746,14 @@ useEffect(() => {
                 <div className="grid md:grid-cols-2 gap-3 mt-4">
                   {(w.tasks||[]).map((t,ti)=> {
                     const taskTimeDisplay = deriveTimeFromTask(t);
+                    const doneAttr = typeof t.completed === 'boolean' ? String(t.completed) : toDisplayString(t.completed);
+                    const isTaskDone = typeof t.completed === 'boolean'
+                      ? t.completed
+                      : String(t.completed).toLowerCase() === 'true';
+                    const tooltipResponsible = toDisplayString(t.responsible_person);
+                    const tooltipJournal = toDisplayString(t.journal_entry);
+                    const hasTooltipJournal = tooltipJournal && tooltipJournal !== '—';
+                    const showAssignedMeta = hasPerm('task.assign') && isPrivileged && !isTrainee;
                     return (
                       <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
                         {hasPerm('task.delete') && isPrivileged && !isTrainee && (
@@ -1754,17 +1762,41 @@ useEffect(() => {
                         )}
                         <div className="flex items-start gap-3">
                           <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
-                          <div className="flex-1">
-                            <div className="font-medium">{t.title}</div>
-                            {hasPerm('task.assign') && isPrivileged && !isTrainee && (
-                              <div className="mt-2 flex items-center gap-2 text-sm">
-                                <span className="text-slate-600">Assigned{taskTimeDisplay ? ` • ${taskTimeDisplay}` : ''}:</span>
-                                <input type="date" className="input w-auto" value={t.scheduled_for||''}
-                                       onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
-                              </div>
+                          <button
+                            type="button"
+                            className="flex-1 text-left bg-transparent p-0 disabled:cursor-not-allowed"
+                            data-task-id={t.task_id}
+                            data-taskid={t.task_id}
+                            data-title={toDisplayString(t.title)}
+                            data-week={toDisplayString(w.wk)}
+                            data-journal_entry={hasTooltipJournal ? tooltipJournal : ''}
+                            data-responsible_person={tooltipResponsible}
+                            data-scheduled_for={toDisplayString(t.scheduled_for)}
+                            data-scheduled_time={t.scheduled_time || ''}
+                            data-done={doneAttr}
+                            data-wi={wi}
+                            data-ti={ti}
+                            disabled={isTaskDone}
+                            aria-disabled={isTaskDone ? 'true' : 'false'}
+                          >
+                            <div className="font-medium flex items-center gap-2">
+                              <span>{t.title}</span>
+                              {isTaskDone && (
+                                <span aria-hidden="true" className="text-emerald-600">✓</span>
+                              )}
+                            </div>
+                            {!isTaskDone && taskTimeDisplay && (
+                              <div className="mt-1 text-xs text-slate-600">Assigned • {taskTimeDisplay}</div>
                             )}
-                          </div>
+                          </button>
                         </div>
+                        {showAssignedMeta && (
+                          <div className="mt-2 flex items-center gap-2 text-sm">
+                            <span className="text-slate-600">Assigned{taskTimeDisplay ? ` • ${taskTimeDisplay}` : ''}:</span>
+                            <input type="date" className="input w-auto" value={t.scheduled_for||''}
+                                   onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2302,9 +2334,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       return tooltip;
     };
 
-    const setupTooltip = (calendar) => {
-      if (!calendar || calendar.dataset.tooltipReady === 'true') return;
-      calendar.dataset.tooltipReady = 'true';
+    const setupTooltip = (root) => {
+      if (!root || root.dataset.tooltipReady === 'true') return;
+      root.dataset.tooltipReady = 'true';
 
       const tooltip = createTooltipElement();
       let activeTask = null;
@@ -2418,7 +2450,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 
       const handlePointerOver = (event) => {
         const task = event.target.closest('[data-task-id]');
-        if (!task || !calendar.contains(task)) return;
+        if (!task || !root.contains(task)) return;
         showTooltip(task);
       };
 
@@ -2428,13 +2460,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           ? event.relatedTarget.closest('[data-task-id]')
           : null;
         if (related === activeTask) return;
-        if (related && calendar.contains(related)) return;
+        if (related && root.contains(related)) return;
         hideTooltip();
       };
 
       const handleFocusIn = (event) => {
         const task = event.target.closest('[data-task-id]');
-        if (!task || !calendar.contains(task)) return;
+        if (!task || !root.contains(task)) return;
         showTooltip(task);
       };
 
@@ -2444,7 +2476,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           ? event.relatedTarget.closest('[data-task-id]')
           : null;
         if (related === activeTask) return;
-        if (related && calendar.contains(related)) return;
+        if (related && root.contains(related)) return;
         hideTooltip();
       };
 
@@ -2460,15 +2492,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         }
       };
 
-      calendar.addEventListener('mouseover', handlePointerOver);
-      calendar.addEventListener('mouseout', handlePointerOut);
-      calendar.addEventListener('focusin', handleFocusIn);
-      calendar.addEventListener('focusout', handleFocusOut);
+      root.addEventListener('mouseover', handlePointerOver);
+      root.addEventListener('mouseout', handlePointerOut);
+      root.addEventListener('focusin', handleFocusIn);
+      root.addEventListener('focusout', handleFocusOut);
       window.addEventListener('scroll', handleScroll, true);
       window.addEventListener('resize', handleResize);
     };
 
-    const setupModal = (calendar, modal) => {
+    const setupModal = (triggerRoots, modal) => {
       const form = document.getElementById('orientationTaskForm');
       const journalField = document.getElementById('orientationTaskJournal');
       const responsibleField = document.getElementById('orientationTaskResponsible');
@@ -2804,21 +2836,26 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       return false;
     };
 
-    calendar.addEventListener('click', (event) => {
-      const trigger = event.target.closest('[data-task-id]');
-      if (!trigger || isDisabledTrigger(trigger)) return;
-      if (!calendar.contains(trigger)) return;
-      event.preventDefault();
-      openModal(trigger);
-    });
+    const roots = Array.isArray(triggerRoots) ? triggerRoots.filter(Boolean) : [triggerRoots].filter(Boolean);
+    roots.forEach((root) => {
+      if (!root || root.dataset.modalReady === 'true') return;
+      root.dataset.modalReady = 'true';
+      root.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-task-id]');
+        if (!trigger || isDisabledTrigger(trigger)) return;
+        if (!root.contains(trigger)) return;
+        event.preventDefault();
+        openModal(trigger);
+      });
 
-    calendar.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      const trigger = event.target.closest('[data-task-id]');
-      if (!trigger || isDisabledTrigger(trigger)) return;
-      if (!calendar.contains(trigger)) return;
-      event.preventDefault();
-      openModal(trigger);
+      root.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const trigger = event.target.closest('[data-task-id]');
+        if (!trigger || isDisabledTrigger(trigger)) return;
+        if (!root.contains(trigger)) return;
+        event.preventDefault();
+        openModal(trigger);
+      });
     });
 
     form.addEventListener('submit', (event) => {
@@ -2857,13 +2894,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 
     const init = () => {
       const calendar = document.getElementById('orientationCalendar');
+      const weeksRoot = document.getElementById('weeksTasks') || document.querySelector('[data-weeks-root]');
       const modal = document.getElementById('orientationTaskModal');
-      if (!calendar || !modal) {
+      if (!modal || (!calendar && !weeksRoot)) {
         scheduleRetry(init);
         return;
       }
-      setupTooltip(calendar);
-      setupModal(calendar, modal);
+      if (calendar) setupTooltip(calendar);
+      if (weeksRoot) setupTooltip(weeksRoot);
+      setupModal([calendar, weeksRoot], modal);
     };
 
     init();
