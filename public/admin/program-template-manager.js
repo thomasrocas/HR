@@ -81,6 +81,21 @@ function getTemplateId(template) {
   return normalizeId(template?.id ?? template?.templateId ?? template?.template_id ?? template?.template?.id);
 }
 
+function getTemplateLinkId(template) {
+  const candidates = [
+    template?.link_id,
+    template?.linkId,
+    template?.link?.id,
+  ];
+  for (const candidate of candidates) {
+    const parsed = toNullableNumber(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function getTemplateName(template) {
   const value = [
     template?.label,
@@ -1926,16 +1941,50 @@ function scheduleReorderSave() {
   }, REORDER_SAVE_DELAY_MS);
 }
 
+function sanitizeLinkOrder(order) {
+  if (!Array.isArray(order)) {
+    return [];
+  }
+  const sanitized = [];
+  for (const entry of order) {
+    const parsed = toNullableNumber(entry);
+    if (parsed !== null) {
+      sanitized.push(parsed);
+    }
+  }
+  return sanitized;
+}
+
 function createOrderRevert(previousOrder) {
   if (!Array.isArray(previousOrder) || !previousOrder.length) {
     return null;
   }
-  const orderMap = new Map(previousOrder.filter(Boolean).map((id, index) => [id, index]));
+  const orderEntries = [];
+  previousOrder.forEach((id, index) => {
+    if (id === null || id === undefined || id === '') {
+      return;
+    }
+    orderEntries.push([id, index]);
+  });
+  const orderMap = new Map(orderEntries);
+  const getOrderKey = template => {
+    const linkId = getTemplateLinkId(template);
+    if (linkId !== null) {
+      return linkId;
+    }
+    return getTemplateId(template) ?? null;
+  };
   return () => {
     templates.sort((a, b) => {
-      const aId = getTemplateId(a);
-      const bId = getTemplateId(b);
-      return (orderMap.get(aId) ?? 0) - (orderMap.get(bId) ?? 0);
+      const aKey = getOrderKey(a);
+      const bKey = getOrderKey(b);
+      const aIndex = (aKey !== null && aKey !== undefined && aKey !== '' && orderMap.has(aKey))
+        ? orderMap.get(aKey)
+        : Number.MAX_SAFE_INTEGER;
+      const bIndex = (bKey !== null && bKey !== undefined && bKey !== '' && orderMap.has(bKey))
+        ? orderMap.get(bKey)
+        : Number.MAX_SAFE_INTEGER;
+      return aIndex - bIndex;
     });
     templates.forEach((template, index) => {
       template.sort_order = index + 1;
@@ -1955,18 +2004,19 @@ function queueTemplateOrderSave(previousOrder = null) {
     return;
   }
   const programId = selectedProgramId;
-  const currentOrder = templates.map(getTemplateId).filter(Boolean);
+  const currentOrder = sanitizeLinkOrder(templates.map(getTemplateLinkId));
   if (!currentOrder.length) {
     return;
   }
-  if (Array.isArray(previousOrder) && previousOrder.length === currentOrder.length) {
-    const unchanged = previousOrder.every((id, index) => id === currentOrder[index]);
+  const previousLinkOrder = Array.isArray(previousOrder) ? sanitizeLinkOrder(previousOrder) : null;
+  if (Array.isArray(previousLinkOrder) && previousLinkOrder.length === currentOrder.length) {
+    const unchanged = previousLinkOrder.every((id, index) => id === currentOrder[index]);
     if (unchanged) {
       return;
     }
   }
   pendingReorderState.programId = programId;
-  pendingReorderState.order = currentOrder;
+  pendingReorderState.order = [...currentOrder];
   pendingReorderState.revert = createOrderRevert(previousOrder);
   pendingReorderState.savingMessage = 'Saving order…';
   pendingReorderState.successMessage = 'Order updated.';
@@ -2009,7 +2059,7 @@ async function flushPendingTemplateOrder({ immediate = false } = {}) {
   if (!order || !order.length || !programId) {
     return false;
   }
-  const filteredOrder = order.filter(id => id !== null && id !== undefined && id !== '');
+  const filteredOrder = sanitizeLinkOrder(order);
   if (!filteredOrder.length) {
     return false;
   }
@@ -3182,7 +3232,10 @@ function moveTemplateAssociation(templateId, direction) {
   if (index < 0) return;
   const targetIndex = direction === 'up' ? index - 1 : index + 1;
   if (targetIndex < 0 || targetIndex >= templates.length) return;
-  const previousOrder = templates.map(getTemplateId);
+  const previousOrder = templates.map(template => {
+    const linkId = getTemplateLinkId(template);
+    return linkId !== null ? linkId : getTemplateId(template);
+  });
   const [moved] = templates.splice(index, 1);
   templates.splice(targetIndex, 0, moved);
   templates.forEach((template, idx) => {
