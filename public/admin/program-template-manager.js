@@ -415,6 +415,88 @@ function compareBy(a, b, key, direction = 'asc', type = 'string') {
   return result;
 }
 
+function isElementVisible(element) {
+  if (!element) return false;
+  if (element.hidden) return false;
+  const style = window.getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden') {
+    return false;
+  }
+  if (element.offsetParent === null && style.position !== 'fixed') {
+    return false;
+  }
+  return true;
+}
+
+const htmlToTextContainer = document.createElement('div');
+
+function toPlainText(value) {
+  if (value === null || value === undefined) return '';
+  const stringValue = String(value);
+  if (!stringValue.includes('<')) return stringValue;
+  htmlToTextContainer.innerHTML = stringValue;
+  const text = htmlToTextContainer.textContent || '';
+  htmlToTextContainer.textContent = '';
+  return text;
+}
+
+function escapeCsvCell(value) {
+  const text = toPlainText(value).replace(/\r?\n/g, '\n');
+  if (text === '') return '';
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function getProgramLifecycleLabel(program) {
+  const lifecycle = getProgramLifecycle(program);
+  if (!lifecycle) return '—';
+  return lifecycle.charAt(0).toUpperCase() + lifecycle.slice(1);
+}
+
+const PROGRAM_CSV_ACCESSORS = {
+  title: program => getProgramTitle(program) || '—',
+  lifecycle: program => getProgramLifecycleLabel(program),
+  weeks: program => {
+    const totalWeeks = getProgramTotalWeeks(program);
+    return Number.isFinite(totalWeeks) ? String(totalWeeks) : '—';
+  },
+  description: program => {
+    const description = getProgramDescription(program);
+    return description ? description : '—';
+  },
+  createdAt: program => formatDate(getProgramCreatedAt(program)),
+  archivedAt: program => formatDate(getProgramArchivedAt(program)),
+};
+
+function toCSV() {
+  if (!programTable) return '';
+  const headerCells = Array.from(programTable.querySelectorAll('thead th')).filter(isElementVisible);
+  if (!headerCells.length) return '';
+  const headerLabels = headerCells.map(cell => {
+    const clone = cell.cloneNode(true);
+    const redundantElements = clone.querySelectorAll('input, [data-sort-indicator]');
+    redundantElements.forEach(el => el.remove());
+    const label = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+    return label;
+  });
+  const headerKeys = headerCells.map(cell => cell.dataset.key || null);
+  const rows = [headerLabels.map(escapeCsvCell).join(',')];
+  const programsToExport = getFilteredSortedPrograms();
+  programsToExport.forEach(program => {
+    const cells = headerKeys.map(key => {
+      if (!key) return '';
+      const accessor = PROGRAM_CSV_ACCESSORS[key];
+      const rawValue = typeof accessor === 'function' ? accessor(program) : program?.[key];
+      if (rawValue === null || rawValue === undefined) return '';
+      return rawValue;
+    });
+    rows.push(cells.map(escapeCsvCell).join(','));
+  });
+  return `\uFEFF${rows.join('\r\n')}`;
+}
+
 const meResponse = await fetch(`${API}/me`, { credentials: 'include' });
 if (!meResponse.ok) {
   window.location.href = '/';
@@ -450,6 +532,7 @@ const btnRefreshPrograms = document.getElementById('btnRefreshPrograms');
 const btnRefreshTemplates = document.getElementById('btnRefreshTemplates');
 const btnNewProgram = document.getElementById('btnNewProgram');
 const btnEditProgram = document.getElementById('btnEditProgram');
+const btnExportProgramsCsv = document.getElementById('exportCsv');
 const btnNewTemplate = document.getElementById('btnNewTemplate');
 const btnEditTemplate = document.getElementById('btnEditTemplate');
 const programModal = document.getElementById('programModal');
@@ -4445,6 +4528,23 @@ templateActionsContainer.addEventListener('click', event => {
   if (!action) return;
   handleTemplateAction(action);
 });
+
+if (btnExportProgramsCsv) {
+  btnExportProgramsCsv.addEventListener('click', () => {
+    const csv = toCSV();
+    if (!csv) return;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.setAttribute('download', 'programs.csv');
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  });
+}
 
 if (btnRefreshPrograms) {
   btnRefreshPrograms.addEventListener('click', async () => {
