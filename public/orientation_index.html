@@ -27,6 +27,54 @@
     .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
     .outline-dashed{ outline-style: dashed; }
 
+    .orientation-calendar__tooltip {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: translate(-50%, -100%);
+      background: rgba(15, 23, 42, 0.95);
+      color: #f8fafc;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.18);
+      max-width: 240px;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.12s ease-in-out, visibility 0.12s ease-in-out;
+      z-index: 2147482000;
+    }
+
+    .orientation-calendar__tooltip[data-hidden="false"] {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .orientation-calendar__tooltip[data-position="bottom"] {
+      transform: translate(-50%, 0);
+    }
+
+    .orientation-calendar__tooltip-line + .orientation-calendar__tooltip-line {
+      margin-top: 0.35rem;
+    }
+
+    .orientation-calendar__tooltip-label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.65rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      opacity: 0.75;
+    }
+
+    .orientation-calendar__tooltip-value {
+      display: block;
+      margin-top: 0.2rem;
+      white-space: pre-line;
+    }
+
     button:focus,
     [tabindex]:focus,
     input:focus,
@@ -1587,40 +1635,68 @@ useEffect(() => {
                   {hasPerm('task.assign') && isPrivileged && !isTrainee && <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>}
                 </div>
                 <div className="space-y-1">
-                  {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
-                    <div key={i}
-                         className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border cursor-pointer focus-visible:ring-2 focus-visible:ring-anx-sky ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
-                         role="button"
-                         tabIndex={0}
-                         draggable={hasPerm('task.assign') && isPrivileged && !isTrainee}
-                         data-wi={it.wi}
-                         data-ti={it.ti}
-                         data-taskid={it.task_id}
-                         data-task-id={it.task_id}
-                         data-title={it.label}
-                         data-week={typeof it.week === 'number' || typeof it.week === 'string' ? String(it.week) : toDisplayString(it.week)}
-                         data-journal_entry={toDisplayString(it.journal_entry)}
-                         data-responsible_person={toDisplayString(it.responsible_person)}
-                         data-scheduled_for={toDisplayString(it.scheduled_for)}
-                         data-scheduled_time={it.scheduled_time || ''}
-                         data-done={typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done)}
-                         onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
-                         onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
-                         onTouchEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined}>
-                      <div>{it.label}</div>
-                      {it.scheduled_time && (
-                        <div className="mt-0.5 text-[10px] text-slate-600">Assigned • {it.scheduled_time}</div>
-                      )}
-                      {hasPerm('task.assign') && isPrivileged && !isTrainee && (
-                        <button type="button" aria-label="Remove"
-                                className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
-                                onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
-                                onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {items.slice(0, expanded ? items.length : 3).map((it,i)=> {
+                    const tooltipId = `orientation-task-tooltip-${key}-${i}`;
+                    const tooltipTime = deriveTimeFromTask(it);
+                    const tooltipResponsible = toDisplayString(it.responsible_person);
+                    const tooltipJournal = toDisplayString(it.journal_entry);
+                    const tooltipEntries = [];
+                    if (tooltipTime) {
+                      tooltipEntries.push({ label: 'Time', value: tooltipTime });
+                    }
+                    if (tooltipResponsible && tooltipResponsible !== '—') {
+                      tooltipEntries.push({ label: 'Responsible', value: tooltipResponsible });
+                    }
+                    if (tooltipJournal && tooltipJournal !== '—') {
+                      tooltipEntries.push({ label: 'Journal', value: tooltipJournal });
+                    }
+                    return (
+                      <div key={i}
+                           className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border cursor-pointer focus-visible:ring-2 focus-visible:ring-anx-sky ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
+                           role="button"
+                           tabIndex={0}
+                           aria-describedby={tooltipEntries.length ? tooltipId : undefined}
+                           data-tooltip-id={tooltipEntries.length ? tooltipId : undefined}
+                           draggable={hasPerm('task.assign') && isPrivileged && !isTrainee}
+                           data-wi={it.wi}
+                           data-ti={it.ti}
+                           data-taskid={it.task_id}
+                           data-task-id={it.task_id}
+                           data-title={it.label}
+                           data-week={typeof it.week === 'number' || typeof it.week === 'string' ? String(it.week) : toDisplayString(it.week)}
+                           data-journal_entry={toDisplayString(it.journal_entry)}
+                           data-responsible_person={toDisplayString(it.responsible_person)}
+                           data-scheduled_for={toDisplayString(it.scheduled_for)}
+                           data-scheduled_time={it.scheduled_time || ''}
+                           data-done={typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done)}
+                           onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
+                           onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
+                           onTouchEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined}>
+                        <div>{it.label}</div>
+                        {it.scheduled_time && (
+                          <div className="mt-0.5 text-[10px] text-slate-600">Assigned • {it.scheduled_time}</div>
+                        )}
+                        {tooltipEntries.length > 0 && (
+                          <div id={tooltipId} className="sr-only" data-tooltip-content>
+                            {tooltipEntries.map((entry, entryIndex) => (
+                              <span key={entry.label}>
+                                {entry.label}: {entry.value}
+                                {entryIndex < tooltipEntries.length - 1 ? '. ' : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {hasPerm('task.assign') && isPrivileged && !isTrainee && (
+                          <button type="button" aria-label="Remove"
+                                  className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                                  onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
+                                  onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                   {items.length>3 && (
                     <button type="button" className="text-[11px] text-slate-500" onClick={()=> toggleExpandedDay(key)}>
                       {expanded ? 'Show less' : `+${items.length-3} more…`}
@@ -2195,6 +2271,186 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       }
     };
 
+    const createTooltipElement = () => {
+      let tooltip = document.getElementById('orientationCalendarTooltip');
+      if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'orientationCalendarTooltip';
+        tooltip.className = 'orientation-calendar__tooltip';
+        tooltip.setAttribute('role', 'tooltip');
+        tooltip.dataset.hidden = 'true';
+        tooltip.dataset.position = 'top';
+        document.body.appendChild(tooltip);
+      }
+      return tooltip;
+    };
+
+    const setupTooltip = (calendar) => {
+      if (!calendar || calendar.dataset.tooltipReady === 'true') return;
+      calendar.dataset.tooltipReady = 'true';
+
+      const tooltip = createTooltipElement();
+      let activeTask = null;
+
+      const getMeaningful = (value) => {
+        if (value === undefined || value === null) return '';
+        const str = String(value).trim();
+        if (!str || str === '—') return '';
+        const lowered = str.toLowerCase();
+        if (lowered === 'null' || lowered === 'undefined') return '';
+        return str;
+      };
+
+      const extractTime = (dataset) => {
+        const direct = getMeaningful(dataset.scheduled_time);
+        if (direct) return direct;
+        const scheduled = getMeaningful(dataset.scheduled_for);
+        if (!scheduled) return '';
+        const isoMatch = scheduled.match(/T(\d{2}:\d{2})/);
+        if (isoMatch) return isoMatch[1];
+        const meridianMatch = scheduled.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+        if (meridianMatch) return meridianMatch[1];
+        const plainMatch = scheduled.match(/(\d{1,2}:\d{2})$/);
+        if (plainMatch) return plainMatch[1];
+        return '';
+      };
+
+      const buildContent = (task) => {
+        const fragment = document.createDocumentFragment();
+        const { dataset } = task;
+        const timeValue = extractTime(dataset);
+        const responsibleValue = getMeaningful(dataset.responsible_person);
+        const journalValue = getMeaningful(dataset.journal_entry);
+
+        const appendLine = (label, value) => {
+          const line = document.createElement('div');
+          line.className = 'orientation-calendar__tooltip-line';
+          const labelEl = document.createElement('span');
+          labelEl.className = 'orientation-calendar__tooltip-label';
+          labelEl.textContent = label;
+          const valueEl = document.createElement('span');
+          valueEl.className = 'orientation-calendar__tooltip-value';
+          valueEl.textContent = value;
+          line.appendChild(labelEl);
+          line.appendChild(valueEl);
+          fragment.appendChild(line);
+        };
+
+        if (timeValue) appendLine('Time', timeValue);
+        if (responsibleValue) appendLine('Responsible', responsibleValue);
+        if (journalValue) appendLine('Journal', journalValue);
+
+        return fragment.childNodes.length ? fragment : null;
+      };
+
+      const positionTooltip = (task) => {
+        if (!activeTask || tooltip.dataset.hidden === 'true') return;
+        if (!document.body.contains(task)) {
+          hideTooltip();
+          return;
+        }
+        const rect = task.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const viewportTop = window.scrollY;
+        let desiredPosition = 'top';
+        let top = rect.top + window.scrollY - 8;
+        if (top - tooltipRect.height < viewportTop + 4) {
+          desiredPosition = 'bottom';
+          top = rect.bottom + window.scrollY + 8;
+        }
+        tooltip.dataset.position = desiredPosition;
+        tooltip.style.top = `${top}px`;
+        const centerLeft = rect.left + (rect.width / 2) + window.scrollX;
+        const minLeft = window.scrollX + (tooltipRect.width / 2) + 4;
+        const maxLeft = window.scrollX + window.innerWidth - (tooltipRect.width / 2) - 4;
+        const clampedLeft = Math.max(minLeft, Math.min(maxLeft, centerLeft));
+        tooltip.style.left = `${clampedLeft}px`;
+      };
+
+      const hideTooltip = () => {
+        if (activeTask) {
+          activeTask.removeAttribute('data-tooltip-active');
+        }
+        activeTask = null;
+        tooltip.dataset.hidden = 'true';
+        tooltip.dataset.position = 'top';
+        tooltip.innerHTML = '';
+      };
+
+      const showTooltip = (task) => {
+        if (activeTask && activeTask !== task) {
+          hideTooltip();
+        }
+        const content = buildContent(task);
+        if (!content) {
+          hideTooltip();
+          return;
+        }
+        activeTask = task;
+        task.setAttribute('data-tooltip-active', 'true');
+        tooltip.innerHTML = '';
+        tooltip.appendChild(content);
+        tooltip.dataset.hidden = 'false';
+        tooltip.style.top = '0px';
+        tooltip.style.left = '0px';
+        window.requestAnimationFrame(() => {
+          if (!activeTask) return;
+          positionTooltip(activeTask);
+        });
+      };
+
+      const handlePointerOver = (event) => {
+        const task = event.target.closest('[data-task-id]');
+        if (!task || !calendar.contains(task)) return;
+        showTooltip(task);
+      };
+
+      const handlePointerOut = (event) => {
+        if (!activeTask) return;
+        const related = event.relatedTarget && typeof event.relatedTarget.closest === 'function'
+          ? event.relatedTarget.closest('[data-task-id]')
+          : null;
+        if (related === activeTask) return;
+        if (related && calendar.contains(related)) return;
+        hideTooltip();
+      };
+
+      const handleFocusIn = (event) => {
+        const task = event.target.closest('[data-task-id]');
+        if (!task || !calendar.contains(task)) return;
+        showTooltip(task);
+      };
+
+      const handleFocusOut = (event) => {
+        if (!activeTask) return;
+        const related = event.relatedTarget && typeof event.relatedTarget.closest === 'function'
+          ? event.relatedTarget.closest('[data-task-id]')
+          : null;
+        if (related === activeTask) return;
+        if (related && calendar.contains(related)) return;
+        hideTooltip();
+      };
+
+      const handleScroll = () => {
+        if (activeTask) {
+          positionTooltip(activeTask);
+        }
+      };
+
+      const handleResize = () => {
+        if (activeTask) {
+          positionTooltip(activeTask);
+        }
+      };
+
+      calendar.addEventListener('mouseover', handlePointerOver);
+      calendar.addEventListener('mouseout', handlePointerOut);
+      calendar.addEventListener('focusin', handleFocusIn);
+      calendar.addEventListener('focusout', handleFocusOut);
+      window.addEventListener('scroll', handleScroll, true);
+      window.addEventListener('resize', handleResize);
+    };
+
     const setupModal = (calendar, modal) => {
       const form = document.getElementById('orientationTaskForm');
       const journalField = document.getElementById('orientationTaskJournal');
@@ -2575,6 +2831,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         scheduleRetry(init);
         return;
       }
+      setupTooltip(calendar);
       setupModal(calendar, modal);
     };
 
