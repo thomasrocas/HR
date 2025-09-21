@@ -696,6 +696,55 @@ function App({ me, onSignOut }){
   }, [targetUserId, targetUserName]);
 
   useEffect(() => {
+    const handleJournalUpdate = (event) => {
+      const { detail } = event || {};
+      if (!detail || detail.error) return;
+      const {
+        taskId,
+        journal_entry: journalEntry,
+        responsible_person: responsiblePerson,
+        scheduled_time: scheduledTime,
+        scheduled_for: scheduledFor,
+      } = detail;
+      if (!taskId) return;
+
+      setWeeks((prevWeeks) => {
+        let found = false;
+        const nextWeeks = prevWeeks.map((week) => {
+          let weekChanged = false;
+          const nextTasks = week.tasks.map((task) => {
+            if (!sameId(task.task_id || task.id, taskId)) return task;
+            weekChanged = true;
+            found = true;
+            return {
+              ...task,
+              journal_entry: typeof journalEntry !== 'undefined'
+                ? ensureDisplayValue(journalEntry)
+                : task.journal_entry,
+              responsible_person: typeof responsiblePerson !== 'undefined'
+                ? ensureDisplayValue(responsiblePerson)
+                : task.responsible_person,
+              scheduled_time: typeof scheduledTime !== 'undefined'
+                ? normalizeTimeValue(scheduledTime)
+                : task.scheduled_time,
+              scheduled_for: typeof scheduledFor !== 'undefined'
+                ? scheduledFor
+                : task.scheduled_for,
+            };
+          });
+          return weekChanged ? { ...week, tasks: nextTasks } : week;
+        });
+        return found ? nextWeeks : prevWeeks;
+      });
+    };
+
+    window.addEventListener('orientation:journal:update', handleJournalUpdate);
+    return () => {
+      window.removeEventListener('orientation:journal:update', handleJournalUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isPrivileged) return;
     (async () => {
       try {
