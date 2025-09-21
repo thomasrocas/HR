@@ -36,6 +36,22 @@ function formatDate(dateLike) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function formatDateTime(dateLike) {
+  if (!dateLike) return '—';
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) {
+    if (typeof dateLike === 'string') return dateLike;
+    return '—';
+  }
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 const HTML_ESCAPE_LOOKUP = {
   '&': '&amp;',
   '<': '&lt;',
@@ -648,6 +664,467 @@ let pendingAttachProgramId = null;
 let attachSaveTimeout = null;
 let attachInFlightPromise = null;
 
+const TEMPLATE_AUDIT_TABLE_NAME = 'program_task_templates';
+const templateAuditState = new Map();
+let templateAuditRenderScheduled = false;
+
+function scheduleTemplateAuditRender() {
+  if (templateAuditRenderScheduled) return;
+  templateAuditRenderScheduled = true;
+  Promise.resolve().then(() => {
+    templateAuditRenderScheduled = false;
+    try {
+      renderTemplates();
+    } catch (error) {
+      console.error(error);
+    }
+  });
+}
+
+function normalizeAuditAction(action) {
+  if (action === null || action === undefined) return '';
+  return String(action).trim().toLowerCase();
+}
+
+function extractAuditEntriesFromPayload(payload, templateId = null) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+
+  const directKeys = ['entries', 'data', 'results', 'items', 'logs', 'audit', 'records', 'rows', 'events'];
+  for (const key of directKeys) {
+    const value = payload[key];
+    if (Array.isArray(value)) return value;
+  }
+
+  if (payload.audit && typeof payload.audit === 'object') {
+    const nested = extractAuditEntriesFromPayload(payload.audit, templateId);
+    if (nested.length) return nested;
+  }
+
+  const keyedCollections = ['byId', 'recordsById', 'logsById', 'itemsById', 'dataById'];
+  for (const key of keyedCollections) {
+    const bucket = payload[key];
+    if (bucket && typeof bucket === 'object') {
+      const nested = extractAuditEntriesFromPayload(bucket, templateId);
+      if (nested.length) return nested;
+    }
+  }
+
+  if (templateId !== null && templateId !== undefined) {
+    const normalizedId = String(templateId);
+    if (Array.isArray(payload[normalizedId])) {
+      return payload[normalizedId];
+    }
+    for (const [key, value] of Object.entries(payload)) {
+      if (key === normalizedId && Array.isArray(value)) return value;
+    }
+  }
+
+  for (const value of Object.values(payload)) {
+    if (Array.isArray(value)) return value;
+  }
+
+  return [];
+}
+
+function extractAuditActor(entry) {
+  const candidates = [
+    entry?.actor,
+    entry?.user,
+    entry?.user_name,
+    entry?.username,
+    entry?.userEmail,
+    entry?.user_email,
+    entry?.changed_by,
+    entry?.changedBy,
+    entry?.performed_by,
+    entry?.performedBy,
+    entry?.created_by,
+    entry?.createdBy,
+    entry?.owner,
+    entry?.email,
+    entry?.name,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === '') continue;
+    if (typeof candidate === 'object') {
+      const nested = candidate.name
+        ?? candidate.full_name
+        ?? candidate.fullName
+        ?? candidate.displayName
+        ?? candidate.email
+        ?? candidate.username
+        ?? candidate.id
+        ?? null;
+      if (nested !== null && nested !== undefined && nested !== '') {
+        return nested;
+      }
+      continue;
+    }
+    return candidate;
+  }
+  return null;
+}
+
+function extractAuditTimestamp(entry) {
+  const candidates = [
+    entry?.changed_at,
+    entry?.changedAt,
+    entry?.created_at,
+    entry?.createdAt,
+    entry?.occurred_at,
+    entry?.occurredAt,
+    entry?.logged_at,
+    entry?.loggedAt,
+    entry?.at,
+    entry?.time,
+    entry?.timestamp,
+    entry?.date,
+    entry?.datetime,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === '') continue;
+    return candidate;
+  }
+  return null;
+}
+
+function normalizeAuditRecord(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const actor = extractAuditActor(entry);
+  const timestamp = extractAuditTimestamp(entry);
+  const action = normalizeAuditAction(entry?.action ?? entry?.operation ?? entry?.event ?? entry?.type ?? entry?.verb);
+  return {
+    actor: actor === null || actor === undefined ? null : String(actor),
+    timestamp,
+    action,
+    raw: entry,
+  };
+}
+
+function findInsertAuditCandidate(entries) {
+  if (!Array.isArray(entries) || !entries.length) return null;
+  const enriched = entries
+    .map(entry => {
+      const normalized = normalizeAuditRecord(entry);
+      if (!normalized) return null;
+      let timestampValue = null;
+      if (normalized.timestamp !== null && normalized.timestamp !== undefined && normalized.timestamp !== '') {
+        const date = new Date(normalized.timestamp);
+        if (!Number.isNaN(date.getTime())) {
+          timestampValue = date.getTime();
+        }
+      }
+      return {
+        entry,
+        normalized,
+        timestampValue,
+      };
+    })
+    .filter(Boolean);
+  if (!enriched.length) return null;
+  const insertEntries = enriched.filter(item => {
+    const action = item.normalized.action;
+    return action === 'insert' || action === 'create' || action === 'created' || action === 'add';
+  });
+  const pool = insertEntries.length ? insertEntries : enriched;
+  pool.sort((a, b) => {
+    const aTime = a.timestampValue ?? Number.POSITIVE_INFINITY;
+    const bTime = b.timestampValue ?? Number.POSITIVE_INFINITY;
+    if (aTime === bTime) return 0;
+    return aTime < bTime ? -1 : 1;
+  });
+  return pool[0] || null;
+}
+
+function createTemplateAuditInfo({ actor, timestamp, raw, source = 'audit' }) {
+  const actorLabel = actor === null || actor === undefined ? null : String(actor).trim() || null;
+  let timestampIso = null;
+  let timestampValue = null;
+  let timestampLabel = null;
+  if (timestamp !== null && timestamp !== undefined && timestamp !== '') {
+    const date = new Date(timestamp);
+    if (!Number.isNaN(date.getTime())) {
+      timestampValue = date.getTime();
+      timestampIso = date.toISOString();
+      timestampLabel = formatDateTime(date);
+    } else if (typeof timestamp === 'string') {
+      timestampLabel = timestamp;
+    } else {
+      timestampLabel = String(timestamp);
+    }
+  }
+  const displayParts = [];
+  if (actorLabel) displayParts.push(actorLabel);
+  if (timestampLabel) displayParts.push(timestampLabel);
+  const display = displayParts.length ? displayParts.join(' — ') : '—';
+  const searchParts = [];
+  if (actorLabel) searchParts.push(actorLabel);
+  if (timestampLabel) searchParts.push(timestampLabel);
+  if (timestampIso) searchParts.push(timestampIso);
+  return {
+    actor: actorLabel,
+    timestamp: timestampIso ?? (timestamp !== null && timestamp !== undefined ? String(timestamp) : null),
+    timestampValue,
+    display,
+    searchText: searchParts.join(' ').trim(),
+    source,
+    raw,
+  };
+}
+
+function applyTemplateAuditData(templateId, info, records) {
+  if (!templateId) return;
+  const applyToTemplate = template => {
+    if (!template || typeof template !== 'object') return;
+    if (getTemplateId(template) !== templateId) return;
+    if (info) {
+      template.__auditInsert = info;
+    }
+    if (Array.isArray(records)) {
+      template.__auditRecords = records;
+    }
+  };
+  const collections = [globalTemplates, templates, templateLibrary];
+  collections.forEach(collection => {
+    if (!Array.isArray(collection)) return;
+    collection.forEach(applyToTemplate);
+  });
+  if (templateLibraryIndex && typeof templateLibraryIndex.get === 'function' && templateLibraryIndex.has(templateId)) {
+    const entry = templateLibraryIndex.get(templateId);
+    if (entry && typeof entry === 'object') {
+      if (info) entry.__auditInsert = info;
+      if (Array.isArray(records)) entry.__auditRecords = records;
+      templateLibraryIndex.set(templateId, entry);
+    }
+  }
+}
+
+function hydrateTemplatesWithAudit(list) {
+  if (!Array.isArray(list)) return;
+  list.forEach(template => {
+    const templateId = getTemplateId(template);
+    if (!templateId) return;
+    const state = templateAuditState.get(templateId);
+    if (state?.status === 'ready') {
+      applyTemplateAuditData(templateId, state.info || null, state.records || null);
+    }
+  });
+}
+
+function hydrateTemplateLibraryIndex() {
+  if (!templateLibraryIndex || typeof templateLibraryIndex.forEach !== 'function') return;
+  templateLibraryIndex.forEach((value, key) => {
+    const state = templateAuditState.get(key);
+    if (state?.status === 'ready' && value && typeof value === 'object') {
+      if (state.info) value.__auditInsert = state.info;
+      if (Array.isArray(state.records)) value.__auditRecords = state.records;
+      templateLibraryIndex.set(key, value);
+    }
+  });
+}
+
+async function fetchTemplateAuditRecords(templateId) {
+  if (!templateId) {
+    return { records: [], info: null };
+  }
+  const params = new URLSearchParams();
+  params.set('table', TEMPLATE_AUDIT_TABLE_NAME);
+  params.set('table_name', TEMPLATE_AUDIT_TABLE_NAME);
+  params.set('tableName', TEMPLATE_AUDIT_TABLE_NAME);
+  params.set('recordId', templateId);
+  params.set('record_id', templateId);
+  params.set('entityId', templateId);
+  params.set('entity_id', templateId);
+  params.set('limit', '20');
+  params.set('order', 'asc');
+  params.set('sort', 'asc');
+  params.set('action', 'INSERT');
+  params.set('operation', 'INSERT');
+  const url = `${API}/api/audit?${params.toString()}`;
+  const payload = await fetchJson(url);
+  const records = extractAuditEntriesFromPayload(payload, templateId);
+  const candidate = findInsertAuditCandidate(records);
+  const info = candidate
+    ? createTemplateAuditInfo({
+      actor: candidate.normalized.actor,
+      timestamp: candidate.normalized.timestamp,
+      raw: candidate.entry,
+      source: 'audit',
+    })
+    : null;
+  return { records, info };
+}
+
+function extractTemplateAuditFromTemplate(template) {
+  if (!template || typeof template !== 'object') return null;
+  if (template.__auditInsert) {
+    return {
+      info: template.__auditInsert,
+      records: Array.isArray(template.__auditRecords) ? template.__auditRecords : null,
+    };
+  }
+
+  const auditPayload = template.audit
+    ?? template.audit_log
+    ?? template.auditLog
+    ?? template.auditRecords
+    ?? template.audit_entries
+    ?? null;
+  if (auditPayload) {
+    const entries = extractAuditEntriesFromPayload(auditPayload, getTemplateId(template));
+    if (entries.length) {
+      const candidate = findInsertAuditCandidate(entries);
+      if (candidate) {
+        return {
+          info: createTemplateAuditInfo({
+            actor: candidate.normalized.actor,
+            timestamp: candidate.normalized.timestamp,
+            raw: candidate.entry,
+            source: 'template',
+          }),
+          records: entries,
+        };
+      }
+    }
+  }
+
+  const actorCandidates = [
+    template.inserted_by,
+    template.insertedBy,
+    template.created_by,
+    template.createdBy,
+    template.created_by_name,
+    template.createdByName,
+    template.creator,
+    template.owner,
+  ];
+  let actor = null;
+  for (const candidate of actorCandidates) {
+    if (candidate === null || candidate === undefined || candidate === '') continue;
+    if (typeof candidate === 'object') {
+      const nested = candidate.name
+        ?? candidate.full_name
+        ?? candidate.fullName
+        ?? candidate.displayName
+        ?? candidate.email
+        ?? candidate.username
+        ?? candidate.id
+        ?? null;
+      if (nested !== null && nested !== undefined && nested !== '') {
+        actor = nested;
+        break;
+      }
+      continue;
+    }
+    actor = candidate;
+    break;
+  }
+
+  const timestampCandidates = [
+    template.inserted_at,
+    template.insertedAt,
+    template.created_at,
+    template.createdAt,
+    template.created_date,
+    template.createdDate,
+  ];
+  let timestamp = null;
+  for (const candidate of timestampCandidates) {
+    if (candidate === null || candidate === undefined || candidate === '') continue;
+    timestamp = candidate;
+    break;
+  }
+
+  if (actor || timestamp) {
+    return {
+      info: createTemplateAuditInfo({ actor, timestamp, raw: null, source: 'template' }),
+      records: null,
+    };
+  }
+
+  return null;
+}
+
+function ensureTemplateAudit(template) {
+  if (!template || typeof template !== 'object') return null;
+  const templateId = getTemplateId(template);
+  if (!templateId) return null;
+  const existing = templateAuditState.get(templateId);
+  if (existing) {
+    if (existing.status === 'ready' || existing.status === 'loading') {
+      return existing;
+    }
+    if (existing.status === 'error') {
+      return existing;
+    }
+  }
+
+  const inline = extractTemplateAuditFromTemplate(template);
+  if (inline && inline.info) {
+    const readyState = {
+      status: 'ready',
+      info: inline.info,
+      records: Array.isArray(inline.records) ? inline.records : null,
+    };
+    templateAuditState.set(templateId, readyState);
+    applyTemplateAuditData(templateId, readyState.info, readyState.records);
+    return readyState;
+  }
+
+  const loadingState = { status: 'loading', info: null, records: null };
+  const promise = (async () => {
+    try {
+      const result = await fetchTemplateAuditRecords(templateId);
+      const readyState = {
+        status: 'ready',
+        info: result.info || null,
+        records: Array.isArray(result.records) ? result.records : null,
+      };
+      templateAuditState.set(templateId, readyState);
+      applyTemplateAuditData(templateId, readyState.info, readyState.records);
+    } catch (error) {
+      console.error('Failed to load template audit', error);
+      templateAuditState.set(templateId, { status: 'error', info: null, records: null, error });
+    } finally {
+      scheduleTemplateAuditRender();
+    }
+  })();
+  loadingState.promise = promise;
+  templateAuditState.set(templateId, loadingState);
+  return loadingState;
+}
+
+function getTemplateAuditInfo(template) {
+  if (!template || typeof template !== 'object') return null;
+  if (template.__auditInsert) return template.__auditInsert;
+  const templateId = getTemplateId(template);
+  if (!templateId) return null;
+  const state = templateAuditState.get(templateId);
+  if (state?.status === 'ready') {
+    return state.info || null;
+  }
+  return null;
+}
+
+function getTemplateAuditSearchText(template) {
+  const info = getTemplateAuditInfo(template);
+  if (!info) return '';
+  return info.searchText || '';
+}
+
+function getTemplateAuditDisplay(template) {
+  const info = getTemplateAuditInfo(template);
+  if (!info) return '—';
+  return info.display || '—';
+}
+
+function getTemplateAuditSortValue(template) {
+  const info = getTemplateAuditInfo(template);
+  if (!info) return null;
+  return Number.isFinite(info.timestampValue) ? info.timestampValue : null;
+}
+
 if (!CAN_MANAGE_PROGRAMS) {
   programActionHint.textContent = 'You have read-only access. Only admins or managers can change program lifecycles.';
   if (programSelectAll) programSelectAll.disabled = true;
@@ -802,6 +1279,8 @@ function getFilteredTemplates() {
       getTemplateDescription(t),
       getTemplateId(t),
     ];
+    const auditSearch = getTemplateAuditSearchText(t);
+    if (auditSearch) values.push(auditSearch);
     const weekNumber = getTemplateWeekNumber(t);
     if (weekNumber !== null && weekNumber !== undefined && weekNumber !== '') {
       values.push(String(weekNumber));
@@ -1586,6 +2065,18 @@ function applyTemplateMetadataToCaches(templateData) {
   if (!templateData || typeof templateData !== 'object') return;
   const templateId = getTemplateId(templateData);
   if (!templateId) return;
+
+  if (templateData.__auditInsert && !templateAuditState.has(templateId)) {
+    templateAuditState.set(templateId, {
+      status: 'ready',
+      info: templateData.__auditInsert,
+      records: Array.isArray(templateData.__auditRecords) ? templateData.__auditRecords : null,
+    });
+  }
+  const existingAuditState = templateAuditState.get(templateId);
+  if (existingAuditState?.status === 'ready') {
+    applyTemplateAuditData(templateId, existingAuditState.info || null, existingAuditState.records || null);
+  }
 
   const assignmentIndex = templates.findIndex(template => getTemplateId(template) === templateId);
   const isAssigned = assignmentIndex >= 0;
@@ -3311,16 +3802,19 @@ function renderTemplates() {
       const disabledAttr = CAN_MANAGE_TEMPLATES ? '' : 'disabled';
       const checkedAttr = templateId && selectedTemplateIds.has(templateId) ? 'checked' : '';
       const name = getTemplateName(template) || '—';
-      const category = getTemplateCategory(template) || '—';
       const status = getTemplateStatus(template);
       const updatedAt = getTemplateUpdatedAt(template);
       const weekNumber = getTemplateWeekNumber(template);
+      ensureTemplateAudit(template);
+      const auditDisplay = getTemplateAuditDisplay(template) || '—';
+      const auditSortValue = getTemplateAuditSortValue(template);
+      const auditSortAttr = auditSortValue !== null ? ` data-sort-value="${auditSortValue}"` : '';
       return `
         <tr data-template-id="${templateId ?? ''}">
           <td><input type="checkbox" data-template-id="${templateId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
           <td>${weekNumber ?? '—'}</td>
           <td class="font-medium">${name}</td>
-          <td>${category}</td>
+          <td${auditSortAttr}>${escapeHtml(auditDisplay)}</td>
           <td>${createStatusBadge(status)}</td>
           <td>${formatDate(updatedAt)}</td>
         </tr>
@@ -3712,6 +4206,9 @@ async function loadTemplates(options = {}) {
       fetched = data.templates;
     }
     globalTemplates = Array.isArray(fetched) ? fetched : [];
+    if (typeof hydrateTemplatesWithAudit === 'function') {
+      hydrateTemplatesWithAudit(globalTemplates);
+    }
 
     if (preserveSelection) {
       const validIds = new Set(globalTemplates.map(getTemplateId).filter(Boolean));
@@ -3904,6 +4401,9 @@ async function loadProgramTemplateAssignments(options = {}) {
       }
     }
     templateLibrary = availableTemplates;
+    if (typeof hydrateTemplatesWithAudit === 'function') {
+      hydrateTemplatesWithAudit(templateLibrary);
+    }
     templateLibraryIndex.clear();
     templateLibrary.forEach(template => {
       const id = getTemplateId(template);
@@ -3911,9 +4411,15 @@ async function loadProgramTemplateAssignments(options = {}) {
         templateLibraryIndex.set(id, template);
       }
     });
+    if (typeof hydrateTemplateLibraryIndex === 'function') {
+      hydrateTemplateLibraryIndex();
+    }
     const normalized = fetchedTemplates.map((item, index) => normalizeTemplateAssociation(item, index));
     normalized.sort((a, b) => getTemplateSortValue(a) - getTemplateSortValue(b));
     templates = normalized;
+    if (typeof hydrateTemplatesWithAudit === 'function') {
+      hydrateTemplatesWithAudit(templates);
+    }
     lastLoadedTemplateProgramId = activeProgramId;
     templates.forEach(template => {
       const id = getTemplateId(template);
@@ -3921,6 +4427,9 @@ async function loadProgramTemplateAssignments(options = {}) {
         templateLibraryIndex.set(id, template);
       }
     });
+    if (typeof hydrateTemplateLibraryIndex === 'function') {
+      hydrateTemplateLibraryIndex();
+    }
 
     const responseTotal = extractAssignmentTotalFromResponse(data);
     const resolvedTotal = Number.isFinite(responseTotal) ? responseTotal : templates.length;
