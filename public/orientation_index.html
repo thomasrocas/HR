@@ -1638,6 +1638,12 @@ useEffect(() => {
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> {
                     const tooltipId = `orientation-task-tooltip-${key}-${i}`;
                     const tooltipTime = deriveTimeFromTask(it);
+                    const doneAttr = typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done);
+                    const isTaskDone = typeof it.done === 'boolean'
+                      ? it.done
+                      : String(it.done).toLowerCase() === 'true';
+                    const canManageAssignments = hasPerm('task.assign') && isPrivileged && !isTrainee;
+                    const isDraggable = canManageAssignments && !isTaskDone;
                     const tooltipResponsible = toDisplayString(it.responsible_person);
                     const tooltipJournal = toDisplayString(it.journal_entry);
                     const tooltipEntries = [];
@@ -1652,12 +1658,14 @@ useEffect(() => {
                     }
                     return (
                       <div key={i}
-                           className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border cursor-pointer focus-visible:ring-2 focus-visible:ring-anx-sky ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
+                           className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border focus-visible:ring-2 focus-visible:ring-anx-sky ${isTaskDone?'bg-emerald-50 border-emerald-300 cursor-not-allowed':'bg-sky-50 border-sky-300 cursor-pointer'}`}
                            role="button"
-                           tabIndex={0}
+                           tabIndex={isTaskDone ? -1 : 0}
                            aria-describedby={tooltipEntries.length ? tooltipId : undefined}
                            data-tooltip-id={tooltipEntries.length ? tooltipId : undefined}
-                           draggable={hasPerm('task.assign') && isPrivileged && !isTrainee}
+                           aria-disabled={isTaskDone ? 'true' : 'false'}
+                           data-disabled={isTaskDone ? 'true' : undefined}
+                           draggable={isDraggable}
                            data-wi={it.wi}
                            data-ti={it.ti}
                            data-taskid={it.task_id}
@@ -1668,10 +1676,10 @@ useEffect(() => {
                            data-responsible_person={toDisplayString(it.responsible_person)}
                            data-scheduled_for={toDisplayString(it.scheduled_for)}
                            data-scheduled_time={it.scheduled_time || ''}
-                           data-done={typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done)}
-                           onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
-                           onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
-                           onTouchEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined} onTouchCancel={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchEnd : undefined}>
+                           data-done={doneAttr}
+                           onDragStart={isDraggable ? handleDragStart : undefined} onDragEnd={isDraggable ? handleDragEnd : undefined}
+                           onTouchStart={isDraggable ? handleDragStart : undefined} onTouchMove={isDraggable ? handleTouchMove : undefined}
+                           onTouchEnd={isDraggable ? handleTouchEnd : undefined} onTouchCancel={isDraggable ? handleTouchEnd : undefined}>
                         <div>{it.label}</div>
                         {it.scheduled_time && (
                           <div className="mt-0.5 text-[10px] text-slate-600">Assigned • {it.scheduled_time}</div>
@@ -1686,13 +1694,22 @@ useEffect(() => {
                             ))}
                           </div>
                         )}
-                        {hasPerm('task.assign') && isPrivileged && !isTrainee && (
-                          <button type="button" aria-label="Remove"
-                                  className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
-                                  onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
-                                  onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-                            ✕
-                          </button>
+                        {canManageAssignments && (
+                          isTaskDone ? (
+                            <span
+                              className="absolute -top-1 -right-1 text-xs leading-none text-emerald-600"
+                              aria-hidden="true"
+                            >
+                              ✓
+                            </span>
+                          ) : (
+                            <button type="button" aria-label="Remove"
+                                    className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                                    onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
+                                    onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                              ✕
+                            </button>
+                          )
                         )}
                       </div>
                     );
@@ -2773,9 +2790,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       closeModal();
     };
 
+    const isDisabledTrigger = (element) => {
+      if (!element) return false;
+      if (element.hasAttribute('disabled')) return true;
+      const ariaDisabled = element.getAttribute('aria-disabled');
+      if (ariaDisabled && ariaDisabled.toLowerCase() === 'true') return true;
+      const dataDisabled = element.dataset.disabled;
+      if (dataDisabled && dataDisabled.toLowerCase() === 'true') return true;
+      const doneValue = (element.dataset.done || '').toLowerCase();
+      if (doneValue === 'true' || doneValue === '1' || doneValue === 'yes' || doneValue === 'y' || doneValue === 'complete' || doneValue === 'completed') {
+        return true;
+      }
+      return false;
+    };
+
     calendar.addEventListener('click', (event) => {
       const trigger = event.target.closest('[data-task-id]');
-      if (!trigger || trigger.hasAttribute('disabled')) return;
+      if (!trigger || isDisabledTrigger(trigger)) return;
       if (!calendar.contains(trigger)) return;
       event.preventDefault();
       openModal(trigger);
@@ -2784,7 +2815,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
     calendar.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       const trigger = event.target.closest('[data-task-id]');
-      if (!trigger || trigger.hasAttribute('disabled')) return;
+      if (!trigger || isDisabledTrigger(trigger)) return;
       if (!calendar.contains(trigger)) return;
       event.preventDefault();
       openModal(trigger);
