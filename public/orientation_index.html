@@ -2036,6 +2036,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           <span class="orientation-modal__value muted" data-modal-field="scheduled">—</span>
         </div>
         <div class="orientation-modal__field">
+          <span class="orientation-modal__label">Time</span>
+          <select
+            id="orientationTaskTime"
+            class="orientation-modal__input"
+            name="scheduled_time"
+            data-modal-field="time"
+          ></select>
+        </div>
+        <div class="orientation-modal__field">
           <span class="orientation-modal__label">Responsible</span>
           <input
             type="text"
@@ -2074,14 +2083,128 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 
     const setupModal = (calendar, modal) => {
       const form = document.getElementById('orientationTaskForm');
-    const journalField = document.getElementById('orientationTaskJournal');
-    const responsibleField = document.getElementById('orientationTaskResponsible');
-    const fieldMap = {
-      title: modal.querySelector('[data-modal-field="title"]'),
-      week: modal.querySelector('[data-modal-field="week"]'),
-      scheduled: modal.querySelector('[data-modal-field="scheduled"]'),
-      done: modal.querySelector('[data-modal-field="done"]')
-    };
+      const journalField = document.getElementById('orientationTaskJournal');
+      const responsibleField = document.getElementById('orientationTaskResponsible');
+      const timeField = document.getElementById('orientationTaskTime');
+      const fieldMap = {
+        title: modal.querySelector('[data-modal-field="title"]'),
+        week: modal.querySelector('[data-modal-field="week"]'),
+        scheduled: modal.querySelector('[data-modal-field="scheduled"]'),
+        done: modal.querySelector('[data-modal-field="done"]')
+      };
+
+      const dayjsGlobal = window.dayjs || null;
+      let timeOptionsReady = false;
+
+      const ensureTimeOptions = () => {
+        if (!timeField || timeOptionsReady) return;
+        const minutes = ['00', '15', '30', '45'];
+        const fragment = document.createDocumentFragment();
+        for (let hour = 0; hour < 24; hour += 1) {
+          minutes.forEach((min) => {
+            const option = document.createElement('option');
+            option.value = `${String(hour).padStart(2, '0')}:${min}`;
+            option.textContent = option.value;
+            fragment.appendChild(option);
+          });
+        }
+        timeField.appendChild(fragment);
+        timeOptionsReady = true;
+      };
+
+      const parseTimeString = (value) => {
+        if (!value) return null;
+        const trimmed = value.trim();
+        if (!trimmed || trimmed === '—') return null;
+        if (dayjsGlobal) {
+          const parsed = dayjsGlobal(trimmed);
+          if (parsed.isValid()) {
+            return parsed.format('HH:mm');
+          }
+        }
+        const match = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+        if (!match) return null;
+        let hours = parseInt(match[1], 10);
+        const minutes = match[2];
+        const meridian = match[3] ? match[3].toUpperCase() : null;
+        if (meridian === 'PM' && hours < 12) hours += 12;
+        if (meridian === 'AM' && hours === 12) hours = 0;
+        if (Number.isNaN(hours) || hours < 0 || hours > 23) return null;
+        return `${String(hours).padStart(2, '0')}:${minutes}`;
+      };
+
+      const formatScheduledForDisplay = (value, explicitTime) => {
+        const trimmed = value && value !== '—' ? value.trim() : '';
+        if (dayjsGlobal && trimmed) {
+          let parsed = dayjsGlobal(trimmed);
+          if (!parsed.isValid()) {
+            const dateMatch = trimmed.match(/\d{4}-\d{2}-\d{2}/);
+            if (dateMatch) {
+              parsed = dayjsGlobal(dateMatch[0], 'YYYY-MM-DD');
+            }
+          }
+          if (parsed.isValid()) {
+            if (explicitTime && /^([01]?\d|2[0-3]):[0-5]\d$/.test(explicitTime)) {
+              const [h, m] = explicitTime.split(':').map((n) => parseInt(n, 10));
+              parsed = parsed.hour(h).minute(m).second(0).millisecond(0);
+              return parsed.format('MMM D, YYYY • HH:mm');
+            }
+            const showTime = /T/.test(trimmed) || /\d{1,2}:\d{2}/.test(trimmed);
+            return parsed.format(showTime ? 'MMM D, YYYY • HH:mm' : 'MMM D, YYYY');
+          }
+        }
+        if (trimmed && explicitTime) {
+          return `${trimmed} • ${explicitTime}`;
+        }
+        if (trimmed) return trimmed;
+        return explicitTime || '—';
+      };
+
+      const combineScheduledWithTime = (scheduledValue, timeValue, fallbackDate) => {
+        if (!timeValue || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(timeValue)) return scheduledValue;
+        const [hourStr, minuteStr] = timeValue.split(':');
+        const hour = parseInt(hourStr, 10);
+        const minute = parseInt(minuteStr, 10);
+        const trimmed = scheduledValue && scheduledValue !== '—' ? scheduledValue.trim() : '';
+
+        if (dayjsGlobal && trimmed) {
+          let parsed = dayjsGlobal(trimmed);
+          if (!parsed.isValid()) {
+            const dateMatch = trimmed.match(/\d{4}-\d{2}-\d{2}/);
+            if (dateMatch) {
+              parsed = dayjsGlobal(dateMatch[0], 'YYYY-MM-DD');
+            }
+          }
+          if (parsed.isValid()) {
+            return parsed
+              .hour(hour)
+              .minute(minute)
+              .second(0)
+              .millisecond(0)
+              .format('YYYY-MM-DDTHH:mm');
+          }
+        }
+
+        if (dayjsGlobal && fallbackDate) {
+          const base = dayjsGlobal(fallbackDate, 'YYYY-MM-DD');
+          if (base.isValid()) {
+            return base
+              .hour(hour)
+              .minute(minute)
+              .second(0)
+              .millisecond(0)
+              .format('YYYY-MM-DDTHH:mm');
+          }
+        }
+
+        if (trimmed) {
+          return `${trimmed} ${timeValue}`;
+        }
+        if (fallbackDate) {
+          return `${fallbackDate} ${timeValue}`;
+        }
+        return timeValue;
+      };
 
     const closeButtons = modal.querySelectorAll('[data-close-modal]');
     let activeTrigger = null;
@@ -2140,12 +2263,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       modal.dataset.taskId = dataset.taskId || '';
       if (fieldMap.title) fieldMap.title.textContent = toDisplay(dataset.title || trigger.textContent || '—');
       if (fieldMap.week) fieldMap.week.textContent = toDisplay(dataset.week);
-      if (fieldMap.scheduled) fieldMap.scheduled.textContent = toDisplay(dataset.scheduled_for);
+      if (fieldMap.scheduled) {
+        const datasetTime = dataset.scheduled_time && dataset.scheduled_time !== '—' ? dataset.scheduled_time : null;
+        fieldMap.scheduled.textContent = formatScheduledForDisplay(dataset.scheduled_for, datasetTime);
+      }
       if (responsibleField) {
         const responsibleValue = dataset.responsible_person && dataset.responsible_person !== '—'
           ? dataset.responsible_person
           : '';
         responsibleField.value = responsibleValue;
+      }
+      ensureTimeOptions();
+      if (timeField) {
+        const existingTime = dataset.scheduled_time && dataset.scheduled_time !== '—'
+          ? dataset.scheduled_time
+          : parseTimeString(dataset.scheduled_for);
+        const validTime = existingTime && /^([01]?\d|2[0-3]):[0-5]\d$/.test(existingTime)
+          ? existingTime
+          : '00:00';
+        timeField.value = validTime;
       }
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
       const journalValue = dataset.journal_entry && dataset.journal_entry !== '—' ? dataset.journal_entry : '';
@@ -2182,13 +2318,26 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const datasetValue = entryValue.trim() === '' ? '—' : entryValue;
       const responsibleValue = responsibleField ? responsibleField.value : '';
       const responsibleDatasetValue = responsibleValue.trim() === '' ? '—' : responsibleValue;
+      const timeValue = timeField ? timeField.value : '';
+      const parentDay = activeTrigger.closest('[data-date]');
+      const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
+      const scheduledForValue = combineScheduledWithTime(activeTrigger.dataset.scheduled_for || '', timeValue, parentDate);
       activeTrigger.dataset.journal_entry = datasetValue;
       activeTrigger.dataset.responsible_person = responsibleDatasetValue;
+      if (timeField) {
+        activeTrigger.dataset.scheduled_time = timeValue || '';
+        activeTrigger.dataset.scheduled_for = scheduledForValue || '';
+      }
+      if (fieldMap.scheduled) {
+        fieldMap.scheduled.textContent = formatScheduledForDisplay(scheduledForValue || activeTrigger.dataset.scheduled_for, timeValue);
+      }
       window.dispatchEvent(new CustomEvent('orientation:journal:update', {
         detail: {
           taskId,
           journal_entry: entryValue,
-          responsible_person: responsibleValue
+          responsible_person: responsibleValue,
+          scheduled_time: timeValue,
+          scheduled_for: scheduledForValue
         }
       }));
       closeModal();
