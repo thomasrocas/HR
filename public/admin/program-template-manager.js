@@ -66,6 +66,117 @@ function escapeHtml(value) {
   return String(value).replace(HTML_ESCAPE_REGEXP, match => HTML_ESCAPE_LOOKUP[match] || match);
 }
 
+let toastContainerElement = null;
+
+function ensureToastStyles() {
+  if (document.getElementById('toastStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'toastStyles';
+  style.textContent = `
+.toast-stack {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 70;
+}
+
+.toast {
+  min-width: 220px;
+  max-width: min(320px, 90vw);
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 20px 45px -20px rgba(15, 23, 42, 0.35);
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast[data-state="visible"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-success {
+  border-color: rgba(34, 197, 94, 0.35);
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #166534;
+}
+
+.toast-error {
+  border-color: rgba(248, 113, 113, 0.35);
+  background-color: rgba(248, 113, 113, 0.18);
+  color: #b91c1c;
+}
+
+.toast-info {
+  border-color: rgba(59, 130, 246, 0.35);
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureToastContainer() {
+  if (toastContainerElement && document.body.contains(toastContainerElement)) {
+    return toastContainerElement;
+  }
+  ensureToastStyles();
+  const container = document.createElement('div');
+  container.className = 'toast-stack';
+  container.setAttribute('aria-live', 'polite');
+  container.setAttribute('role', 'status');
+  document.body.appendChild(container);
+  toastContainerElement = container;
+  return container;
+}
+
+function showToast(message, { type = 'info', duration = 5000 } = {}) {
+  if (!message) return;
+  const container = ensureToastContainer();
+  const toast = document.createElement('div');
+  const normalizedType = ['success', 'error', 'info'].includes(type) ? type : 'info';
+  toast.className = `toast toast-${normalizedType}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  const hide = () => {
+    toast.dataset.state = 'hidden';
+  };
+
+  const remove = () => {
+    if (!toast.isConnected) return;
+    toast.removeEventListener('transitionend', removeOnTransitionEnd);
+    if (toast.parentElement) {
+      toast.parentElement.removeChild(toast);
+    }
+  };
+
+  const removeOnTransitionEnd = event => {
+    if (event.target !== toast || event.propertyName !== 'opacity') return;
+    remove();
+  };
+
+  toast.addEventListener('click', hide);
+  toast.addEventListener('transitionend', removeOnTransitionEnd);
+
+  requestAnimationFrame(() => {
+    toast.dataset.state = 'visible';
+  });
+
+  setTimeout(hide, Math.max(1000, duration));
+}
+
 function toNullableNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = typeof value === 'string' ? Number(value) : value;
@@ -4011,7 +4122,7 @@ function renderTemplates() {
   };
   const displayed = currentTemplatePageItems;
   if (!displayed.length) {
-    templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="6">No templates found.</td></tr>';
+    templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No templates found.</td></tr>';
   } else {
     templateTableBody.innerHTML = displayed.map(template => {
       const templateId = getTemplateId(template);
@@ -4019,12 +4130,26 @@ function renderTemplates() {
       const checkedAttr = templateId && selectedTemplateIds.has(templateId) ? 'checked' : '';
       const name = getTemplateName(template) || '—';
       const status = getTemplateStatus(template);
+      const isArchived = normalizeTemplateStatusValue(status) === 'archived';
       const updatedAt = getTemplateUpdatedAt(template);
       const weekNumber = getTemplateWeekNumber(template);
       ensureTemplateAudit(template);
       const auditDisplay = getTemplateAuditDisplay(template) || '—';
       const auditSortValue = getTemplateAuditSortValue(template);
       const auditSortAttr = auditSortValue !== null ? ` data-sort-value="${auditSortValue}"` : '';
+      let actionHtml = '';
+      if (isArchived && templateId) {
+        const restoreAttrs = [];
+        if (!CAN_MANAGE_TEMPLATES) {
+          restoreAttrs.push('disabled');
+          restoreAttrs.push('title="Only admins or managers can restore templates."');
+        }
+        const datasetName = escapeHtml(name);
+        restoreAttrs.push('data-template-restore="true"');
+        restoreAttrs.push(`data-template-id="${templateId}"`);
+        restoreAttrs.push(`data-template-name="${datasetName}"`);
+        actionHtml = `<button type="button" class="btn btn-outline text-xs" ${restoreAttrs.join(' ')}>Restore</button>`;
+      }
       return `
         <tr data-template-id="${templateId ?? ''}">
           <td><input type="checkbox" data-template-id="${templateId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
@@ -4033,6 +4158,7 @@ function renderTemplates() {
           <td${auditSortAttr}>${escapeHtml(auditDisplay)}</td>
           <td>${createStatusBadge(status)}</td>
           <td>${formatDate(updatedAt)}</td>
+          <td class="text-right">${actionHtml}</td>
         </tr>
       `;
     }).join('');
@@ -4833,6 +4959,91 @@ async function handleTemplateAction(action) {
   templateMessage.textContent = `${label} complete — ${success} succeeded, ${failure} failed.`;
 }
 
+function mergeRestoredTemplate(existing, updates) {
+  const baseExisting = existing && typeof existing === 'object' ? existing : {};
+  const baseUpdates = updates && typeof updates === 'object' ? updates : null;
+  const merged = baseUpdates ? { ...baseExisting, ...baseUpdates } : { ...baseExisting };
+  if (baseUpdates?.template && typeof baseUpdates.template === 'object') {
+    merged.template = {
+      ...(baseExisting.template && typeof baseExisting.template === 'object' ? baseExisting.template : {}),
+      ...baseUpdates.template,
+    };
+  } else if (baseExisting.template && typeof baseExisting.template === 'object') {
+    merged.template = { ...baseExisting.template };
+  }
+  if (merged.template && typeof merged.template === 'object') {
+    delete merged.template.deleted_at;
+    delete merged.template.deletedAt;
+  }
+  delete merged.deleted_at;
+  delete merged.deletedAt;
+  return merged;
+}
+
+function applyRestoredTemplateUpdate(templateId, updates) {
+  if (!templateId) return null;
+  let mergedTemplate = null;
+  const applyToCollection = collection => {
+    if (!Array.isArray(collection)) return;
+    const index = collection.findIndex(item => getTemplateId(item) === templateId);
+    if (index >= 0) {
+      const next = mergeRestoredTemplate(collection[index], updates);
+      collection[index] = next;
+      if (!mergedTemplate) {
+        mergedTemplate = next;
+      }
+    }
+  };
+
+  applyToCollection(globalTemplates);
+  applyToCollection(templates);
+  applyToCollection(templateLibrary);
+
+  if (templateLibraryIndex instanceof Map && templateLibraryIndex.has(templateId)) {
+    const existing = templateLibraryIndex.get(templateId);
+    const next = mergeRestoredTemplate(existing, updates);
+    templateLibraryIndex.set(templateId, next);
+    if (!mergedTemplate) {
+      mergedTemplate = next;
+    }
+  }
+
+  if (!mergedTemplate && updates && typeof updates === 'object') {
+    mergedTemplate = mergeRestoredTemplate(updates, null);
+    if (Array.isArray(globalTemplates)) {
+      globalTemplates.push(mergedTemplate);
+    } else {
+      globalTemplates = [mergedTemplate];
+    }
+  }
+
+  if (mergedTemplate) {
+    if (templateLibraryIndex instanceof Map && !templateLibraryIndex.has(templateId)) {
+      templateLibraryIndex.set(templateId, mergedTemplate);
+    }
+    hydrateTemplatesWithAudit([mergedTemplate]);
+  }
+
+  return mergedTemplate;
+}
+
+async function restoreTemplateById(templateId) {
+  if (!templateId) {
+    throw new Error('Template ID is required to restore.');
+  }
+  const encodedId = encodeURIComponent(templateId);
+  await fetchJson(`${TEMPLATE_API}/${encodedId}/restore`, { method: 'POST' });
+  let updatedTemplate = null;
+  try {
+    updatedTemplate = await fetchJson(`${TEMPLATE_API}/${encodedId}?include_deleted=true`);
+  } catch (error) {
+    console.error('Failed to fetch restored template details', error);
+  }
+  const merged = applyRestoredTemplateUpdate(templateId, updatedTemplate);
+  renderTemplates();
+  return merged;
+}
+
 programTableBody.addEventListener('change', async event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
@@ -4916,6 +5127,52 @@ templateTableBody.addEventListener('change', event => {
   updateTemplateSelectionSummary();
   const displayed = getVisibleTemplates();
   updateTemplateActionsState(displayed);
+});
+
+templateTableBody.addEventListener('click', async event => {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const button = target.closest('button[data-template-restore]');
+  if (!button || !templateTableBody.contains(button)) return;
+  event.preventDefault();
+  if (button.disabled) return;
+  const templateId = button.getAttribute('data-template-id');
+  if (!templateId) return;
+  const templateName = (button.getAttribute('data-template-name') || '').trim();
+  const previousText = button.textContent || 'Restore';
+  const wasDisabled = button.hasAttribute('disabled');
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = 'Restoring…';
+  try {
+    await restoreTemplateById(templateId);
+    const label = templateName ? `“${templateName}”` : 'Template';
+    showToast(`${label} restored.`, { type: 'success' });
+  } catch (error) {
+    console.error('Failed to restore template', error);
+    const status = error?.status;
+    let message = 'Unable to restore template. Please try again.';
+    if (status === 403) {
+      message = 'You do not have permission to restore templates.';
+    } else if (status === 404) {
+      message = 'Template could not be restored. It may already be active or removed.';
+    }
+    showToast(message, { type: 'error' });
+  } finally {
+    if (button.isConnected) {
+      if (!wasDisabled && CAN_MANAGE_TEMPLATES) {
+        button.disabled = false;
+      }
+      if (CAN_MANAGE_TEMPLATES) {
+        button.removeAttribute('title');
+      } else {
+        button.title = 'Only admins or managers can restore templates.';
+        button.disabled = true;
+      }
+      button.textContent = previousText;
+      button.removeAttribute('aria-busy');
+    }
+  }
 });
 
 if (programSearchInput) {
