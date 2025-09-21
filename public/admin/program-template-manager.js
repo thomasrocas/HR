@@ -1718,14 +1718,6 @@ function requestTemplateDetachment(templateId, options = {}) {
   }
 
   const targetTemplate = templates[index];
-  const status = getTemplateStatus(targetTemplate);
-  const normalizedStatus = (status || '').toLowerCase();
-  if (normalizedStatus === 'archived') {
-    setTemplatePanelMessage('Archived templates cannot be removed.', true);
-    reAddTag();
-    updatePanelAddButtonState();
-    return false;
-  }
 
   const previousSelection = new Set(selectedTemplateIds);
   const previousPrimary = selectedTemplateId;
@@ -3093,11 +3085,9 @@ function createTemplateAssignmentListItem(template, index, total) {
   const disableControls = !CAN_MANAGE_TEMPLATES;
   const disableUp = disableControls || index === 0;
   const disableDown = disableControls || index === total - 1;
-  const disableRemove = disableControls || isArchived;
+  const disableRemove = disableControls;
   const removeButtonTitle = disableRemove
-    ? (isArchived
-      ? 'Archived templates cannot be removed.'
-      : 'Only admins or managers can remove templates.')
+    ? 'Only admins or managers can remove templates.'
     : 'Remove template';
   const statusBadgeHtml = status ? createStatusBadge(status) : '';
   const createdAtRaw = template?.created_at
