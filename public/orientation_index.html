@@ -1491,7 +1491,6 @@ useEffect(() => {
                          data-taskid={it.task_id}
                          data-task-id={it.task_id}
                          data-title={it.label}
-                         data-labels={toDisplayString(it.labels)}
                          data-week={typeof it.week === 'number' || typeof it.week === 'string' ? String(it.week) : toDisplayString(it.week)}
                          data-journal_entry={toDisplayString(it.journal_entry)}
                          data-responsible_person={toDisplayString(it.responsible_person)}
@@ -2034,10 +2033,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           <span class="orientation-modal__value muted" data-modal-field="done">—</span>
         </div>
         <div class="orientation-modal__field full-span">
-          <span class="orientation-modal__label">Labels</span>
-          <span class="orientation-modal__value muted" data-modal-field="labels">—</span>
-        </div>
-        <div class="orientation-modal__field full-span">
           <span class="orientation-modal__label">Journal Entry</span>
           <textarea name="journal_entry" id="orientationTaskJournal" placeholder="Add a journal entry…"></textarea>
         </div>
@@ -2068,8 +2063,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       week: modal.querySelector('[data-modal-field="week"]'),
       scheduled: modal.querySelector('[data-modal-field="scheduled"]'),
       responsible: modal.querySelector('[data-modal-field="responsible"]'),
-      done: modal.querySelector('[data-modal-field="done"]'),
-      labels: modal.querySelector('[data-modal-field="labels"]')
+      done: modal.querySelector('[data-modal-field="done"]')
     };
 
     const closeButtons = modal.querySelectorAll('[data-close-modal]');
@@ -2132,8 +2126,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       if (fieldMap.scheduled) fieldMap.scheduled.textContent = toDisplay(dataset.scheduled_for);
       if (fieldMap.responsible) fieldMap.responsible.textContent = toDisplay(dataset.responsible_person);
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
-      if (fieldMap.labels) fieldMap.labels.textContent = toDisplay(dataset.labels);
-
       const journalValue = dataset.journal_entry && dataset.journal_entry !== '—' ? dataset.journal_entry : '';
       journalField.value = journalValue;
       modal.showModal();
