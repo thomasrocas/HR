@@ -200,6 +200,19 @@ function normalizeId(value) {
   return String(value);
 }
 
+function isValidHttpUrl(value) {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (error) {
+    return false;
+  }
+}
+
 function getProgramId(program) {
   return normalizeId(program?.id ?? program?.programId ?? program?.program_id);
 }
@@ -754,6 +767,9 @@ const templateFormWeekInput = document.getElementById('templateFormWeek');
 const templateFormSortInput = document.getElementById('templateFormSort');
 const templateFormLabelInput = document.getElementById('templateFormLabel');
 const templateFormNotesInput = document.getElementById('templateFormNotes');
+const templateFormExternalLinkInput = document.getElementById('templateFormExternalLink');
+const templateFormExternalLinkError = document.getElementById('templateFormExternalLinkError');
+const templateFormExternalLinkPreview = document.getElementById('templateFormExternalLinkPreview');
 const templateFormMessage = document.getElementById('templateFormMessage');
 const templateFormSubmit = document.getElementById('templateFormSubmit');
 const templateModalDeleteTrigger = document.getElementById('templateModalDeleteTrigger');
@@ -1816,6 +1832,45 @@ function resetProgramForm() {
 
 function setTemplateFormMessage(text, isError = false) {
   setModalMessage(templateFormMessage, text, isError);
+}
+
+const EXTERNAL_LINK_ERROR_MESSAGE = 'Enter a valid URL that starts with http:// or https://.';
+
+function setTemplateFormExternalLinkError(message = '') {
+  if (!templateFormExternalLinkError) return;
+  templateFormExternalLinkError.textContent = message;
+  templateFormExternalLinkError.classList.toggle('hidden', !message);
+}
+
+function updateTemplateFormExternalLinkPreview(value, isValid) {
+  if (!templateFormExternalLinkPreview) return;
+  const hasValue = Boolean(value);
+  const shouldEnable = hasValue && isValid;
+  if (shouldEnable) {
+    templateFormExternalLinkPreview.href = value;
+    templateFormExternalLinkPreview.classList.remove('pointer-events-none', 'opacity-50');
+    templateFormExternalLinkPreview.removeAttribute('aria-disabled');
+    templateFormExternalLinkPreview.removeAttribute('tabindex');
+  } else {
+    templateFormExternalLinkPreview.href = '#';
+    templateFormExternalLinkPreview.classList.add('pointer-events-none', 'opacity-50');
+    templateFormExternalLinkPreview.setAttribute('aria-disabled', 'true');
+    templateFormExternalLinkPreview.setAttribute('tabindex', '-1');
+  }
+}
+
+function updateTemplateFormExternalLinkState(rawValue) {
+  const value = typeof rawValue === 'string' ? rawValue : '';
+  const trimmed = value.trim();
+  const hasValue = trimmed !== '';
+  const isValid = !hasValue || isValidHttpUrl(trimmed);
+  if (!isValid) {
+    setTemplateFormExternalLinkError(EXTERNAL_LINK_ERROR_MESSAGE);
+  } else {
+    setTemplateFormExternalLinkError('');
+  }
+  updateTemplateFormExternalLinkPreview(trimmed, isValid);
+  return { value: trimmed, isValid, hasValue };
 }
 
 function setTemplatePanelMessage(text, isError = false) {
@@ -3235,6 +3290,10 @@ function resetTemplateForm() {
   if (templateFormNotesInput) {
     templateFormNotesInput.value = '';
   }
+  if (templateFormExternalLinkInput) {
+    templateFormExternalLinkInput.value = '';
+  }
+  updateTemplateFormExternalLinkState('');
   setTemplateFormMessage('');
 }
 
@@ -3378,6 +3437,13 @@ function openTemplateModal(mode = 'create', templateId = null) {
       const notes = template?.notes ?? '';
       templateFormNotesInput.value = notes;
     }
+    if (templateFormExternalLinkInput) {
+      const hyperlink = template?.hyperlink ?? template?.link?.hyperlink ?? template?.url ?? '';
+      templateFormExternalLinkInput.value = hyperlink || '';
+      updateTemplateFormExternalLinkState(hyperlink || '');
+    } else {
+      updateTemplateFormExternalLinkState('');
+    }
   } else {
     if (templateModalTitle) templateModalTitle.textContent = 'New Template';
     if (templateFormSubmit) templateFormSubmit.textContent = 'Create Template';
@@ -3386,6 +3452,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
       const maxSort = sortValues.length ? Math.max(...sortValues) : 0;
       templateFormSortInput.value = String(maxSort + 1);
     }
+    updateTemplateFormExternalLinkState(templateFormExternalLinkInput ? templateFormExternalLinkInput.value : '');
   }
   setTemplateFormMessage('');
   openModal(templateModal);
@@ -3548,12 +3615,28 @@ async function submitTemplateForm(event) {
   }
   const notesRawValue = templateFormNotesInput?.value ?? '';
   const notesValue = notesRawValue.trim();
+  const externalLinkRawValue = templateFormExternalLinkInput?.value ?? '';
+  const { value: externalLinkValue, isValid: externalLinkIsValid } = updateTemplateFormExternalLinkState(externalLinkRawValue);
+  if (!externalLinkIsValid) {
+    setTemplateFormMessage('Enter a valid external link URL before saving.', true);
+    if (templateFormSubmit) {
+      templateFormSubmit.disabled = false;
+      templateFormSubmit.textContent = initialSubmitLabel || fallbackSubmitLabel;
+    }
+    templateFormExternalLinkInput?.focus();
+    return;
+  }
+  if (templateFormExternalLinkInput) {
+    templateFormExternalLinkInput.value = externalLinkValue;
+  }
+  const hasExternalLink = externalLinkValue !== '';
   const payload = {
     week_number: weekNumber,
     label: labelValue,
     notes: notesValue ? notesValue : null,
     sort_order: sortNumber ?? null,
   };
+  payload.hyperlink = hasExternalLink ? externalLinkValue : null;
   const encodedTemplateId = targetId ? encodeURIComponent(targetId) : null;
   const url = isEdit && encodedTemplateId
     ? `${TEMPLATE_API}/${encodedTemplateId}`
@@ -5486,6 +5569,21 @@ if (btnEditTemplate) {
 
 if (templateForm) {
   templateForm.addEventListener('submit', submitTemplateForm);
+}
+
+if (templateFormExternalLinkInput) {
+  templateFormExternalLinkInput.addEventListener('input', event => {
+    const target = event.currentTarget instanceof HTMLInputElement ? event.currentTarget : null;
+    if (!target) return;
+    updateTemplateFormExternalLinkState(target.value);
+  });
+  templateFormExternalLinkInput.addEventListener('blur', event => {
+    const target = event.currentTarget instanceof HTMLInputElement ? event.currentTarget : null;
+    if (!target) return;
+    const trimmed = target.value.trim();
+    target.value = trimmed;
+    updateTemplateFormExternalLinkState(trimmed);
+  });
 }
 
 if (btnAttachTags) {
