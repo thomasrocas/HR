@@ -1629,11 +1629,58 @@ function handleTagifyAdd(event) {
   schedulePendingTemplateAttachments();
 }
 
-function handleTagifyRemove(event) {
-  if (suppressTagifyEventsFlag) return;
-  const data = event?.detail?.data || {};
-  const templateId = normalizeId(data?.value ?? data?.id);
-  if (!templateId) return;
+function requestTemplateDetachment(templateId, options = {}) {
+  const { tagData = null, removeTagifyTag = false } = options;
+  if (!templateId) return false;
+
+  const resolvedTagData = (() => {
+    if (tagData && typeof tagData === 'object') {
+      const copy = { ...tagData };
+      if (!copy.value && copy.id) {
+        copy.value = copy.id;
+      }
+      if (!copy.id && copy.value) {
+        copy.id = copy.value;
+      }
+      if (!copy.value) {
+        copy.value = templateId;
+      }
+      if (!copy.id) {
+        copy.id = templateId;
+      }
+      return copy;
+    }
+    const template = getTemplateById(templateId);
+    if (template) {
+      const option = getTagifyOptionFromTemplate(template, { isAssigned: true });
+      if (option) {
+        return option;
+      }
+    }
+    return { value: templateId, id: templateId };
+  })();
+
+  const reAddTag = () => {
+    if (!tagifyInstance || !resolvedTagData) return;
+    withTagifySuppressed(() => {
+      tagifyInstance.addTags([resolvedTagData]);
+    });
+  };
+
+  if (removeTagifyTag && tagifyInstance) {
+    withTagifySuppressed(() => {
+      if (typeof tagifyInstance.removeTags === 'function') {
+        tagifyInstance.removeTags(templateId, true);
+      } else if (typeof tagifyInstance.removeTag === 'function') {
+        const tagElm = typeof tagifyInstance.getTagElmByValue === 'function'
+          ? tagifyInstance.getTagElmByValue(templateId)
+          : null;
+        if (tagElm) {
+          tagifyInstance.removeTag(tagElm, true);
+        }
+      }
+    });
+  }
 
   if (pendingAttach.has(templateId)) {
     const state = pendingAttachState.get(templateId);
@@ -1650,32 +1697,34 @@ function handleTagifyRemove(event) {
       }
     }
     updatePanelAddButtonState();
-    return;
+    return true;
   }
 
   if (!CAN_MANAGE_TEMPLATES) {
     ensurePanelReadOnlyHint();
-    if (tagifyInstance) {
-      withTagifySuppressed(() => {
-        tagifyInstance.addTags([data]);
-      });
-    }
-    return;
+    reAddTag();
+    return false;
   }
   if (!selectedProgramId) {
     setTemplatePanelMessage('Select a program before removing templates.', true);
-    if (tagifyInstance) {
-      withTagifySuppressed(() => {
-        tagifyInstance.addTags([data]);
-      });
-    }
-    return;
+    reAddTag();
+    return false;
   }
 
   const index = templates.findIndex(template => getTemplateId(template) === templateId);
   if (index < 0) {
     updatePanelAddButtonState();
-    return;
+    return false;
+  }
+
+  const targetTemplate = templates[index];
+  const status = getTemplateStatus(targetTemplate);
+  const normalizedStatus = (status || '').toLowerCase();
+  if (normalizedStatus === 'archived') {
+    setTemplatePanelMessage('Archived templates cannot be removed.', true);
+    reAddTag();
+    updatePanelAddButtonState();
+    return false;
   }
 
   const previousSelection = new Set(selectedTemplateIds);
@@ -1695,7 +1744,17 @@ function handleTagifyRemove(event) {
     renderTemplates();
   };
 
-  detachTemplateAssociation(templateId, { revert, tagData: { ...data } });
+  detachTemplateAssociation(templateId, { revert, tagData: resolvedTagData });
+  return true;
+}
+
+function handleTagifyRemove(event) {
+  if (suppressTagifyEventsFlag) return;
+  const data = event?.detail?.data || {};
+  const templateId = normalizeId(data?.value ?? data?.id);
+  if (!templateId) return;
+
+  requestTemplateDetachment(templateId, { tagData: { ...data } });
 }
 
 async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
@@ -3927,7 +3986,14 @@ if (programTemplateList) {
       } else if (action === 'move-down') {
         moveTemplateAssociation(templateId, 'down');
       } else if (action === 'remove') {
-        openDeleteTemplateModal(templateId);
+        const template = getTemplateById(templateId);
+        const tagData = template
+          ? getTagifyOptionFromTemplate(template, { isAssigned: true })
+          : null;
+        requestTemplateDetachment(templateId, {
+          tagData: tagData ? { ...tagData } : { value: templateId, id: templateId },
+          removeTagifyTag: true,
+        });
       }
       return;
     }
