@@ -131,6 +131,18 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
 
     try {
       await actionMap[action](program.id);
+
+      if (action === 'publish' && selectedProgramId === program.id) {
+        const templatesForProgram = await refreshTemplates(program.id);
+        const archivedTemplates = templatesForProgram.filter(template => template.deletedAt);
+        if (archivedTemplates.length > 0) {
+          await Promise.all(
+            archivedTemplates.map(template => restoreTemplate(program.id, template.id)),
+          );
+          await refreshTemplates(program.id);
+        }
+      }
+
       await refreshPrograms();
       setFeedback({ type: 'success', message: successMessages[action] });
     } catch (error) {

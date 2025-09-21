@@ -307,6 +307,63 @@ describe('template api', () => {
     const restoredRow = afterRestore.body.find(row => String(row.template_id) === String(templateId));
     expect(restoredRow).toBeDefined();
     expect(restoredRow.deleted_at).toBeNull();
+
+    const { rows } = await pool.query(
+      'select deleted_at from public.program_task_templates where template_id=$1',
+      [templateId],
+    );
+    expect(rows[0]?.deleted_at).toBeNull();
+  });
+
+  test('publishing a program with archived templates clears deleted_at via restore API', async () => {
+    const adminUsername = 'admin-program-publish-restore';
+    await createUserWithRole(adminUsername, 'admin');
+    const agent = await loginAgent(adminUsername);
+
+    const programId = 'program-publish-restore';
+    await pool.query('insert into public.programs(program_id, title) values ($1,$2)', [
+      programId,
+      'Publish Program',
+    ]);
+
+    const templateId = nextTemplateId();
+    await pool.query(
+      'insert into public.program_task_templates(template_id, week_number, label) values ($1,$2,$3)',
+      [templateId, 1, 'Publish Flow Template'],
+    );
+    await pool.query(
+      'insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)',
+      [crypto.randomUUID(), templateId, programId],
+    );
+
+    await agent.delete(`/programs/${programId}/templates/${templateId}`).expect(200, { deleted: true });
+
+    const { rows: deletedRows } = await pool.query(
+      'select deleted_at from public.program_task_templates where template_id=$1',
+      [templateId],
+    );
+    expect(deletedRows[0]?.deleted_at).not.toBeNull();
+
+    await agent.post(`/api/programs/${programId}/publish`).expect(200, { published: true });
+
+    const includeDeleted = await agent
+      .get(`/programs/${programId}/templates`)
+      .query({ include_deleted: 'true' })
+      .expect(200);
+    const archivedTemplate = includeDeleted.body.find(
+      row => String(row.template_id) === String(templateId) && row.deleted_at,
+    );
+    expect(archivedTemplate).toBeDefined();
+
+    await agent.post(`/programs/${programId}/templates/${templateId}/restore`).expect(200, {
+      restored: true,
+    });
+
+    const { rows: restoredRows } = await pool.query(
+      'select deleted_at from public.program_task_templates where template_id=$1',
+      [templateId],
+    );
+    expect(restoredRows[0]?.deleted_at).toBeNull();
   });
 
   test('listing template program associations returns attached programs', async () => {
