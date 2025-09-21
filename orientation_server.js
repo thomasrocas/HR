@@ -748,12 +748,32 @@ apiRouter.post('/templates', ensurePerm('template.create'), async (req, res) => 
       }
       status = normalizedStatus;
     }
+    const organizationValue = toNullableString(body.organization ?? body.org ?? null);
+    let subUnitRaw = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'sub_unit')) {
+      subUnitRaw = body.sub_unit;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'subUnit')) {
+      subUnitRaw = body.subUnit;
+    }
+    const subUnitValue = toNullableString(subUnitRaw);
+    let externalLinkRaw = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'external_link')) {
+      externalLinkRaw = body.external_link;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'externalLink')) {
+      externalLinkRaw = body.externalLink;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'hyperlink')) {
+      externalLinkRaw = body.hyperlink;
+    }
+    const externalLinkValue = toNullableString(externalLinkRaw);
     const template = await templatesDao.create({
       week_number: weekNumber,
       label: rawLabel,
       notes: coerceNotes(body.notes),
       sort_order: sortOrder,
       status,
+      organization: organizationValue,
+      sub_unit: subUnitValue,
+      external_link: externalLinkValue,
     });
     res.status(201).json(template);
   } catch (err) {
@@ -812,12 +832,29 @@ apiRouter.patch('/templates/:templateId', ensurePerm('template.update'), async (
     if (Object.prototype.hasOwnProperty.call(body, 'notes')) {
       patch.notes = coerceNotes(body.notes);
     }
+    if (Object.prototype.hasOwnProperty.call(body, 'organization')) {
+      patch.organization = toNullableString(body.organization);
+    } else if (Object.prototype.hasOwnProperty.call(body, 'org')) {
+      patch.organization = toNullableString(body.org);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'sub_unit')) {
+      patch.sub_unit = toNullableString(body.sub_unit);
+    } else if (Object.prototype.hasOwnProperty.call(body, 'subUnit')) {
+      patch.sub_unit = toNullableString(body.subUnit);
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'sort_order')) {
       const sortOrder = parseOptionalInteger(body.sort_order);
       if (sortOrder === undefined) {
         return res.status(400).json({ error: 'invalid_sort_order' });
       }
       patch.sort_order = sortOrder;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'external_link')) {
+      patch.external_link = toNullableString(body.external_link);
+    } else if (Object.prototype.hasOwnProperty.call(body, 'externalLink')) {
+      patch.external_link = toNullableString(body.externalLink);
+    } else if (Object.prototype.hasOwnProperty.call(body, 'hyperlink')) {
+      patch.external_link = toNullableString(body.hyperlink);
     }
     if (Object.prototype.hasOwnProperty.call(body, 'status')) {
       const normalizedStatus = normalizeTemplateStatus(String(body.status));

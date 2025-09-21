@@ -421,7 +421,32 @@ function normalizeTemplateAssociation(raw, index = 0) {
     ?? '';
   normalized.notes = notesSource === null || notesSource === undefined ? '' : String(notesSource);
 
-  const hyperlinkSource = source.hyperlink
+  const organizationSource = source.organization
+    ?? source.org
+    ?? linkMeta?.organization
+    ?? (nestedTemplate ? nestedTemplate.organization : null)
+    ?? null;
+  normalized.organization = organizationSource === null || organizationSource === undefined
+    ? ''
+    : String(organizationSource);
+  normalized.org = normalized.organization;
+
+  const subUnitSource = source.sub_unit
+    ?? source.subUnit
+    ?? source.subunit
+    ?? linkMeta?.sub_unit
+    ?? (nestedTemplate ? nestedTemplate.sub_unit ?? nestedTemplate.subUnit : null)
+    ?? null;
+  normalized.sub_unit = subUnitSource === null || subUnitSource === undefined
+    ? ''
+    : String(subUnitSource);
+  normalized.subUnit = normalized.sub_unit;
+
+  const externalLinkSource = source.external_link
+    ?? source.externalLink
+    ?? source.hyperlink
+    ?? linkMeta?.external_link
+    ?? linkMeta?.externalLink
     ?? linkMeta?.hyperlink
     ?? source.url
     ?? linkMeta?.url
@@ -430,12 +455,17 @@ function normalizeTemplateAssociation(raw, index = 0) {
     ?? linkMeta?.link_url
     ?? linkMeta?.linkUrl
     ?? null;
-  const hyperlinkValue = hyperlinkSource === null || hyperlinkSource === undefined
+  const externalLinkValue = externalLinkSource === null || externalLinkSource === undefined
     ? ''
-    : String(hyperlinkSource);
-  normalized.hyperlink = hyperlinkValue;
-  if (hyperlinkValue && typeof normalized.link === 'object' && normalized.link !== null) {
-    normalized.link.hyperlink = hyperlinkValue;
+    : String(externalLinkSource);
+  normalized.external_link = externalLinkValue;
+  normalized.externalLink = externalLinkValue;
+  normalized.hyperlink = externalLinkValue;
+  if (externalLinkValue && typeof normalized.link === 'object' && normalized.link !== null) {
+    normalized.link.hyperlink = externalLinkValue;
+    if (!Object.prototype.hasOwnProperty.call(normalized.link, 'external_link')) {
+      normalized.link.external_link = externalLinkValue;
+    }
   }
 
   const linkCreatedAtSource = source.link_created_at
@@ -766,6 +796,8 @@ const templateForm = document.getElementById('templateForm');
 const templateFormWeekInput = document.getElementById('templateFormWeek');
 const templateFormSortInput = document.getElementById('templateFormSort');
 const templateFormLabelInput = document.getElementById('templateFormLabel');
+const templateFormOrganizationInput = document.getElementById('templateFormOrganization');
+const templateFormSubUnitInput = document.getElementById('templateFormSubUnit');
 const templateFormNotesInput = document.getElementById('templateFormNotes');
 const templateFormExternalLinkInput = document.getElementById('templateFormExternalLink');
 const templateFormExternalLinkError = document.getElementById('templateFormExternalLinkError');
@@ -3287,6 +3319,12 @@ function resetTemplateForm() {
   if (templateFormLabelInput) {
     templateFormLabelInput.value = '';
   }
+  if (templateFormOrganizationInput) {
+    templateFormOrganizationInput.value = '';
+  }
+  if (templateFormSubUnitInput) {
+    templateFormSubUnitInput.value = '';
+  }
   if (templateFormNotesInput) {
     templateFormNotesInput.value = '';
   }
@@ -3433,12 +3471,26 @@ function openTemplateModal(mode = 'create', templateId = null) {
     if (templateFormLabelInput) {
       templateFormLabelInput.value = getTemplateName(template) || '';
     }
+    if (templateFormOrganizationInput) {
+      const organization = template?.organization ?? template?.org ?? '';
+      templateFormOrganizationInput.value = organization || '';
+    }
+    if (templateFormSubUnitInput) {
+      const subUnit = template?.sub_unit ?? template?.subUnit ?? '';
+      templateFormSubUnitInput.value = subUnit || '';
+    }
     if (templateFormNotesInput) {
       const notes = template?.notes ?? '';
       templateFormNotesInput.value = notes;
     }
     if (templateFormExternalLinkInput) {
-      const hyperlink = template?.hyperlink ?? template?.link?.hyperlink ?? template?.url ?? '';
+      const hyperlink = template?.external_link
+        ?? template?.externalLink
+        ?? template?.hyperlink
+        ?? template?.link?.external_link
+        ?? template?.link?.hyperlink
+        ?? template?.url
+        ?? '';
       templateFormExternalLinkInput.value = hyperlink || '';
       updateTemplateFormExternalLinkState(hyperlink || '');
     } else {
@@ -3597,6 +3649,16 @@ async function submitTemplateForm(event) {
     templateFormLabelInput?.focus();
     return;
   }
+  const organizationRawValue = templateFormOrganizationInput?.value ?? '';
+  const organizationValue = organizationRawValue.trim();
+  if (templateFormOrganizationInput) {
+    templateFormOrganizationInput.value = organizationValue;
+  }
+  const subUnitRawValue = templateFormSubUnitInput?.value ?? '';
+  const subUnitValue = subUnitRawValue.trim();
+  if (templateFormSubUnitInput) {
+    templateFormSubUnitInput.value = subUnitValue;
+  }
   const sortRawValue = templateFormSortInput?.value ?? '';
   let sortNumber = null;
   if (sortRawValue !== '') {
@@ -3636,7 +3698,11 @@ async function submitTemplateForm(event) {
     notes: notesValue ? notesValue : null,
     sort_order: sortNumber ?? null,
   };
-  payload.hyperlink = hasExternalLink ? externalLinkValue : null;
+  payload.organization = organizationValue ? organizationValue : null;
+  payload.sub_unit = subUnitValue ? subUnitValue : null;
+  const externalLinkPayload = hasExternalLink ? externalLinkValue : null;
+  payload.external_link = externalLinkPayload;
+  payload.hyperlink = externalLinkPayload;
   const encodedTemplateId = targetId ? encodeURIComponent(targetId) : null;
   const url = isEdit && encodedTemplateId
     ? `${TEMPLATE_API}/${encodedTemplateId}`
