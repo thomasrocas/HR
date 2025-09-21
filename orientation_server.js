@@ -1049,6 +1049,26 @@ apiRouter.post('/programs/:programId/templates/detach', ensurePerm('template.upd
   }
 });
 
+apiRouter.post('/programs/:programId/publish', ensurePerm('program.update'), async (req, res) => {
+  try {
+    const { programId } = req.params;
+    if (!programId) {
+      return res.status(400).json({ error: 'invalid_program_id' });
+    }
+    const { rowCount } = await pool.query(
+      'select 1 from public.programs where program_id = $1 limit 1',
+      [programId],
+    );
+    if (!rowCount) {
+      return res.status(404).json({ error: 'program_not_found' });
+    }
+    res.json({ published: true });
+  } catch (err) {
+    console.error('POST /api/programs/:id/publish error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
 app.get('/admin/user-manager', ensureAuth, (req, res) => {
   const roles = req.roles || [];
   if (!(roles.includes('admin') || roles.includes('manager'))) {
