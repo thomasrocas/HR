@@ -724,6 +724,15 @@
             <label for="templateFormNotes" class="label-text mb-1">Notes</label>
             <textarea id="templateFormNotes" name="notes" class="textarea" placeholder="Add context or guidance for collaborators..."></textarea>
           </div>
+          <div class="space-y-1">
+            <label for="templateFormExternalLink" class="label-text">External link</label>
+            <div class="flex items-center gap-2">
+              <input id="templateFormExternalLink" name="external_link" type="url" class="input" placeholder="https://example.com">
+              <a id="templateFormExternalLinkPreview" class="btn btn-outline whitespace-nowrap pointer-events-none opacity-50" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true" tabindex="-1">Preview</a>
+            </div>
+            <p id="templateFormExternalLinkError" class="text-sm text-red-600 hidden">Enter a valid URL that starts with http:// or https://.</p>
+            <p class="text-xs text-slate-500">Optional. Links must start with http:// or https://.</p>
+          </div>
           <p id="templateFormMessage" class="text-sm text-slate-500 hidden"></p>
         </div>
         <div class="modal-footer">
