@@ -353,6 +353,10 @@ function getProgramArchivedAt(program) {
   return program?.deleted_at ?? program?.deletedAt ?? null;
 }
 
+function isProgramArchived(program) {
+  return Boolean(getProgramArchivedAt(program));
+}
+
 function getProgramLifecycle(program) {
   if (!program) return '';
   const archivedAt = getProgramArchivedAt(program);
@@ -429,6 +433,7 @@ const programTableHead = programTable ? programTable.querySelector('thead') : nu
 const programHeaderCells = programTableHead ? Array.from(programTableHead.querySelectorAll('th[data-key]')) : [];
 const programTableBody = document.getElementById('programTableBody');
 const templateTableBody = document.getElementById('templateTableBody');
+const hideArchivedCheckbox = document.getElementById('hideArchived');
 const programSearchInput = document.getElementById('programSearch');
 const templateSearchInput = document.getElementById('templateSearch');
 const programMessage = document.getElementById('programMessage');
@@ -503,6 +508,7 @@ let programSortKey = null;
 let programSortDirection = 'asc';
 let programPageSize = DEFAULT_PROGRAM_PAGE_SIZE;
 let programCurrentPage = 1;
+let hideArchivedPrograms = false;
 let currentProgramPageItems = [];
 let lastProgramPagination = {
   totalItems: 0,
@@ -638,7 +644,10 @@ function getSortedPrograms(source = programs) {
 }
 
 function getFilteredPrograms(source = programs) {
-  const list = Array.isArray(source) ? source.slice() : [];
+  let list = Array.isArray(source) ? source.slice() : [];
+  if (hideArchivedPrograms) {
+    list = list.filter(program => !isProgramArchived(program));
+  }
   const term = (programSearchInput?.value || '').trim().toLowerCase();
   if (!term) return list;
   return list.filter(p => {
@@ -724,8 +733,37 @@ function getFilteredTemplates() {
 
 function syncProgramSelection() {
   const validIds = new Set(programs.map(getProgramId).filter(Boolean));
+  let shouldResetActive = false;
   for (const id of Array.from(selectedProgramIds)) {
-    if (!validIds.has(id)) selectedProgramIds.delete(id);
+    if (!validIds.has(id)) {
+      if (selectedProgramId === id) shouldResetActive = true;
+      selectedProgramIds.delete(id);
+      continue;
+    }
+    if (hideArchivedPrograms) {
+      const program = getProgramById(id);
+      if (program && isProgramArchived(program)) {
+        if (selectedProgramId === id) shouldResetActive = true;
+        selectedProgramIds.delete(id);
+      }
+    }
+  }
+  if (selectedProgramId) {
+    if (!validIds.has(selectedProgramId)) {
+      shouldResetActive = true;
+    } else if (hideArchivedPrograms) {
+      const activeProgram = getProgramById(selectedProgramId);
+      if (activeProgram && isProgramArchived(activeProgram)) {
+        shouldResetActive = true;
+      }
+    }
+  }
+  if (shouldResetActive) {
+    selectedProgramId = null;
+  }
+  if (!selectedProgramId && selectedProgramIds.size) {
+    const { value } = selectedProgramIds.values().next();
+    selectedProgramId = value || null;
   }
 }
 
@@ -3107,6 +3145,7 @@ function updateProgramPager(pagination) {
 }
 
 function renderPrograms() {
+  const previousActiveProgramId = selectedProgramId;
   syncProgramSelection();
   updateProgramSortIndicators();
   const filtered = getFilteredPrograms();
@@ -3129,7 +3168,11 @@ function renderPrograms() {
       const programId = getProgramId(program);
       const disabledAttr = CAN_MANAGE_PROGRAMS ? '' : 'disabled';
       const checkedAttr = programId && selectedProgramIds.has(programId) ? 'checked' : '';
-      const rowAttrs = [`data-program-id="${programId ?? ''}"`];
+      const archivedAt = getProgramArchivedAt(program);
+      const rowAttrs = [
+        `data-program-id="${programId ?? ''}"`,
+        `data-archived="${archivedAt ? 'true' : 'false'}"`,
+      ];
       if (programId && selectedProgramId === programId) {
         rowAttrs.push('data-active-program="true"');
       }
@@ -3137,7 +3180,6 @@ function renderPrograms() {
       const lifecycle = getProgramLifecycle(program);
       const totalWeeks = getProgramTotalWeeks(program);
       const createdAt = getProgramCreatedAt(program);
-      const archivedAt = getProgramArchivedAt(program);
       const description = getProgramDescription(program) || '—';
       return `
         <tr ${rowAttrs.join(' ')}>
@@ -3156,6 +3198,9 @@ function renderPrograms() {
   updateProgramActionsState(displayed);
   updateActiveProgramIndicators();
   updateProgramPager(pagination);
+  if (selectedProgramId !== previousActiveProgramId) {
+    renderTemplateAssignmentsPanel();
+  }
 }
 
 function updateActiveProgramIndicators() {
@@ -4063,6 +4108,15 @@ templateTableBody.addEventListener('change', event => {
 
 if (programSearchInput) {
   programSearchInput.addEventListener('input', () => {
+    programCurrentPage = 1;
+    renderPrograms();
+  });
+}
+
+if (hideArchivedCheckbox) {
+  hideArchivedPrograms = hideArchivedCheckbox.checked;
+  hideArchivedCheckbox.addEventListener('change', () => {
+    hideArchivedPrograms = hideArchivedCheckbox.checked;
     programCurrentPage = 1;
     renderPrograms();
   });
