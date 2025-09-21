@@ -2327,36 +2327,77 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       lastFocusedElement = null;
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
       if (!activeTrigger) {
         closeModal();
         return;
       }
       const taskId = activeTrigger.dataset.taskId;
+      if (!taskId) {
+        alert('Task not found.');
+        return;
+      }
       const entryValue = journalField.value;
-      const datasetValue = entryValue.trim() === '' ? '—' : entryValue;
       const responsibleValue = responsibleField ? responsibleField.value : '';
-      const responsibleDatasetValue = responsibleValue.trim() === '' ? '—' : responsibleValue;
       const timeValue = timeField ? timeField.value : '';
       const parentDay = activeTrigger.closest('[data-date]');
       const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
       const scheduledForValue = combineScheduledWithTime(activeTrigger.dataset.scheduled_for || '', timeValue, parentDate);
-      activeTrigger.dataset.journal_entry = datasetValue;
-      activeTrigger.dataset.responsible_person = responsibleDatasetValue;
+
+      const payload = {
+        journal_entry: entryValue.trim() === '' ? null : entryValue,
+        responsible_person: responsibleValue.trim() === '' ? null : responsibleValue
+      };
       if (timeField) {
-        activeTrigger.dataset.scheduled_time = timeValue || '';
-        activeTrigger.dataset.scheduled_for = scheduledForValue || '';
+        payload.scheduled_time = timeValue ? timeValue : null;
+        payload.scheduled_for = scheduledForValue ? scheduledForValue : null;
       }
+
+      let updatedRow = null;
+      try {
+        updatedRow = await apiPatchTask(taskId, payload);
+        if (!updatedRow) throw new Error('Empty response');
+      } catch (err) {
+        console.error('Failed to save task updates', err);
+        alert('Failed to save task updates.');
+        return;
+      }
+
+      const journalDisplay = toDisplay(typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue);
+      const responsibleDisplay = toDisplay(typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue);
+
+      activeTrigger.dataset.journal_entry = journalDisplay;
+      activeTrigger.dataset.responsible_person = responsibleDisplay;
+
+      let nextScheduledFor = scheduledForValue;
+      if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_for')) {
+        nextScheduledFor = updatedRow.scheduled_for || '';
+      }
+
+      let nextTimeValue = timeValue;
+      if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_time')) {
+        nextTimeValue = updatedRow.scheduled_time || '';
+      } else if (!nextTimeValue && nextScheduledFor) {
+        const derived = parseTimeString(nextScheduledFor);
+        if (derived) nextTimeValue = derived;
+      }
+
+      if (timeField) {
+        activeTrigger.dataset.scheduled_time = nextTimeValue || '';
+      }
+      activeTrigger.dataset.scheduled_for = nextScheduledFor || '';
+
       if (fieldMap.scheduled) {
-        fieldMap.scheduled.textContent = formatScheduledForDisplay(scheduledForValue || activeTrigger.dataset.scheduled_for, timeValue);
+        fieldMap.scheduled.textContent = formatScheduledForDisplay(nextScheduledFor, nextTimeValue || '');
       }
+
       window.dispatchEvent(new CustomEvent('orientation:journal:update', {
         detail: {
           taskId,
-          journal_entry: entryValue,
-          responsible_person: responsibleValue,
-          scheduled_time: timeValue,
-          scheduled_for: scheduledForValue
+          journal_entry: typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue,
+          responsible_person: typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue,
+          scheduled_time: timeField ? (nextTimeValue || '') : timeValue,
+          scheduled_for: typeof updatedRow.scheduled_for !== 'undefined' ? updatedRow.scheduled_for : scheduledForValue
         }
       }));
       closeModal();
