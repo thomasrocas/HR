@@ -21,6 +21,7 @@ export interface Template {
   category: string;
   updatedAt?: string;
   status?: 'draft' | 'published' | 'deprecated';
+  deletedAt?: string | null;
 }
 
 type UserListResponse = { data: User[]; meta: { total: number; page: number } };
@@ -260,6 +261,15 @@ const normalizeTemplate = (raw: any): Template => {
   if (normalizedStatus) {
     template.status = normalizedStatus;
   }
+  const deletedCandidate = raw.deletedAt ?? raw.deleted_at;
+  if (deletedCandidate !== undefined) {
+    if (deletedCandidate === null) {
+      template.deletedAt = null;
+    } else {
+      const parsedDeleted = toDateString(deletedCandidate);
+      template.deletedAt = parsedDeleted || String(deletedCandidate);
+    }
+  }
   return template;
 };
 
@@ -292,7 +302,7 @@ const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unk
 };
 
 const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, unknown> => {
-  const { id: _id, programId: _programId, updatedAt: _updatedAt, ...rest } = payload;
+  const { id: _id, programId: _programId, updatedAt: _updatedAt, deletedAt: _deletedAt, ...rest } = payload;
   const body: Record<string, unknown> = { ...rest };
   if (payload.name && !body.label) {
     body.label = payload.name;

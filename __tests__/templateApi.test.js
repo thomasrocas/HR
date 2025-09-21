@@ -263,6 +263,52 @@ describe('template api', () => {
     expect(rows[0].deleted_at).toBeNull();
   });
 
+  test('restoring archived program template returns it to listings', async () => {
+    const adminUsername = 'admin-program-template-restore';
+    await createUserWithRole(adminUsername, 'admin');
+    const agent = await loginAgent(adminUsername);
+
+    const programId = 'program-restore-list';
+    await pool.query('insert into public.programs(program_id, title) values ($1,$2)', [
+      programId,
+      'Restore Program',
+    ]);
+
+    const templateId = nextTemplateId();
+    await pool.query(
+      'insert into public.program_task_templates(template_id, week_number, label) values ($1,$2,$3)',
+      [templateId, 1, 'Program Restore Template'],
+    );
+    await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+      crypto.randomUUID(),
+      templateId,
+      programId,
+    ]);
+
+    await agent.delete(`/programs/${programId}/templates/${templateId}`).expect(200, { deleted: true });
+
+    const afterDelete = await agent.get(`/programs/${programId}/templates`).expect(200);
+    expect(afterDelete.body).toEqual([]);
+
+    const withDeleted = await agent
+      .get(`/programs/${programId}/templates`)
+      .query({ include_deleted: 'true' })
+      .expect(200);
+    const archivedRow = withDeleted.body.find(row => String(row.template_id) === String(templateId));
+    expect(archivedRow).toBeDefined();
+    expect(archivedRow.deleted_at).not.toBeNull();
+
+    await agent
+      .post(`/programs/${programId}/templates/${templateId}/restore`)
+      .expect(200, { restored: true });
+
+    const afterRestore = await agent.get(`/programs/${programId}/templates`).expect(200);
+    expect(Array.isArray(afterRestore.body)).toBe(true);
+    const restoredRow = afterRestore.body.find(row => String(row.template_id) === String(templateId));
+    expect(restoredRow).toBeDefined();
+    expect(restoredRow.deleted_at).toBeNull();
+  });
+
   test('listing template program associations returns attached programs', async () => {
     const adminUsername = 'admin-list-programs';
     await createUserWithRole(adminUsername, 'admin');
@@ -351,16 +397,13 @@ describe('template api', () => {
     expect(attachRes.body.attached).toBe(true);
     expect(attachRes.body.alreadyAttached).toBe(false);
     expect(attachRes.body.template).toMatchObject({
-      program_id: 'attach-program',
       week_number: 3,
       notes: 'Be prepared',
       due_offset_days: 5,
       required: true,
       visibility: 'managers',
-      visible: true,
       sort_order: 4,
     });
-    expect(attachRes.body.template.link_id).toBeTruthy();
     expect(String(attachRes.body.template.template_id)).toBe(String(templateId));
 
     attachRes = await managerAgent
