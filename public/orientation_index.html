@@ -839,11 +839,22 @@ useEffect(() => {
   }, [startDate, numWeeks]);
 
   const scheduledMap = useMemo(()=>{
+    const parseScheduledTime = (value) => {
+      if (!value) return null;
+      const raw = String(value).trim();
+      if (!raw) return null;
+      const parsed = dayjs(raw);
+      if (!parsed.isValid()) return null;
+      const hasTime = /\b\d{1,2}:\d{2}\b/.test(raw);
+      if (!hasTime) return null;
+      return parsed.format('HH:mm');
+    };
     const map = {};
     weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
       if(t.scheduled_for){
         const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
         map[key] = map[key] || [];
+        const scheduledTime = parseScheduledTime(t.scheduled_for);
         map[key].push({
           label:`W${w.wk}: ${t.title}`,
           done: typeof t.done === 'boolean' ? t.done : t.completed,
@@ -854,10 +865,21 @@ useEffect(() => {
           week: typeof t.week_number === 'number' ? t.week_number : ensureDisplayValue(t.week_number),
           journal_entry: ensureDisplayValue(t.journal_entry),
           responsible_person: ensureDisplayValue(t.responsible_person),
-          scheduled_for: ensureDisplayValue(t.scheduled_for)
+          scheduled_for: ensureDisplayValue(t.scheduled_for),
+          scheduled_time: scheduledTime
         });
       }
     }));
+    Object.keys(map).forEach((key)=>{
+      map[key].sort((a,b)=>{
+        const aHas = Boolean(a.scheduled_time);
+        const bHas = Boolean(b.scheduled_time);
+        if (aHas && bHas) return a.scheduled_time.localeCompare(b.scheduled_time);
+        if (aHas) return -1;
+        if (bHas) return 1;
+        return 0;
+      });
+    });
     return map;
   }, [weeks]);
 
@@ -1495,6 +1517,7 @@ useEffect(() => {
                          data-journal_entry={toDisplayString(it.journal_entry)}
                          data-responsible_person={toDisplayString(it.responsible_person)}
                          data-scheduled_for={toDisplayString(it.scheduled_for)}
+                         data-scheduled_time={it.scheduled_time ? it.scheduled_time : ''}
                          data-done={typeof it.done === 'boolean' ? String(it.done) : toDisplayString(it.done)}
                          onDragStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onDragEnd={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragEnd : undefined}
                          onTouchStart={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragStart : undefined} onTouchMove={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleTouchMove : undefined}
