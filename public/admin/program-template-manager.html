@@ -504,11 +504,51 @@
                     <th class="w-10">
                       <input type="checkbox" id="templateSelectAll" class="rounded border-slate-300">
                     </th>
-                    <th>Week</th>
-                    <th>Name</th>
-                    <th data-key="auditInserted" data-type="string">Inserted By (Audit)</th>
-                    <th>Status</th>
-                    <th>Updated</th>
+                    <th data-key="week" data-type="number" aria-sort="none">
+                      <button type="button" class="sort-trigger">
+                        <span>Week</span>
+                        <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                          <span class="sort-arrow sort-arrow-asc">▲</span>
+                          <span class="sort-arrow sort-arrow-desc">▼</span>
+                        </span>
+                      </button>
+                    </th>
+                    <th data-key="name" data-type="string" aria-sort="none">
+                      <button type="button" class="sort-trigger">
+                        <span>Name</span>
+                        <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                          <span class="sort-arrow sort-arrow-asc">▲</span>
+                          <span class="sort-arrow sort-arrow-desc">▼</span>
+                        </span>
+                      </button>
+                    </th>
+                    <th data-key="auditInserted" data-type="date" aria-sort="none">
+                      <button type="button" class="sort-trigger">
+                        <span>Inserted By (Audit)</span>
+                        <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                          <span class="sort-arrow sort-arrow-asc">▲</span>
+                          <span class="sort-arrow sort-arrow-desc">▼</span>
+                        </span>
+                      </button>
+                    </th>
+                    <th data-key="status" data-type="string" aria-sort="none">
+                      <button type="button" class="sort-trigger">
+                        <span>Status</span>
+                        <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                          <span class="sort-arrow sort-arrow-asc">▲</span>
+                          <span class="sort-arrow sort-arrow-desc">▼</span>
+                        </span>
+                      </button>
+                    </th>
+                    <th data-key="updatedAt" data-type="date" aria-sort="none">
+                      <button type="button" class="sort-trigger">
+                        <span>Updated</span>
+                        <span class="sort-indicator" data-sort-indicator aria-hidden="true">
+                          <span class="sort-arrow sort-arrow-asc">▲</span>
+                          <span class="sort-arrow sort-arrow-desc">▼</span>
+                        </span>
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody id="templateTableBody" class="bg-white text-sm"></tbody>
