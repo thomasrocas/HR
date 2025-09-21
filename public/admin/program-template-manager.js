@@ -360,6 +360,55 @@ function getProgramLifecycle(program) {
   return program?.status ?? program?.lifecycle ?? program?.state ?? 'active';
 }
 
+const PROGRAM_SORT_ACCESSORS = {
+  title: getProgramTitle,
+  lifecycle: getProgramLifecycle,
+  weeks: getProgramTotalWeeks,
+  description: getProgramDescription,
+  createdAt: getProgramCreatedAt,
+  archivedAt: getProgramArchivedAt,
+};
+
+function parseCell(program, key, type = 'string') {
+  const accessor = PROGRAM_SORT_ACCESSORS[key];
+  const raw = typeof accessor === 'function' ? accessor(program) : program?.[key];
+  if (type === 'number') {
+    const numeric = toNullableNumber(raw);
+    return { value: numeric ?? 0, empty: numeric === null };
+  }
+  if (type === 'date') {
+    if (!raw) return { value: 0, empty: true };
+    const timestamp = raw instanceof Date ? raw.getTime() : new Date(raw).getTime();
+    if (Number.isNaN(timestamp)) return { value: 0, empty: true };
+    return { value: timestamp, empty: false };
+  }
+  const normalized = raw === null || raw === undefined ? '' : String(raw).trim();
+  return { value: normalized.toLowerCase(), empty: normalized === '' };
+}
+
+function compareBy(a, b, key, direction = 'asc', type = 'string') {
+  const parsedA = parseCell(a, key, type);
+  const parsedB = parseCell(b, key, type);
+  if (parsedA.empty && parsedB.empty) return 0;
+  if (parsedA.empty) return 1;
+  if (parsedB.empty) return -1;
+
+  let result = 0;
+  if (type === 'string') {
+    result = parsedA.value.localeCompare(parsedB.value);
+  } else {
+    const valueA = parsedA.value;
+    const valueB = parsedB.value;
+    if (valueA < valueB) result = -1;
+    else if (valueA > valueB) result = 1;
+  }
+
+  if (direction === 'desc') {
+    result *= -1;
+  }
+  return result;
+}
+
 const meResponse = await fetch(`${API}/me`, { credentials: 'include' });
 if (!meResponse.ok) {
   window.location.href = '/';
@@ -373,6 +422,9 @@ const CAN_MANAGE_PROGRAMS = IS_ADMIN || IS_MANAGER;
 const CAN_MANAGE_TEMPLATES = IS_ADMIN || IS_MANAGER;
 const ADMIN_ONLY_PROGRAM_ACTIONS = new Set(['archive', 'restore']);
 
+const programTable = document.getElementById('programTable');
+const programTableHead = programTable ? programTable.querySelector('thead') : null;
+const programHeaderCells = programTableHead ? Array.from(programTableHead.querySelectorAll('th[data-key]')) : [];
 const programTableBody = document.getElementById('programTableBody');
 const templateTableBody = document.getElementById('templateTableBody');
 const programSearchInput = document.getElementById('programSearch');
@@ -440,6 +492,8 @@ if (!programTableBody || !templateTableBody || !programActionsContainer || !temp
 }
 
 let programs = [];
+let programSortKey = null;
+let programSortDirection = 'asc';
 let templates = [];
 let globalTemplates = [];
 let templateLibrary = [];
@@ -549,11 +603,28 @@ if (!CAN_MANAGE_TEMPLATES) {
 updateProgramEditorButtons(programs);
 updateTemplateEditorButtons(globalTemplates);
 updatePanelAddButtonState();
+updateProgramSortIndicators();
+
+function getSortedPrograms(source = programs) {
+  const list = Array.isArray(source) ? source.slice() : [];
+  if (!programSortKey) return list;
+  const header = programHeaderCells.find(cell => cell.dataset.key === programSortKey);
+  const type = header?.dataset.type || 'string';
+  return list
+    .map((program, index) => ({ program, index }))
+    .sort((a, b) => {
+      const diff = compareBy(a.program, b.program, programSortKey, programSortDirection, type);
+      if (diff !== 0) return diff;
+      return a.index - b.index;
+    })
+    .map(entry => entry.program);
+}
 
 function getFilteredPrograms() {
+  const sorted = getSortedPrograms();
   const term = (programSearchInput?.value || '').trim().toLowerCase();
-  if (!term) return [...programs];
-  return programs.filter(p => {
+  if (!term) return sorted;
+  return sorted.filter(p => {
     const values = [
       getProgramTitle(p),
       getProgramLifecycle(p),
@@ -2928,8 +2999,29 @@ function updateTemplateSelectionSummary() {
     : 'No templates selected.';
 }
 
+function updateProgramSortIndicators() {
+  if (!programHeaderCells.length) return;
+  programHeaderCells.forEach(cell => {
+    const key = cell.dataset.key;
+    const isActive = Boolean(programSortKey) && key === programSortKey;
+    const indicator = cell.querySelector('[data-sort-indicator]');
+    if (indicator) {
+      indicator.dataset.state = isActive ? 'active' : 'inactive';
+      if (isActive) {
+        indicator.dataset.direction = programSortDirection === 'desc' ? 'desc' : 'asc';
+      } else {
+        delete indicator.dataset.direction;
+      }
+    }
+    cell.setAttribute('aria-sort', isActive
+      ? (programSortDirection === 'desc' ? 'descending' : 'ascending')
+      : 'none');
+  });
+}
+
 function renderPrograms() {
   syncProgramSelection();
+  updateProgramSortIndicators();
   const displayed = getFilteredPrograms();
   if (!displayed.length) {
     programTableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No programs found.</td></tr>';
@@ -4144,6 +4236,19 @@ programActionsContainer.addEventListener('click', event => {
   if (!action) return;
   handleProgramAction(action);
 });
+
+if (programTableHead) {
+  programTableHead.addEventListener('click', event => {
+    const cell = event.target instanceof HTMLElement ? event.target.closest('th[data-key]') : null;
+    if (!cell || !programTableHead.contains(cell)) return;
+    const key = cell.dataset.key;
+    if (!key) return;
+    const isSameKey = programSortKey === key;
+    programSortKey = key;
+    programSortDirection = isSameKey && programSortDirection === 'asc' ? 'desc' : 'asc';
+    renderPrograms();
+  });
+}
 
 templateActionsContainer.addEventListener('click', event => {
   const btn = event.target instanceof HTMLElement ? event.target.closest('button[data-template-action]') : null;
