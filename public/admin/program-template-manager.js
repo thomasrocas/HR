@@ -126,6 +126,22 @@ function getTemplateStatus(template) {
   return template?.status ?? template?.state ?? template?.lifecycle ?? template?.template?.status ?? 'draft';
 }
 
+function normalizeTemplateStatusValue(status) {
+  if (status === null || status === undefined) return '';
+  const normalized = String(status).trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'active') return 'published';
+  return normalized;
+}
+
+function isPublishedTemplateStatus(status) {
+  return normalizeTemplateStatusValue(status) === 'published';
+}
+
+function isPublishedTemplate(template) {
+  return isPublishedTemplateStatus(getTemplateStatus(template));
+}
+
 function getTemplateDescription(template) {
   const value = [
     template?.description,
@@ -977,7 +993,7 @@ function initTagifyForProgram(programId, options = {}) {
   const assignedIds = new Set(assignedTags.map(tag => tag.value).filter(Boolean));
   const availableTags = (Array.isArray(templateLibrary) ? templateLibrary : [])
     .map(template => getTagifyOptionFromTemplate(template))
-    .filter(option => option && !assignedIds.has(option.value));
+    .filter(option => option && isPublishedTemplateStatus(option.status) && !assignedIds.has(option.value));
 
   tagifyInstance = new TagifyConstructor(templateAttachInput, {
     enforceWhitelist: true,
@@ -1318,6 +1334,9 @@ function applyTemplateMetadataToCaches(templateData) {
 
   const assignmentIndex = templates.findIndex(template => getTemplateId(template) === templateId);
   const isAssigned = assignmentIndex >= 0;
+  const normalizedStatus = normalizeTemplateStatusValue(getTemplateStatus(templateData));
+  const isPublished = normalizedStatus === 'published';
+  const shouldExposeInLibrary = isPublished && !isAssigned;
 
   const mergeIntoCollection = (collection, { allowInsert = true } = {}) => {
     if (!Array.isArray(collection)) return;
@@ -1335,7 +1354,7 @@ function applyTemplateMetadataToCaches(templateData) {
   if (Array.isArray(templateLibrary)) {
     const libraryIndex = templateLibrary.findIndex(item => getTemplateId(item) === templateId);
     if (libraryIndex >= 0) {
-      if (isAssigned) {
+      if (!shouldExposeInLibrary) {
         templateLibrary.splice(libraryIndex, 1);
       } else {
         const existing = templateLibrary[libraryIndex] && typeof templateLibrary[libraryIndex] === 'object'
@@ -1343,16 +1362,20 @@ function applyTemplateMetadataToCaches(templateData) {
           : {};
         templateLibrary[libraryIndex] = { ...existing, ...templateData };
       }
-    } else if (!isAssigned) {
+    } else if (shouldExposeInLibrary) {
       templateLibrary.push({ ...templateData });
     }
   }
 
-  const existingLibraryEntry = templateLibraryIndex.get(templateId);
-  if (existingLibraryEntry && typeof existingLibraryEntry === 'object') {
-    templateLibraryIndex.set(templateId, { ...existingLibraryEntry, ...templateData });
+  if (shouldExposeInLibrary || isAssigned) {
+    const existingLibraryEntry = templateLibraryIndex.get(templateId);
+    if (existingLibraryEntry && typeof existingLibraryEntry === 'object') {
+      templateLibraryIndex.set(templateId, { ...existingLibraryEntry, ...templateData });
+    } else {
+      templateLibraryIndex.set(templateId, { ...templateData });
+    }
   } else {
-    templateLibraryIndex.set(templateId, { ...templateData });
+    templateLibraryIndex.delete(templateId);
   }
 
   if (assignmentIndex >= 0) {
@@ -1367,7 +1390,8 @@ function applyTemplateMetadataToCaches(templateData) {
 
   if (tagifyInstance) {
     const assignedOption = getTagifyOptionFromTemplate(templateData, { isAssigned: true });
-    const availableOption = getTagifyOptionFromTemplate(templateData);
+    const availableOption = shouldExposeInLibrary ? getTagifyOptionFromTemplate(templateData) : null;
+    const removeFromAvailable = !shouldExposeInLibrary;
 
     const updateTagCollection = (collection, option, { remove = false } = {}) => {
       if (!Array.isArray(collection)) return;
@@ -1387,10 +1411,10 @@ function applyTemplateMetadataToCaches(templateData) {
 
     updateTagCollection(tagifyInstance.value, assignedOption);
     if (tagifyInstance.settings && typeof tagifyInstance.settings === 'object') {
-      updateTagCollection(tagifyInstance.settings.whitelist, availableOption, { remove: isAssigned });
+      updateTagCollection(tagifyInstance.settings.whitelist, availableOption, { remove: removeFromAvailable });
     }
     if (Array.isArray(tagifyInstance.whitelist)) {
-      updateTagCollection(tagifyInstance.whitelist, availableOption, { remove: isAssigned });
+      updateTagCollection(tagifyInstance.whitelist, availableOption, { remove: removeFromAvailable });
     }
   }
 }
@@ -3493,7 +3517,10 @@ async function loadProgramTemplateAssignments(options = {}) {
     let resolvedLibrary = Array.isArray(fetchedLibrary) ? fetchedLibrary : [];
     const filterAvailableTemplates = template => {
       const id = getTemplateId(template);
-      return id && !assignedTemplateIds.has(id);
+      if (!id || assignedTemplateIds.has(id)) {
+        return false;
+      }
+      return isPublishedTemplate(template);
     };
     let availableTemplates = resolvedLibrary.filter(filterAvailableTemplates);
     if (!availableTemplates.length) {
