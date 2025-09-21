@@ -389,11 +389,19 @@ const PROGRAM_SORT_ACCESSORS = {
   archivedAt: getProgramArchivedAt,
 };
 
+const TEMPLATE_SORT_ACCESSORS = {
+  week: getTemplateWeekNumber,
+  name: getTemplateName,
+  auditInserted: getTemplateAuditSortValue,
+  status: template => normalizeTemplateStatusValue(getTemplateStatus(template)),
+  updatedAt: getTemplateUpdatedAt,
+};
+
 const DEFAULT_PROGRAM_PAGE_SIZE = 10;
 
-function parseCell(program, key, type = 'string') {
-  const accessor = PROGRAM_SORT_ACCESSORS[key];
-  const raw = typeof accessor === 'function' ? accessor(program) : program?.[key];
+function parseCell(record, key, type = 'string', accessors = PROGRAM_SORT_ACCESSORS) {
+  const accessor = accessors?.[key];
+  const raw = typeof accessor === 'function' ? accessor(record) : record?.[key];
   if (type === 'number') {
     const numeric = toNullableNumber(raw);
     return { value: numeric ?? 0, empty: numeric === null };
@@ -408,9 +416,9 @@ function parseCell(program, key, type = 'string') {
   return { value: normalized.toLowerCase(), empty: normalized === '' };
 }
 
-function compareBy(a, b, key, direction = 'asc', type = 'string') {
-  const parsedA = parseCell(a, key, type);
-  const parsedB = parseCell(b, key, type);
+function compareBy(a, b, key, direction = 'asc', type = 'string', accessors = PROGRAM_SORT_ACCESSORS) {
+  const parsedA = parseCell(a, key, type, accessors);
+  const parsedB = parseCell(b, key, type, accessors);
   if (parsedA.empty && parsedB.empty) return 0;
   if (parsedA.empty) return 1;
   if (parsedB.empty) return -1;
@@ -530,6 +538,9 @@ const programTable = document.getElementById('programTable');
 const programTableHead = programTable ? programTable.querySelector('thead') : null;
 const programHeaderCells = programTableHead ? Array.from(programTableHead.querySelectorAll('th[data-key]')) : [];
 const programTableBody = document.getElementById('programTableBody');
+const templateTable = document.getElementById('templateTable');
+const templateTableHead = templateTable ? templateTable.querySelector('thead') : null;
+const templateHeaderCells = templateTableHead ? Array.from(templateTableHead.querySelectorAll('th[data-key]')) : [];
 const templateTableBody = document.getElementById('templateTableBody');
 const hideArchivedCheckbox = document.getElementById('hideArchived');
 const programSearchInput = document.getElementById('programSearch');
@@ -619,6 +630,8 @@ let lastProgramPagination = {
 let templates = [];
 let globalTemplates = [];
 let templateLibrary = [];
+let templateSortKey = null;
+let templateSortDirection = 'asc';
 const templateLibraryIndex = new Map();
 const selectedProgramIds = new Set();
 const selectedTemplateIds = new Set();
@@ -1187,6 +1200,7 @@ updateProgramEditorButtons(programs);
 updateTemplateEditorButtons(globalTemplates);
 updatePanelAddButtonState();
 updateProgramSortIndicators();
+updateTemplateSortIndicators();
 
 function getSortedPrograms(source = programs) {
   const list = Array.isArray(source) ? source.slice() : [];
@@ -1196,7 +1210,14 @@ function getSortedPrograms(source = programs) {
   return list
     .map((program, index) => ({ program, index }))
     .sort((a, b) => {
-      const diff = compareBy(a.program, b.program, programSortKey, programSortDirection, type);
+      const diff = compareBy(
+        a.program,
+        b.program,
+        programSortKey,
+        programSortDirection,
+        type,
+        PROGRAM_SORT_ACCESSORS,
+      );
       if (diff !== 0) return diff;
       return a.index - b.index;
     })
@@ -1232,6 +1253,28 @@ function getFilteredPrograms(source = programs) {
 function getFilteredSortedPrograms() {
   const filtered = getFilteredPrograms();
   return getSortedPrograms(filtered);
+}
+
+function getSortedTemplates(source = globalTemplates) {
+  const list = Array.isArray(source) ? source.slice() : [];
+  if (!templateSortKey) return list;
+  const header = templateHeaderCells.find(cell => cell.dataset.key === templateSortKey);
+  const type = header?.dataset.type || 'string';
+  return list
+    .map((template, index) => ({ template, index }))
+    .sort((a, b) => {
+      const diff = compareBy(
+        a.template,
+        b.template,
+        templateSortKey,
+        templateSortDirection,
+        type,
+        TEMPLATE_SORT_ACCESSORS,
+      );
+      if (diff !== 0) return diff;
+      return a.index - b.index;
+    })
+    .map(entry => entry.template);
 }
 
 function parsePageSize(value) {
@@ -3695,6 +3738,26 @@ function updateProgramSortIndicators() {
   });
 }
 
+function updateTemplateSortIndicators() {
+  if (!templateHeaderCells.length) return;
+  templateHeaderCells.forEach(cell => {
+    const key = cell.dataset.key;
+    const isActive = Boolean(templateSortKey) && key === templateSortKey;
+    const indicator = cell.querySelector('[data-sort-indicator]');
+    if (indicator) {
+      indicator.dataset.state = isActive ? 'active' : 'inactive';
+      if (isActive) {
+        indicator.dataset.direction = templateSortDirection === 'desc' ? 'desc' : 'asc';
+      } else {
+        delete indicator.dataset.direction;
+      }
+    }
+    cell.setAttribute('aria-sort', isActive
+      ? (templateSortDirection === 'desc' ? 'descending' : 'ascending')
+      : 'none');
+  });
+}
+
 function updateProgramPager(pagination) {
   if (!programPager) return;
   const totalPages = pagination?.totalPages ?? 0;
@@ -3793,7 +3856,10 @@ function updateActiveProgramIndicators() {
 
 function renderTemplates() {
   syncTemplateSelection();
-  const displayed = getFilteredTemplates();
+  updateTemplateSortIndicators();
+  const filtered = getFilteredTemplates();
+  const sorted = getSortedTemplates(filtered);
+  const displayed = sorted;
   if (!displayed.length) {
     templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="6">No templates found.</td></tr>';
   } else {
@@ -5028,6 +5094,19 @@ if (programTableHead) {
     programSortDirection = isSameKey && programSortDirection === 'asc' ? 'desc' : 'asc';
     programCurrentPage = 1;
     renderPrograms();
+  });
+}
+
+if (templateTableHead) {
+  templateTableHead.addEventListener('click', event => {
+    const cell = event.target instanceof HTMLElement ? event.target.closest('th[data-key]') : null;
+    if (!cell || !templateTableHead.contains(cell)) return;
+    const key = cell.dataset.key;
+    if (!key) return;
+    const isSameKey = templateSortKey === key;
+    templateSortKey = key;
+    templateSortDirection = isSameKey && templateSortDirection === 'asc' ? 'desc' : 'asc';
+    renderTemplates();
   });
 }
 
