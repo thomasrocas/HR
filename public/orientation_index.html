@@ -1780,7 +1780,11 @@ useEffect(() => {
     setWeeks(prev => {
       const clone = structuredClone(prev);
       const t = clone[wi]?.tasks?.[ti];
-      if(t) t.completed = !prevValue;
+      if(t){
+        const nextValue = !prevValue;
+        t.completed = nextValue;
+        t.done = nextValue;
+      }
       return clone;
     });
     setAllCalendarEvents((prevEvents) => {
@@ -1797,7 +1801,10 @@ useEffect(() => {
         setWeeks(prev => {
           const clone = structuredClone(prev);
           const t = clone[wi]?.tasks?.[ti];
-          if(t) t.completed = prevValue;
+          if(t){
+            t.completed = prevValue;
+            t.done = prevValue;
+          }
           return clone;
         });
         revertAll();
@@ -1807,7 +1814,10 @@ useEffect(() => {
       setWeeks(prev => {
         const clone = structuredClone(prev);
         const t = clone[wi]?.tasks?.[ti];
-        if(t) t.completed = prevValue;
+        if(t){
+          t.completed = prevValue;
+          t.done = prevValue;
+        }
         return clone;
       });
       revertAll();
