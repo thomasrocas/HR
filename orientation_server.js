@@ -1231,7 +1231,7 @@ app.get('/rbac/users', async (req, res) => {
   try {
     if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
     const sql = `
-      select u.id, u.full_name, u.username,
+      select u.id, u.full_name, u.username, u.organization,
              coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
       from public.users u
       left join public.user_roles ur on ur.user_id = u.id
@@ -2218,6 +2218,7 @@ create table if not exists public.users (
   username     text unique,
   email        text,
   full_name    text,
+  organization text,
   picture_url  text,
   password_hash text,
   password_reset_token text,
