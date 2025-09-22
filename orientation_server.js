@@ -572,6 +572,11 @@ function buildTemplateMetadataPatch(source) {
   if (Object.prototype.hasOwnProperty.call(payload, 'label')) {
     assign('label', toNullableString(payload.label));
   }
+  if (Object.prototype.hasOwnProperty.call(payload, 'external_link')) {
+    assign('external_link', toNullableString(payload.external_link));
+  } else if (Object.prototype.hasOwnProperty.call(payload, 'hyperlink')) {
+    assign('external_link', toNullableString(payload.hyperlink));
+  }
   if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
     const statusValue = payload.status;
     if (statusValue === null || statusValue === undefined || statusValue === '') {
@@ -1621,6 +1626,11 @@ app.patch('/programs/:program_id/templates/:template_id', ensurePerm('template.u
     const templatePatch = {};
     if (Object.prototype.hasOwnProperty.call(updates, 'label')) {
       templatePatch.label = toNullableString(updates.label);
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'external_link')) {
+      templatePatch.external_link = toNullableString(updates.external_link);
+    } else if (Object.prototype.hasOwnProperty.call(updates, 'hyperlink')) {
+      templatePatch.external_link = toNullableString(updates.hyperlink);
     }
     if (Object.prototype.hasOwnProperty.call(updates, 'status')) {
       const statusValue = updates.status;
