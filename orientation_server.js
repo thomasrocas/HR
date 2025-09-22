@@ -2589,7 +2589,7 @@ app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, re
         allowed = allFields;
       }
     } else if (isTrainee && owns) {
-      allowed = ['done'];
+      allowed = ['done', 'journal_entry'];
     } else {
       return res.status(403).json({ error: 'forbidden' });
     }
