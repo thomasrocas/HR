@@ -2689,7 +2689,7 @@ app.post('/tasks', ensurePerm('task.create'), async (req, res) => {
   }
 });
 
-app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, res) => {
+app.patch('/tasks/:id', ensureAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { rows: existing } = await pool.query('select user_id, program_id from public.orientation_tasks where task_id=$1', [id]);
@@ -2715,6 +2715,9 @@ app.patch('/tasks/:id', ensurePerm('task.update', 'task.assign'), async (req, re
 
     let allowed;
     if (canManageTask) {
+      if (!hasTaskUpdatePerm && !hasTaskAssignPerm) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
       if (!hasTaskUpdatePerm && hasTaskAssignPerm) {
         allowed = ['scheduled_for', 'time'];
       } else {

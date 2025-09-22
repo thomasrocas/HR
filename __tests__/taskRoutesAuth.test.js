@@ -278,6 +278,55 @@ describe('task routes authorization', () => {
     expect(res.body.scheduled_time).toBe('11:15:00');
   });
 
+  test('task owner trainee without update permission can edit journal entry only', async () => {
+    const traineeId = crypto.randomUUID();
+    const otherId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+      [traineeId, 'trainee', hash, 'local', 'Trainee Owner']
+    );
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+      [otherId, 'other', hash, 'local', 'Other Trainee']
+    );
+
+    await pool.query(
+      'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+      [traineeId, 'trainee']
+    );
+    await pool.query(
+      'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+      [otherId, 'trainee']
+    );
+
+    const taskId = crypto.randomUUID();
+    await pool.query(
+      'insert into public.orientation_tasks(task_id, user_id, label, done, journal_entry) values ($1,$2,$3,$4,$5)',
+      [taskId, traineeId, 'task', false, null]
+    );
+
+    const ownerAgent = request.agent(app);
+    await ownerAgent.post('/auth/local/login').send({ username: 'trainee', password: 'passpass' }).expect(200);
+
+    const journalRes = await ownerAgent
+      .patch(`/tasks/${taskId}`)
+      .send({ journal_entry: 'owner update', done: true })
+      .expect(200);
+    expect(journalRes.body.journal_entry).toBe('owner update');
+    expect(journalRes.body.done).toBe(true);
+
+    await ownerAgent.patch(`/tasks/${taskId}`).send({ label: 'new label' }).expect(403);
+
+    const otherAgent = request.agent(app);
+    await otherAgent.post('/auth/local/login').send({ username: 'other', password: 'passpass' }).expect(200);
+    await otherAgent
+      .patch(`/tasks/${taskId}`)
+      .send({ journal_entry: 'should fail' })
+      .expect(403);
+  });
+
   test('task owner without admin or manager role cannot move task', async () => {
     await pool.query(`
       insert into public.role_permissions(role_id, perm_key)
