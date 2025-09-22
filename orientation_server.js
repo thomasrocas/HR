@@ -775,6 +775,39 @@ apiRouter.post('/templates', ensurePerm('template.create'), async (req, res) => 
       subUnitRaw = body.subUnit;
     }
     const subUnitValue = toNullableString(subUnitRaw);
+    let disciplineRaw = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'discipline_type')) {
+      disciplineRaw = body.discipline_type;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'disciplineType')) {
+      disciplineRaw = body.disciplineType;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'discipline')) {
+      disciplineRaw = body.discipline;
+    }
+    const disciplineTypeValue = toNullableString(disciplineRaw);
+    let deliveryRaw = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'type_delivery')) {
+      deliveryRaw = body.type_delivery;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'typeDelivery')) {
+      deliveryRaw = body.typeDelivery;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'delivery_type')) {
+      deliveryRaw = body.delivery_type;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'deliveryType')) {
+      deliveryRaw = body.deliveryType;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'delivery_mode')) {
+      deliveryRaw = body.delivery_mode;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'deliveryMode')) {
+      deliveryRaw = body.deliveryMode;
+    }
+    const typeDeliveryValue = toNullableString(deliveryRaw);
+    let departmentRaw = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'department')) {
+      departmentRaw = body.department;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'department_name')) {
+      departmentRaw = body.department_name;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'departmentName')) {
+      departmentRaw = body.departmentName;
+    }
+    const departmentValue = toNullableString(departmentRaw);
     let externalLinkRaw = null;
     if (Object.prototype.hasOwnProperty.call(body, 'external_link')) {
       externalLinkRaw = body.external_link;
@@ -792,6 +825,9 @@ apiRouter.post('/templates', ensurePerm('template.create'), async (req, res) => 
       status,
       organization: organizationValue,
       sub_unit: subUnitValue,
+      discipline_type: disciplineTypeValue,
+      type_delivery: typeDeliveryValue,
+      department: departmentValue,
       external_link: externalLinkValue,
     });
     res.status(201).json(template);
@@ -860,6 +896,54 @@ apiRouter.patch('/templates/:templateId', ensurePerm('template.update'), async (
       patch.sub_unit = toNullableString(body.sub_unit);
     } else if (Object.prototype.hasOwnProperty.call(body, 'subUnit')) {
       patch.sub_unit = toNullableString(body.subUnit);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'discipline_type') ||
+      Object.prototype.hasOwnProperty.call(body, 'disciplineType') ||
+      Object.prototype.hasOwnProperty.call(body, 'discipline')
+    ) {
+      const disciplineRaw = Object.prototype.hasOwnProperty.call(body, 'discipline_type')
+        ? body.discipline_type
+        : Object.prototype.hasOwnProperty.call(body, 'disciplineType')
+          ? body.disciplineType
+          : body.discipline;
+      patch.discipline_type = toNullableString(disciplineRaw);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'type_delivery') ||
+      Object.prototype.hasOwnProperty.call(body, 'typeDelivery') ||
+      Object.prototype.hasOwnProperty.call(body, 'delivery_type') ||
+      Object.prototype.hasOwnProperty.call(body, 'deliveryType') ||
+      Object.prototype.hasOwnProperty.call(body, 'delivery_mode') ||
+      Object.prototype.hasOwnProperty.call(body, 'deliveryMode')
+    ) {
+      let deliveryRaw;
+      if (Object.prototype.hasOwnProperty.call(body, 'type_delivery')) {
+        deliveryRaw = body.type_delivery;
+      } else if (Object.prototype.hasOwnProperty.call(body, 'typeDelivery')) {
+        deliveryRaw = body.typeDelivery;
+      } else if (Object.prototype.hasOwnProperty.call(body, 'delivery_type')) {
+        deliveryRaw = body.delivery_type;
+      } else if (Object.prototype.hasOwnProperty.call(body, 'deliveryType')) {
+        deliveryRaw = body.deliveryType;
+      } else if (Object.prototype.hasOwnProperty.call(body, 'delivery_mode')) {
+        deliveryRaw = body.delivery_mode;
+      } else {
+        deliveryRaw = body.deliveryMode;
+      }
+      patch.type_delivery = toNullableString(deliveryRaw);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'department') ||
+      Object.prototype.hasOwnProperty.call(body, 'department_name') ||
+      Object.prototype.hasOwnProperty.call(body, 'departmentName')
+    ) {
+      const departmentRaw = Object.prototype.hasOwnProperty.call(body, 'department')
+        ? body.department
+        : Object.prototype.hasOwnProperty.call(body, 'department_name')
+          ? body.department_name
+          : body.departmentName;
+      patch.department = toNullableString(departmentRaw);
     }
     if (Object.prototype.hasOwnProperty.call(body, 'sort_order')) {
       const sortOrder = parseOptionalInteger(body.sort_order);
@@ -2738,9 +2822,18 @@ create table if not exists public.program_task_templates (
   week_number int,
   label       text not null,
   notes       text,
+  organization text,
+  sub_unit    text,
+  discipline_type text,
+  type_delivery   text,
+  department  text,
+  due_offset_days int,
+  required    boolean,
+  visibility  text,
   sort_order  int,
   status      text default 'draft',
-  deleted_at  timestamp
+  deleted_at  timestamp,
+  external_link text
 );
 
 create table if not exists public.program_template_links (

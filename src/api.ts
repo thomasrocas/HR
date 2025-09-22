@@ -24,6 +24,9 @@ export interface Template {
   updatedAt?: string;
   status?: 'draft' | 'published' | 'deprecated';
   deletedAt?: string | null;
+  disciplineType?: string | null;
+  typeDelivery?: string | null;
+  department?: string | null;
 }
 
 type UserListResponse = { data: User[]; meta: { total: number; page: number } };
@@ -350,6 +353,11 @@ const normalizeTemplate = (raw: any): Template => {
     ? (statusCandidate as Template['status'])
     : undefined;
   const updatedCandidate = raw.updatedAt ?? raw.updated_at ?? raw.updated ?? raw.modified_at ?? null;
+  const disciplineTypeSource =
+    raw.discipline_type ?? raw.disciplineType ?? raw.discipline ?? undefined;
+  const typeDeliverySource =
+    raw.type_delivery ?? raw.typeDelivery ?? raw.delivery_type ?? raw.deliveryType ?? undefined;
+  const departmentSource = raw.department ?? raw.department_name ?? undefined;
 
   const template: Template = {
     id: String(idCandidate ?? ''),
@@ -360,6 +368,45 @@ const normalizeTemplate = (raw: any): Template => {
         : `Template ${String(idCandidate ?? '')}`,
     category: String(categoryCandidate ?? 'General'),
   };
+  if (disciplineTypeSource !== undefined) {
+    let normalized: string | null;
+    if (disciplineTypeSource === null) {
+      normalized = null;
+    } else if (typeof disciplineTypeSource === 'string') {
+      const trimmed = disciplineTypeSource.trim();
+      normalized = trimmed ? trimmed : null;
+    } else {
+      normalized = String(disciplineTypeSource);
+    }
+    template.disciplineType = normalized ?? null;
+    (template as any).discipline_type = normalized ?? null;
+  }
+  if (typeDeliverySource !== undefined) {
+    let normalized: string | null;
+    if (typeDeliverySource === null) {
+      normalized = null;
+    } else if (typeof typeDeliverySource === 'string') {
+      const trimmed = typeDeliverySource.trim();
+      normalized = trimmed ? trimmed : null;
+    } else {
+      normalized = String(typeDeliverySource);
+    }
+    template.typeDelivery = normalized ?? null;
+    (template as any).type_delivery = normalized ?? null;
+  }
+  if (departmentSource !== undefined) {
+    let normalized: string | null;
+    if (departmentSource === null) {
+      normalized = null;
+    } else if (typeof departmentSource === 'string') {
+      const trimmed = departmentSource.trim();
+      normalized = trimmed ? trimmed : null;
+    } else {
+      normalized = String(departmentSource);
+    }
+    template.department = normalized ?? null;
+    (template as any).department = normalized ?? null;
+  }
   const parsedDate = toDateString(updatedCandidate);
   if (parsedDate) {
     template.updatedAt = parsedDate;
@@ -431,7 +478,16 @@ const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unk
 };
 
 const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, unknown> => {
-  const { id: _id, programId: _programId, updatedAt: _updatedAt, deletedAt: _deletedAt, ...rest } = payload;
+  const {
+    id: _id,
+    programId: _programId,
+    updatedAt: _updatedAt,
+    deletedAt: _deletedAt,
+    disciplineType,
+    typeDelivery,
+    department,
+    ...rest
+  } = payload;
   const body: Record<string, unknown> = { ...rest };
   if (payload.name && !body.label) {
     body.label = payload.name;
@@ -443,6 +499,47 @@ const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, u
     const normalized = payload.status.toLowerCase() as Template['status'];
     if (TEMPLATE_STATUS_SET.has(normalized as NonNullable<Template['status']>)) {
       body.status = normalized;
+    }
+  }
+  const hasDisciplineType =
+    Object.prototype.hasOwnProperty.call(payload, 'disciplineType') ||
+    Object.prototype.hasOwnProperty.call(payload as Record<string, unknown>, 'discipline_type');
+  if (hasDisciplineType) {
+    const rawValue = Object.prototype.hasOwnProperty.call(payload, 'disciplineType')
+      ? disciplineType
+      : (payload as Record<string, unknown>).discipline_type;
+    if (typeof rawValue === 'string') {
+      const trimmed = rawValue.trim();
+      body.discipline_type = trimmed ? trimmed : null;
+    } else if (rawValue === null) {
+      body.discipline_type = null;
+    }
+    delete body.disciplineType;
+  }
+  const hasTypeDelivery =
+    Object.prototype.hasOwnProperty.call(payload, 'typeDelivery') ||
+    Object.prototype.hasOwnProperty.call(payload as Record<string, unknown>, 'type_delivery') ||
+    Object.prototype.hasOwnProperty.call(payload as Record<string, unknown>, 'delivery_type');
+  if (hasTypeDelivery) {
+    const rawValue = Object.prototype.hasOwnProperty.call(payload, 'typeDelivery')
+      ? typeDelivery
+      : (payload as Record<string, unknown>).type_delivery ?? (payload as Record<string, unknown>).delivery_type;
+    if (typeof rawValue === 'string') {
+      const trimmed = rawValue.trim();
+      body.type_delivery = trimmed ? trimmed : null;
+    } else if (rawValue === null) {
+      body.type_delivery = null;
+    }
+    delete body.typeDelivery;
+    delete body.delivery_type;
+  }
+  const hasDepartment = Object.prototype.hasOwnProperty.call(payload, 'department');
+  if (hasDepartment) {
+    if (typeof department === 'string') {
+      const trimmed = department.trim();
+      body.department = trimmed ? trimmed : null;
+    } else if (department === null) {
+      body.department = null;
     }
   }
   return body;
@@ -939,6 +1036,9 @@ export const seed = {
       category: 'Engineering',
       updatedAt: '2024-05-15',
       status: 'published',
+      disciplineType: 'Technical',
+      typeDelivery: 'Virtual',
+      department: 'Engineering',
     },
     {
       id: 't2',
@@ -947,6 +1047,9 @@ export const seed = {
       category: 'Operations',
       updatedAt: '2024-04-20',
       status: 'draft',
+      disciplineType: 'Operations',
+      typeDelivery: 'In-person',
+      department: 'Retail',
     },
   ] as Template[],
   audit: [
