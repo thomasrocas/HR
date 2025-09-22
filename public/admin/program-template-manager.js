@@ -442,50 +442,6 @@ function normalizeTemplateAssociation(raw, index = 0) {
     : String(subUnitSource);
   normalized.subUnit = normalized.sub_unit;
 
-  const disciplineTypeSource = source.discipline_type
-    ?? source.disciplineType
-    ?? source.discipline
-    ?? linkMeta?.discipline_type
-    ?? (nestedTemplate ? nestedTemplate.discipline_type ?? nestedTemplate.disciplineType : null)
-    ?? null;
-  const disciplineTypeValue = disciplineTypeSource === null || disciplineTypeSource === undefined
-    ? ''
-    : String(disciplineTypeSource);
-  normalized.discipline_type = disciplineTypeValue;
-  normalized.disciplineType = disciplineTypeValue;
-
-  const typeDeliverySource = source.type_delivery
-    ?? source.typeDelivery
-    ?? source.delivery_type
-    ?? source.deliveryType
-    ?? source.delivery_mode
-    ?? source.deliveryMode
-    ?? linkMeta?.type_delivery
-    ?? linkMeta?.delivery_type
-    ?? (nestedTemplate
-      ? nestedTemplate.type_delivery
-        ?? nestedTemplate.typeDelivery
-        ?? nestedTemplate.delivery_type
-        ?? nestedTemplate.deliveryType
-      : null)
-    ?? null;
-  const typeDeliveryValue = typeDeliverySource === null || typeDeliverySource === undefined
-    ? ''
-    : String(typeDeliverySource);
-  normalized.type_delivery = typeDeliveryValue;
-  normalized.typeDelivery = typeDeliveryValue;
-
-  const departmentSource = source.department
-    ?? source.department_name
-    ?? source.departmentName
-    ?? linkMeta?.department
-    ?? (nestedTemplate ? nestedTemplate.department : null)
-    ?? null;
-  const departmentValue = departmentSource === null || departmentSource === undefined
-    ? ''
-    : String(departmentSource);
-  normalized.department = departmentValue;
-
   const externalLinkSource = source.external_link
     ?? source.externalLink
     ?? source.hyperlink
@@ -688,18 +644,6 @@ function getProgramLifecycleLabel(program) {
   return lifecycle.charAt(0).toUpperCase() + lifecycle.slice(1);
 }
 
-function getTemplateDisciplineType(template) {
-  return template?.discipline_type ?? template?.disciplineType ?? '';
-}
-
-function getTemplateDeliveryType(template) {
-  return template?.type_delivery ?? template?.typeDelivery ?? template?.delivery_type ?? template?.deliveryType ?? '';
-}
-
-function getTemplateDepartment(template) {
-  return template?.department ?? '';
-}
-
 const PROGRAM_CSV_ACCESSORS = {
   title: program => getProgramTitle(program) || '—',
   lifecycle: program => getProgramLifecycleLabel(program),
@@ -722,26 +666,6 @@ const TEMPLATE_CSV_ACCESSORS = {
     return String(weekNumber);
   },
   name: template => getTemplateName(template) || '—',
-  disciplineType: template => {
-    const value = getTemplateDisciplineType(template);
-    return value ? value : '—';
-  },
-  discipline_type: template => {
-    const value = getTemplateDisciplineType(template);
-    return value ? value : '—';
-  },
-  typeDelivery: template => {
-    const value = getTemplateDeliveryType(template);
-    return value ? value : '—';
-  },
-  type_delivery: template => {
-    const value = getTemplateDeliveryType(template);
-    return value ? value : '—';
-  },
-  department: template => {
-    const value = getTemplateDepartment(template);
-    return value ? value : '—';
-  },
   auditInserted: template => {
     const display = getTemplateAuditDisplay(template);
     return display && display !== '—' ? display : '—';
@@ -1004,33 +928,9 @@ function normalizeTemplateImportRecord(record) {
       case 'sub_unit':
       case 'subunit':
       case 'sub_unit_name':
+      case 'department':
         if (!isEmpty) {
           normalized.sub_unit = stringValue;
-          hasValue = true;
-        }
-        break;
-      case 'discipline_type':
-      case 'discipline':
-      case 'disciplinecategory':
-        if (!isEmpty) {
-          normalized.discipline_type = stringValue;
-          hasValue = true;
-        }
-        break;
-      case 'type_delivery':
-      case 'delivery_type':
-      case 'delivery':
-      case 'deliverymode':
-        if (!isEmpty) {
-          normalized.type_delivery = stringValue;
-          hasValue = true;
-        }
-        break;
-      case 'department':
-      case 'dept':
-      case 'department_name':
-        if (!isEmpty) {
-          normalized.department = stringValue;
           hasValue = true;
         }
         break;
@@ -1062,9 +962,6 @@ function normalizeTemplateImportRecord(record) {
   if (normalized.notes === '') delete normalized.notes;
   if (normalized.organization === '') delete normalized.organization;
   if (normalized.sub_unit === '') delete normalized.sub_unit;
-  if (normalized.discipline_type === '') delete normalized.discipline_type;
-  if (normalized.type_delivery === '') delete normalized.type_delivery;
-  if (normalized.department === '') delete normalized.department;
   if (normalized.external_link === '') delete normalized.external_link;
   if (normalized.hyperlink === '') delete normalized.hyperlink;
   if (normalized.status === '') delete normalized.status;
@@ -1326,9 +1223,6 @@ const templateFormSortInput = document.getElementById('templateFormSort');
 const templateFormLabelInput = document.getElementById('templateFormLabel');
 const templateFormOrganizationInput = document.getElementById('templateFormOrganization');
 const templateFormSubUnitInput = document.getElementById('templateFormSubUnit');
-const templateFormDisciplineTypeInput = document.getElementById('templateFormDisciplineType');
-const templateFormDeliveryTypeInput = document.getElementById('templateFormDeliveryType');
-const templateFormDepartmentInput = document.getElementById('templateFormDepartment');
 const templateFormNotesInput = document.getElementById('templateFormNotes');
 const templateFormExternalLinkInput = document.getElementById('templateFormExternalLink');
 const templateFormExternalLinkError = document.getElementById('templateFormExternalLinkError');
@@ -3870,15 +3764,6 @@ function resetTemplateForm() {
   if (templateFormSubUnitInput) {
     templateFormSubUnitInput.value = '';
   }
-  if (templateFormDisciplineTypeInput) {
-    templateFormDisciplineTypeInput.value = '';
-  }
-  if (templateFormDeliveryTypeInput) {
-    templateFormDeliveryTypeInput.value = '';
-  }
-  if (templateFormDepartmentInput) {
-    templateFormDepartmentInput.value = '';
-  }
   if (templateFormNotesInput) {
     templateFormNotesInput.value = '';
   }
@@ -4032,18 +3917,6 @@ function openTemplateModal(mode = 'create', templateId = null) {
     if (templateFormSubUnitInput) {
       const subUnit = template?.sub_unit ?? template?.subUnit ?? '';
       templateFormSubUnitInput.value = subUnit || '';
-    }
-    if (templateFormDisciplineTypeInput) {
-      const disciplineType = template?.discipline_type ?? template?.disciplineType ?? '';
-      templateFormDisciplineTypeInput.value = disciplineType || '';
-    }
-    if (templateFormDeliveryTypeInput) {
-      const deliveryType = template?.type_delivery ?? template?.typeDelivery ?? '';
-      templateFormDeliveryTypeInput.value = deliveryType || '';
-    }
-    if (templateFormDepartmentInput) {
-      const department = template?.department ?? '';
-      templateFormDepartmentInput.value = department || '';
     }
     if (templateFormNotesInput) {
       const notes = template?.notes ?? '';
@@ -4225,21 +4098,6 @@ async function submitTemplateForm(event) {
   if (templateFormSubUnitInput) {
     templateFormSubUnitInput.value = subUnitValue;
   }
-  const disciplineTypeRawValue = templateFormDisciplineTypeInput?.value ?? '';
-  const disciplineTypeValue = disciplineTypeRawValue.trim();
-  if (templateFormDisciplineTypeInput) {
-    templateFormDisciplineTypeInput.value = disciplineTypeValue;
-  }
-  const deliveryTypeRawValue = templateFormDeliveryTypeInput?.value ?? '';
-  const deliveryTypeValue = deliveryTypeRawValue.trim();
-  if (templateFormDeliveryTypeInput) {
-    templateFormDeliveryTypeInput.value = deliveryTypeValue;
-  }
-  const departmentRawValue = templateFormDepartmentInput?.value ?? '';
-  const departmentValue = departmentRawValue.trim();
-  if (templateFormDepartmentInput) {
-    templateFormDepartmentInput.value = departmentValue;
-  }
   const sortRawValue = templateFormSortInput?.value ?? '';
   let sortNumber = null;
   if (sortRawValue !== '') {
@@ -4281,9 +4139,6 @@ async function submitTemplateForm(event) {
   };
   payload.organization = organizationValue ? organizationValue : null;
   payload.sub_unit = subUnitValue ? subUnitValue : null;
-  payload.discipline_type = disciplineTypeValue ? disciplineTypeValue : null;
-  payload.type_delivery = deliveryTypeValue ? deliveryTypeValue : null;
-  payload.department = departmentValue ? departmentValue : null;
   const externalLinkPayload = hasExternalLink ? externalLinkValue : null;
   payload.external_link = externalLinkPayload;
   payload.hyperlink = externalLinkPayload;
