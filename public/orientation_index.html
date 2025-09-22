@@ -150,6 +150,14 @@ const inRange = (d, start, numWeeks) => {
   const x = dayjs(d);
   return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day');
 };
+const normalizeWeekNumber = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value === null || typeof value === 'undefined') return null;
+  const match = String(value).match(/(-?\d+)/);
+  if (!match) return null;
+  const parsed = parseInt(match[1], 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
 const uid = () => Math.random().toString(36).slice(2);
 const withUser = (url) => {
   if (TARGET_USER_ID && CURRENT_USER_ID && TARGET_USER_ID !== CURRENT_USER_ID) {
@@ -1238,8 +1246,12 @@ useEffect(() => {
 
   const visibleProgramSet = useMemo(() => {
     const entries = Object.entries(programVisibility || {});
-    if (!entries.length) return new Set();
-    return new Set(entries.filter(([, value]) => value !== false).map(([id]) => String(id)));
+    
+    if (!entries.length) return null;
+    const enabled = entries.filter(([, value]) => value !== false).map(([id]) => String(id));
+    if (enabled.length === entries.length) return null;
+    return new Set(enabled);
+    
   }, [programVisibility]);
 
   const calendarEvents = calendarMode === 'all' ? allCalendarEvents : singleProgramCalendarEvents;
@@ -1254,7 +1266,9 @@ useEffect(() => {
     const map = {};
     calendarEvents.forEach((event) => {
       if (!event || !event.scheduled_for) return;
-      if (calendarMode === 'all' && visibleProgramSet.size && !visibleProgramSet.has(String(event.programId || ''))) {
+
+      if (calendarMode === 'all' && visibleProgramSet && !visibleProgramSet.has(String(event.programId || ''))) {
+
         return;
       }
       const key = dayjs(event.scheduled_for).format('YYYY-MM-DD');
@@ -1282,6 +1296,58 @@ useEffect(() => {
     });
     return map;
   }, [calendarEvents, calendarMode, visibleProgramSet, programInfoMap, getProgramPalette]);
+  
+  const combinedWeeksView = useMemo(() => {
+    if (calendarMode !== 'all') return [];
+    const filterSet = visibleProgramSet;
+    const groups = new Map();
+    (Array.isArray(calendarEvents) ? calendarEvents : []).forEach((event) => {
+      if (!event) return;
+      const programId = event.programId ? String(event.programId) : '';
+      if (filterSet && (!programId || !filterSet.has(programId))) {
+        return;
+      }
+      const normalizedWeek = normalizeWeekNumber(event.week);
+      const key = normalizedWeek === null ? 'unscheduled' : String(normalizedWeek);
+      if (!groups.has(key)) {
+        groups.set(key, {
+          id: `all-${key}`,
+          wk: normalizedWeek,
+          tasks: []
+        });
+      }
+      groups.get(key).tasks.push(event);
+    });
+    const sortByWeek = (a, b) => {
+      if (a.wk === null && b.wk === null) return 0;
+      if (a.wk === null) return 1;
+      if (b.wk === null) return -1;
+      return a.wk - b.wk;
+    };
+    const sortTasks = (tasks) => {
+      return tasks.slice().sort((a, b) => {
+        const aDate = a.scheduled_for || '';
+        const bDate = b.scheduled_for || '';
+        if (aDate && bDate && aDate !== bDate) {
+          return aDate < bDate ? -1 : 1;
+        }
+        const aTime = a.scheduled_time || '';
+        const bTime = b.scheduled_time || '';
+        if (aTime && bTime && aTime !== bTime) {
+          return aTime < bTime ? -1 : 1;
+        }
+        if (aTime && !bTime) return -1;
+        if (!aTime && bTime) return 1;
+        return (a.label || a.title || '').localeCompare(b.label || b.title || '');
+      });
+    };
+    return Array.from(groups.values())
+      .sort(sortByWeek)
+      .map((group) => ({
+        ...group,
+        tasks: sortTasks(group.tasks)
+      }));
+  }, [calendarMode, calendarEvents, visibleProgramSet]);
 
   useEffect(() => {
     if (calendarMode !== 'all') return;
@@ -2431,81 +2497,199 @@ useEffect(() => {
       {/* Weeks & Tasks */}
       <Section title="Weeks & Tasks">
         <div id="weeksTasks" data-weeks-root className="space-y-6">
-          {weeks.map((w, wi)=>{
-            const pct = Math.round(100*((w.tasks||[]).filter(t=>t.completed).length / ((w.tasks||[]).length||1)));
-            return (
-              <div key={w.id} className="card p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-lg font-semibold">Week {w.wk}: {w.title}</div>
-                    <div className="text-sm text-slate-500">{w.theme}</div>
-                  </div>
-                  <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
-                </div>
-                <div className="grid md:grid-cols-2 gap-3 mt-4">
-                  {(w.tasks||[]).map((t,ti)=> {
-                    const taskTimeDisplay = deriveTimeFromTask(t);
-                    const doneAttr = typeof t.completed === 'boolean' ? String(t.completed) : toDisplayString(t.completed);
-                    const isTaskDone = typeof t.completed === 'boolean'
-                      ? t.completed
-                      : String(t.completed).toLowerCase() === 'true';
-                    const tooltipResponsible = toDisplayString(t.responsible_person);
-                    const tooltipJournal = toDisplayString(t.journal_entry);
-                    const hasTooltipJournal = tooltipJournal && tooltipJournal !== '—';
-                    const showAssignedMeta = hasPerm('task.assign') && isPrivileged && !isTrainee;
-                    return (
-                      <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
-                        {hasPerm('task.delete') && isPrivileged && !isTrainee && (
-                          <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
-                                  onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
-                        )}
-                        <div className="flex items-start gap-3">
-                          <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
-                          <button
-                            type="button"
-                            className="flex-1 text-left bg-transparent p-0 disabled:cursor-not-allowed"
-                            data-task-id={t.task_id}
-                            data-taskid={t.task_id}
-                            data-title={toDisplayString(t.title)}
-                            data-week={toDisplayString(w.wk)}
-                            data-journal_entry={hasTooltipJournal ? tooltipJournal : ''}
-                            data-responsible_person={tooltipResponsible}
-                            data-scheduled_for={toDisplayString(t.scheduled_for)}
-                            data-scheduled_time={t.scheduled_time || ''}
-                            data-done={doneAttr}
-                            data-wi={wi}
-                            data-ti={ti}
-                            disabled={isTaskDone}
-                            aria-disabled={isTaskDone ? 'true' : 'false'}
-                          >
-                            <div className="font-medium flex items-center gap-2">
-                              <span>{t.title}</span>
-                              {isTaskDone && (
-                                <span aria-hidden="true" className="text-emerald-600">✓</span>
-                              )}
-                            </div>
-                            {!isTaskDone && taskTimeDisplay && (
-                              <div className="mt-1 text-xs text-slate-600">Assigned • {taskTimeDisplay}</div>
-                            )}
-                          </button>
-                        </div>
-                        {showAssignedMeta && (
-                          <div className="mt-2 flex items-center gap-2 text-sm">
-                            <span className="text-slate-600">Assigned{taskTimeDisplay ? ` • ${taskTimeDisplay}` : ''}:</span>
-                            <input type="date" className="input w-auto" value={t.scheduled_for||''}
-                                   onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {hasPerm('task.create') && !isTrainee && (
-                  <button className="btn btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
-                )}
+          {calendarMode === 'all' ? (
+            visibleProgramSet && visibleProgramSet.size === 0 ? (
+              <div className="text-sm text-slate-500">
+                No programs selected. Use the filters above to choose which programs to display.
               </div>
-            );
-          })}
+            ) : (
+              combinedWeeksView.length ? (
+                combinedWeeksView.map((week) => {
+                  const total = week.tasks.length || 1;
+                  const complete = week.tasks.filter((task) => {
+                    if (typeof task.done === 'boolean') return task.done;
+                    return String(task.done).toLowerCase() === 'true';
+                  }).length;
+                  const pct = Math.round((complete / total) * 100);
+                  const weekLabel = week.wk === null ? 'Unscheduled Tasks' : `Week ${week.wk}`;
+                  return (
+                    <div key={week.id} className="card p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-lg font-semibold">{weekLabel}</div>
+                          <div className="text-sm text-slate-500">Combined from all programs</div>
+                        </div>
+                        <div className="w-48">
+                          <ProgressBar value={pct} />
+                          <div className="text-xs text-right mt-1">{pct}%</div>
+                        </div>
+                      </div>
+                      <div className="space-y-3 mt-4">
+                        {week.tasks.map((task) => {
+                          const taskId = task.task_id || task.id;
+                          const programId = task.programId ? String(task.programId) : '';
+                          const info = programInfoMap.get(programId) || {};
+                          const palette = task.palette || getProgramPalette(programId, info.color || null);
+                          const scheduledDate = task.scheduled_for ? fmt(task.scheduled_for) : '';
+                          const timeDisplay = task.scheduled_time || '';
+                          const responsible = toDisplayString(task.responsible_person);
+                          const journal = toDisplayString(task.journal_entry);
+                          const hasResponsible = responsible && responsible !== '—';
+                          const hasJournal = journal && journal !== '—';
+                          const done = typeof task.done === 'boolean'
+                            ? task.done
+                            : String(task.done).toLowerCase() === 'true';
+                          const label = task.label || task.title || 'Untitled Task';
+                          const labelTokens = (task.labels || '')
+                            .split(',')
+                            .map((token) => token.trim())
+                            .filter(Boolean);
+                          return (
+                            <div
+                              key={`${week.id}-${taskId}`}
+                              className="card p-3 border"
+                              style={palette ? { borderLeft: `4px solid ${palette.border}` } : undefined}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 mb-1">
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border"
+                                      style={palette ? { borderColor: palette.border, backgroundColor: palette.background } : undefined}
+                                    >
+                                      <span
+                                        className="inline-block w-2 h-2 rounded-full"
+                                        style={{ backgroundColor: palette?.dot || palette?.border || '#0ea5e9' }}
+                                        aria-hidden="true"
+                                      ></span>
+                                      {task.programName || info.name || 'Program'}
+                                    </span>
+                                    {scheduledDate && (
+                                      <span className="text-slate-500">
+                                        {scheduledDate}
+                                        {timeDisplay ? ` • ${timeDisplay}` : ''}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="font-medium text-sm text-slate-800">{label}</div>
+                                  {labelTokens.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {labelTokens.map((token) => (
+                                        <span key={`${taskId}-${token}`} className="tag">
+                                          {token}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {(hasResponsible || hasJournal) && (
+                                    <div className="mt-2 space-y-1 text-xs text-slate-500">
+                                      {hasResponsible && (
+                                        <div>
+                                          <span className="font-semibold">Responsible:</span> {responsible}
+                                        </div>
+                                      )}
+                                      {hasJournal && (
+                                        <div>
+                                          <span className="font-semibold">Journal:</span> {journal}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                                {done && (
+                                  <span className="text-xs font-semibold text-emerald-600 whitespace-nowrap">✓ Complete</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-sm text-slate-500">
+                  No scheduled tasks found for the selected timeframe.
+                </div>
+              )
+            )
+          ) : (
+            weeks.map((w, wi)=>{
+              const pct = Math.round(100*((w.tasks||[]).filter(t=>t.completed).length / ((w.tasks||[]).length||1)));
+              return (
+                <div key={w.id} className="card p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-lg font-semibold">Week {w.wk}: {w.title}</div>
+                      <div className="text-sm text-slate-500">{w.theme}</div>
+                    </div>
+                    <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-3 mt-4">
+                    {(w.tasks||[]).map((t,ti)=> {
+                      const taskTimeDisplay = deriveTimeFromTask(t);
+                      const doneAttr = typeof t.completed === 'boolean' ? String(t.completed) : toDisplayString(t.completed);
+                      const isTaskDone = typeof t.completed === 'boolean'
+                        ? t.completed
+                        : String(t.completed).toLowerCase() === 'true';
+                      const tooltipResponsible = toDisplayString(t.responsible_person);
+                      const tooltipJournal = toDisplayString(t.journal_entry);
+                      const hasTooltipJournal = tooltipJournal && tooltipJournal !== '—';
+                      const showAssignedMeta = hasPerm('task.assign') && isPrivileged && !isTrainee;
+                      return (
+                        <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
+                          {hasPerm('task.delete') && isPrivileged && !isTrainee && (
+                            <button type="button" aria-label="Delete" className="absolute top-1 right-1 text-xs text-slate-500 hover:text-slate-700"
+                                    onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
+                          )}
+                          <div className="flex items-start gap-3">
+                            <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
+                            <button
+                              type="button"
+                              className="flex-1 text-left bg-transparent p-0 disabled:cursor-not-allowed"
+                              data-task-id={t.task_id}
+                              data-taskid={t.task_id}
+                              data-title={toDisplayString(t.title)}
+                              data-week={toDisplayString(w.wk)}
+                              data-journal_entry={hasTooltipJournal ? tooltipJournal : ''}
+                              data-responsible_person={tooltipResponsible}
+                              data-scheduled_for={toDisplayString(t.scheduled_for)}
+                              data-scheduled_time={t.scheduled_time || ''}
+                              data-done={doneAttr}
+                              data-wi={wi}
+                              data-ti={ti}
+                              disabled={isTaskDone}
+                              aria-disabled={isTaskDone ? 'true' : 'false'}
+                            >
+                              <div className="font-medium flex items-center gap-2">
+                                <span>{t.title}</span>
+                                {isTaskDone && (
+                                  <span aria-hidden="true" className="text-emerald-600">✓</span>
+                                )}
+                              </div>
+                              {!isTaskDone && taskTimeDisplay && (
+                                <div className="mt-1 text-xs text-slate-600">Assigned • {taskTimeDisplay}</div>
+                              )}
+                            </button>
+                          </div>
+                          {showAssignedMeta && (
+                            <div className="mt-2 flex items-center gap-2 text-sm">
+                              <span className="text-slate-600">Assigned{taskTimeDisplay ? ` • ${taskTimeDisplay}` : ''}:</span>
+                              <input type="date" className="input w-auto" value={t.scheduled_for||''}
+                                     onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {hasPerm('task.create') && !isTrainee && (
+                    <button className="btn btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       </Section>
       {hasPerm('task.delete') && isPrivileged && !isTrainee && (
