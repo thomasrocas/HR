@@ -114,6 +114,7 @@ function createProgramTemplateLinksDao(pool) {
              t.label,
              t.status,
              t.deleted_at,
+             t.external_link as external_link,
              l.program_id,
              l.id as link_id,
              l.created_at,
@@ -238,6 +239,7 @@ function createProgramTemplateLinksDao(pool) {
              t.sort_order,
              t.status,
              t.deleted_at,
+             t.external_link as external_link,
              l.program_id,
              l.created_at
         from public.program_task_templates t
@@ -263,6 +265,7 @@ function createProgramTemplateLinksDao(pool) {
              t.label,
              t.status,
              t.deleted_at,
+             t.external_link as external_link,
              l.program_id,
              l.id as link_id,
              l.created_at,
