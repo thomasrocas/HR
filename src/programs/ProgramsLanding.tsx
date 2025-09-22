@@ -213,9 +213,6 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
             <a href="/admin/user-manager" className="btn btn-outline text-sm">
               Users
             </a>
-            <a href="/admin/role-manager.html" className="btn btn-outline text-sm">
-              Roles &amp; Programs
-            </a>
             <a
               href="/admin/program-template-manager.html"
               className="btn btn-primary text-sm"
