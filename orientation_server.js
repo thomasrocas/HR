@@ -971,12 +971,23 @@ apiRouter.get('/programs/:programId/templates', ensurePerm('template.read'), asy
       }
       status = normalizedStatus;
     }
+    const organizationParam = typeof req.query?.organization === 'string' ? req.query.organization : undefined;
+    const subUnitParam =
+      typeof req.query?.sub_unit === 'string'
+        ? req.query.sub_unit
+        : typeof req.query?.subUnit === 'string'
+          ? req.query.subUnit
+          : undefined;
+    const organization = organizationParam ? organizationParam.trim() : undefined;
+    const subUnit = subUnitParam ? subUnitParam.trim() : undefined;
     const result = await programTemplateLinksDao.listTemplatesForProgram({
       programId,
       includeDeleted,
       limit: req.query?.limit,
       offset: req.query?.offset,
       status,
+      organization: organization || undefined,
+      subUnit: subUnit || undefined,
     });
     res.json(result);
   } catch (err) {
