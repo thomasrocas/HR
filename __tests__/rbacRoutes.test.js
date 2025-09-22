@@ -27,6 +27,7 @@ describe('rbac admin routes', () => {
         username text unique,
         email text,
         full_name text,
+        organization text,
         password_hash text,
         provider text,
         last_login_at timestamptz,
@@ -146,5 +147,70 @@ describe('rbac admin routes', () => {
       [userId]
     ));
     expect(rows.map(r => r.role_key).sort()).toEqual(['trainee', 'viewer']);
+  });
+
+  test('admin can update user profile, trims organization, and prevents duplicate emails', async () => {
+    const adminId = crypto.randomUUID();
+    const targetId = crypto.randomUUID();
+    const otherId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query(
+      'insert into public.users(id, username, email, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6,$7)',
+      [adminId, 'admin', 'admin@example.com', 'Admin', 'Admin Org', hash, 'local']
+    );
+    await pool.query(
+      'insert into public.users(id, username, email, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6,$7)',
+      [targetId, 'user', 'user@example.com', 'User', 'Original Org', hash, 'local']
+    );
+    await pool.query(
+      'insert into public.users(id, username, email, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6,$7)',
+      [otherId, 'other', 'other@example.com', 'Other', null, hash, 'local']
+    );
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
+      adminId,
+      'admin',
+    ]);
+
+    const adminAgent = request.agent(app);
+    await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+    const updateRes = await adminAgent
+      .patch(`/api/users/${targetId}`)
+      .send({ name: '  Updated User  ', email: '  updated@example.com  ', organization: '  Example Org  ' })
+      .expect(200);
+
+    expect(updateRes.body).toMatchObject({
+      id: targetId,
+      full_name: 'Updated User',
+      name: 'Updated User',
+      email: 'updated@example.com',
+      organization: 'Example Org',
+    });
+    expect(Array.isArray(updateRes.body.roles)).toBe(true);
+
+    let { rows } = await pool.query('select email, full_name, organization from public.users where id=$1', [targetId]);
+    expect(rows[0]).toEqual({
+      email: 'updated@example.com',
+      full_name: 'Updated User',
+      organization: 'Example Org',
+    });
+
+    await adminAgent
+      .patch(`/api/users/${targetId}`)
+      .send({ email: 'other@example.com' })
+      .expect(409);
+
+    const clearedRes = await adminAgent
+      .patch(`/api/users/${targetId}`)
+      .send({ organization: '   ' })
+      .expect(200);
+    expect(clearedRes.body.organization).toBeNull();
+
+    ({ rows } = await pool.query('select organization from public.users where id=$1', [targetId]));
+    expect(rows[0]).toEqual({ organization: null });
+
+    const listRes = await adminAgent.get('/rbac/users').expect(200);
+    const refreshed = listRes.body.find(u => u.id === targetId);
+    expect(refreshed.organization).toBeNull();
   });
 });

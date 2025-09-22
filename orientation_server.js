@@ -1227,6 +1227,141 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 
 // ==== 7) RBAC admin ====
 
+app.patch('/api/users/:id', ensureAuth, async (req, res) => {
+  const isAdmin = req.roles.includes('admin');
+  const isManager = req.roles.includes('manager');
+  if (!(isAdmin || isManager)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const { id } = req.params;
+  if (!isValidUuid(id)) {
+    return res.status(400).json({ error: 'invalid_user_id' });
+  }
+  const body = req.body || {};
+  const hasNameField =
+    Object.prototype.hasOwnProperty.call(body, 'full_name') ||
+    Object.prototype.hasOwnProperty.call(body, 'fullName') ||
+    Object.prototype.hasOwnProperty.call(body, 'name');
+  let normalizedName;
+  if (hasNameField) {
+    let rawName = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'full_name')) {
+      rawName = body.full_name;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'fullName')) {
+      rawName = body.fullName;
+    } else if (Object.prototype.hasOwnProperty.call(body, 'name')) {
+      rawName = body.name;
+    }
+    if (rawName === null || rawName === undefined) {
+      normalizedName = null;
+    } else {
+      const trimmed = String(rawName).trim();
+      normalizedName = trimmed === '' ? null : trimmed;
+    }
+  }
+  const hasEmailField = Object.prototype.hasOwnProperty.call(body, 'email');
+  let normalizedEmail;
+  if (hasEmailField) {
+    const emailRaw = body.email;
+    if (emailRaw === null || emailRaw === undefined) {
+      return res.status(400).json({ error: 'invalid_email' });
+    }
+    normalizedEmail = String(emailRaw).trim();
+    if (!normalizedEmail || !validEmail(normalizedEmail)) {
+      return res.status(400).json({ error: 'invalid_email' });
+    }
+  }
+  const organizationKeys = ['organization', 'org', 'organization_name', 'organizationName'];
+  let organizationProvided = false;
+  let normalizedOrganization;
+  for (const key of organizationKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      organizationProvided = true;
+      const raw = body[key];
+      if (raw === null || raw === undefined) {
+        normalizedOrganization = null;
+      } else {
+        const trimmed = String(raw).trim();
+        normalizedOrganization = trimmed === '' ? null : trimmed;
+      }
+      break;
+    }
+  }
+  if (!hasNameField && !hasEmailField && !organizationProvided) {
+    return res.status(400).json({ error: 'no_fields' });
+  }
+  try {
+    const { rows: existingRows } = await pool.query('select id from public.users where id=$1', [id]);
+    if (!existingRows.length) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    if (isManager && !isAdmin) {
+      const { rows: targetRoleRows } = await pool.query(
+        'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+        [id]
+      );
+      const targetRoles = targetRoleRows.map(r => r.role_key);
+      if (targetRoles.includes('admin')) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+    }
+    if (hasEmailField) {
+      const dup = await pool.query('select 1 from public.users where email=$1 and id<>$2', [normalizedEmail, id]);
+      if (dup.rowCount) {
+        return res.status(409).json({ error: 'already_exists' });
+      }
+    }
+    const sets = ['updated_at = now()'];
+    const values = [];
+    if (hasNameField) {
+      values.push(normalizedName);
+      sets.push(`full_name = $${values.length}`);
+    }
+    if (hasEmailField) {
+      values.push(normalizedEmail);
+      sets.push(`email = $${values.length}`);
+    }
+    if (organizationProvided) {
+      values.push(normalizedOrganization);
+      sets.push(`organization = $${values.length}`);
+    }
+    if (sets.length === 1) {
+      return res.status(400).json({ error: 'no_fields' });
+    }
+    values.push(id);
+    const sql = `
+      update public.users
+         set ${sets.join(', ')}
+       where id = $${values.length}
+       returning id;`;
+    const updateResult = await pool.query(sql, values);
+    if (!updateResult.rowCount) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const { rows: userRows } = await pool.query(
+      'select id, email, full_name, username, organization from public.users where id=$1',
+      [id]
+    );
+    const user = userRows[0];
+    const { rows: roleRows } = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+      [id]
+    );
+    res.json({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      name: user.full_name,
+      username: user.username,
+      organization: user.organization ?? null,
+      roles: roleRows.map(r => r.role_key),
+    });
+  } catch (err) {
+    console.error('PATCH /api/users/:id error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
 app.get('/rbac/users', async (req, res) => {
   try {
     if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
