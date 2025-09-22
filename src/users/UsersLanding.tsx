@@ -115,9 +115,17 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
     setEditingUser(user);
   };
 
-  const handleSaveProfile = async (values: { name: string; email: string }) => {
+  const handleSaveProfile = async (values: { name: string; email: string; organization: string }) => {
     if (!editingUser || !globalActions.canEdit) return;
-    await updateUser(editingUser.id, values);
+    const trimmedOrganization = values.organization.trim();
+    const payload = {
+      name: values.name,
+      email: values.email,
+      organization: trimmedOrganization ? trimmedOrganization : null,
+    };
+    const updated = await updateUser(editingUser.id, payload);
+    setUsers(prev => prev.map(u => (u.id === updated.id ? { ...u, ...updated } : u)));
+    setEditingUser(prev => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
     await fetchUsers();
   };
 
@@ -288,6 +296,7 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
             <tr>
               <th>Name</th>
               <th>Email</th>
+              <th>Organization</th>
               <th>Roles</th>
               <th>Status</th>
               <th>Programs</th>
@@ -298,17 +307,19 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
           <tbody>
             {users.length === 0 && (
               <tr>
-                <td colSpan={7} className="text-center py-8 text-[var(--text-muted)]">
+                <td colSpan={8} className="text-center py-8 text-[var(--text-muted)]">
                   No users. {globalActions.canInvite ? 'Create one?' : ''}
                 </td>
               </tr>
             )}
             {users.map(u => {
               const rowActions = getActionAvailability(currentUser, u);
+              const organizationDisplay = u.organization?.trim();
               return (
                 <tr key={u.id} className="border-t border-[var(--border)]">
                   <td className="whitespace-nowrap">{u.name}</td>
                   <td>{u.email}</td>
+                  <td>{organizationDisplay || '—'}</td>
                   <td className="space-x-1">
                     {u.roles.map(r => (
                       <span key={r} className={`badge badge-${r}`}>

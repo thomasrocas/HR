@@ -319,6 +319,7 @@
               <div>
                 <div id="selectedName" class="text-lg font-semibold">Select a user</div>
                 <div id="selectedUsername" class="text-sm text-slate-500">Search or choose a user to view their details.</div>
+                <div id="selectedOrganization" class="text-sm text-slate-500">Organization: —</div>
               </div>
               <div id="selectedStatus" class="hidden text-xs uppercase tracking-wide bg-slate-100 text-slate-600 px-3 py-1 rounded-full"></div>
             </div>
@@ -404,6 +405,10 @@
         <div>
           <label class="block text-sm mb-1" for="editFullName">Full name</label>
           <input id="editFullName" name="fullName" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Full name">
+        </div>
+        <div>
+          <label class="block text-sm mb-1" for="editOrganization">Organization</label>
+          <input id="editOrganization" name="organization" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Organization">
         </div>
         <div>
           <label class="block text-sm mb-1" for="editEmail">Email</label>
@@ -572,6 +577,7 @@ const elUserList = document.getElementById('userList');
 const elSelectedSummary = document.getElementById('selectedUserSummary');
 const elSelectedName = document.getElementById('selectedName');
 const elSelectedUsername = document.getElementById('selectedUsername');
+const elSelectedOrganization = document.getElementById('selectedOrganization');
 const elSelectedStatus = document.getElementById('selectedStatus');
 const elSelectedRoles = document.getElementById('selectedRoles');
 const elBtnReloadUsers = document.getElementById('btnReloadUsers');
@@ -605,6 +611,7 @@ const drawerRolesBox = document.getElementById('drawerRolesBox');
 const drawerProgramList = document.getElementById('drawerProgramList');
 
 const inputEditFullName = document.getElementById('editFullName');
+const inputEditOrganization = document.getElementById('editOrganization');
 const inputEditEmail = document.getElementById('editEmail');
 const inputCreateRoles = document.getElementById('createRoles');
 const textareaDeactivateReason = document.getElementById('deactivateReason');
@@ -636,6 +643,7 @@ function renderUsers(filter = '') {
     const idAttr = escapeHtml(u.id || '');
     const displayName = escapeHtml(u.full_name || '—');
     const username = escapeHtml(u.username || '');
+    const organization = escapeHtml(u.organization || '—');
     const status = escapeHtml(u.status || 'active');
     const roles = escapeHtml((u.roles || []).join(', ') || '—');
     const classes = active ? 'bg-white shadow-sm' : '';
@@ -643,6 +651,7 @@ function renderUsers(filter = '') {
     <button data-id="${idAttr}" class="w-full text-left px-3 py-2 border-b hover:bg-white ${classes}">
       <div class="font-medium">${displayName}</div>
       <div class="text-xs text-slate-500">${username}</div>
+      <div class="text-xs text-slate-500">Organization: ${organization}</div>
       <div class="text-xs text-slate-500">Status: ${status}</div>
       <div class="text-xs text-slate-500">Roles: ${roles}</div>
     </button>
@@ -683,12 +692,16 @@ function renderSelectedUser(user) {
     elSelectedSummary.textContent = '—';
     elSelectedName.textContent = 'Select a user';
     elSelectedUsername.textContent = 'Search or choose a user to view their details.';
+    if (elSelectedOrganization) elSelectedOrganization.textContent = 'Organization: —';
     elSelectedStatus.textContent = '';
     elSelectedStatus.classList.add('hidden');
     elSelectedRoles.innerHTML = '<span class="text-xs text-slate-500">Roles will appear once a user is selected.</span>';
     actionHint.textContent = 'Select a user to enable profile actions.';
     setUserActionState(false);
     setLifecycleButtons('');
+    if (inputEditFullName) inputEditFullName.value = '';
+    if (inputEditOrganization) inputEditOrganization.value = '';
+    if (inputEditEmail) inputEditEmail.value = '';
     return;
   }
 
@@ -697,6 +710,10 @@ function renderSelectedUser(user) {
   elSelectedSummary.textContent = user.full_name || user.username || '—';
   elSelectedName.textContent = displayName;
   elSelectedUsername.textContent = user.username || '—';
+  const organization = (user.organization || '').trim();
+  if (elSelectedOrganization) {
+    elSelectedOrganization.textContent = `Organization: ${organization || '—'}`;
+  }
   const status = user.status || '';
   if (status) {
     elSelectedStatus.textContent = status;
@@ -711,6 +728,7 @@ function renderSelectedUser(user) {
   programsUserName.textContent = displayName;
   lifecycleUserName.textContent = displayName;
   if (inputEditFullName) inputEditFullName.value = user.full_name || '';
+  if (inputEditOrganization) inputEditOrganization.value = user.organization || '';
   if (inputEditEmail) inputEditEmail.value = user.username || '';
   setUserActionState(true);
   setLifecycleButtons(status);
@@ -837,7 +855,11 @@ formEdit.addEventListener('submit', async e => {
   const formData = new FormData(formEdit);
   const payload = {
     full_name: (formData.get('fullName') || '').toString().trim(),
-    email: (formData.get('email') || '').toString().trim()
+    email: (formData.get('email') || '').toString().trim(),
+    organization: (() => {
+      const value = (formData.get('organization') || '').toString().trim();
+      return value ? value : null;
+    })()
   };
   if (!payload.email) {
     editMsg.textContent = 'Email is required.';
