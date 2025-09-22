@@ -684,6 +684,46 @@ test('api program template listing includes external link', async () => {
   expect(res.body.data[0].hyperlink).toBe(hyperlink);
 });
 
+test('legacy program template listing includes hyperlink', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+    userId,
+    'user4b-legacy',
+    hash,
+    'local',
+  ]);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
+    userId,
+    'admin',
+  ]);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'user4b-legacy', password: 'passpass' }).expect(200);
+
+  const progId = 'prog4b-legacy';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
+  const tmplId = nextTemplateId();
+  const hyperlink = 'https://legacy.example.com/resource';
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
+    tmplId,
+    1,
+    'tmp',
+    hyperlink,
+  ]);
+  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+    crypto.randomUUID(),
+    tmplId,
+    progId,
+  ]);
+
+  const res = await agent.get(`/programs/${progId}/templates`).expect(200);
+  expect(Array.isArray(res.body)).toBe(true);
+  expect(res.body).toHaveLength(1);
+  expect(res.body[0].external_link).toBe(hyperlink);
+  expect(res.body[0].hyperlink).toBe(hyperlink);
+});
+
 test('api program template patch updates hyperlink', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
