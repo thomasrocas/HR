@@ -96,6 +96,45 @@ const normalizeRoles = (value: unknown): User['roles'] => {
   return Array.from(seen);
 };
 
+export type UserProgramSummary = { id: string; name: string };
+
+export const normalizeUserPrograms = (value: unknown): UserProgramSummary[] => {
+  if (!Array.isArray(value)) return [];
+  const normalized: UserProgramSummary[] = [];
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (!trimmed) continue;
+      normalized.push({ id: trimmed, name: trimmed });
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    const idSource =
+      record.id ??
+      record.programId ??
+      record.program_id ??
+      record.slug ??
+      record.code ??
+      record.value ??
+      null;
+    const nameSource =
+      record.name ??
+      record.title ??
+      record.label ??
+      record.programName ??
+      record.program_name ??
+      record.display ??
+      null;
+    const id = idSource !== null && idSource !== undefined ? String(idSource) : null;
+    const name = nameSource !== null && nameSource !== undefined ? String(nameSource) : null;
+    if (id || name) {
+      normalized.push({ id: id ?? name ?? '', name: name ?? id ?? '' });
+    }
+  }
+  return normalized;
+};
+
 const normalizeUser = (raw: any): User => {
   if (!raw || typeof raw !== 'object') {
     return { id: '', name: '', email: '', roles: [], status: 'active' };
@@ -132,7 +171,7 @@ const normalizeUser = (raw: any): User => {
         ? String(emailCandidate).split('@')[0]
         : '';
 
-  return {
+  const user: User = {
     id: String(idCandidate ?? ''),
     name: fallbackName,
     email: String(emailCandidate ?? ''),
@@ -140,6 +179,20 @@ const normalizeUser = (raw: any): User => {
     roles,
     status,
   };
+
+  const programs = normalizeUserPrograms(
+    raw.programs ??
+      raw.programAssignments ??
+      raw.assigned_programs ??
+      raw.program_list ??
+      raw.assignments ??
+      [],
+  );
+  if (programs.length) {
+    (user as any).programs = programs;
+  }
+
+  return user;
 };
 
 const normalizeUsersResult = (payload: unknown): UserListResponse => {
@@ -482,6 +535,22 @@ export const assignPrograms = (
   return attemptRequests<unknown>(requests);
 };
 
+export const deleteUserProgram = (id: string, programId: string) => {
+  const requests = useMock
+    ? [
+        {
+          url: `/api/users/${id}/programs/${programId}`,
+          init: { method: 'DELETE' },
+        },
+      ]
+    : [
+        { url: `/rbac/users/${id}/programs/${programId}`, init: { method: 'DELETE' } },
+        { url: `/api/users/${id}/programs/${programId}`, init: { method: 'DELETE' } },
+      ];
+
+  return attemptRequests<unknown>(requests);
+};
+
 export const deactivateUser = (id: string, reason: string) =>
   apiFetch(`/api/users/${id}/deactivate`, { method: 'POST', body: JSON.stringify({ reason }) });
 
@@ -650,6 +719,10 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { data: u, meta: { total: u.length, page: 1 } } as any;
     case url === '/api/users' && method === 'POST':
       return { ...opts?.body && JSON.parse(opts.body.toString()), id: 'u-new' } as any;
+    case /^\/api\/users\/[^/]+\/programs$/.test(url) && method === 'POST':
+      return { assigned: true } as any;
+    case /^\/api\/users\/[^/]+\/programs\/[^/]+$/.test(url) && method === 'DELETE':
+      return { deleted: true } as any;
     case /^\/api\/users\/[^/]+$/.test(url) && method === 'PATCH': {
       const id = url.split('/').at(-1) ?? '';
       const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
