@@ -1214,6 +1214,9 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
     num_weeks,
     trainee
   } = body;
+  if (!isValidUuid(userId)) {
+    return res.status(400).json({ error: 'invalid_user_id' });
+  }
   const { rows: roleRows } = await pool.query(
     'select r.role_key from user_roles ur join roles r on ur.role_id=r.role_id where ur.user_id=$1',
     [userId]
