@@ -327,6 +327,40 @@ describe('task routes authorization', () => {
       .expect(403);
   });
 
+  test('trainee patch with privileged null fields is rejected', async () => {
+    const traineeId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+      [traineeId, 'trainee', hash, 'local', 'Trainee Owner']
+    );
+
+    await pool.query(
+      'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+      [traineeId, 'trainee']
+    );
+
+    const taskId = crypto.randomUUID();
+    await pool.query(
+      'insert into public.orientation_tasks(task_id, user_id, label, journal_entry) values ($1,$2,$3,$4)',
+      [taskId, traineeId, 'task', null]
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'trainee', password: 'passpass' }).expect(200);
+
+    await agent
+      .patch(`/tasks/${taskId}`)
+      .send({
+        journal_entry: 'owner update',
+        responsible_person: null,
+        scheduled_time: null,
+        scheduled_for: null,
+      })
+      .expect(403);
+  });
+
   test('task owner without admin or manager role cannot move task', async () => {
     await pool.query(`
       insert into public.role_permissions(role_id, perm_key)

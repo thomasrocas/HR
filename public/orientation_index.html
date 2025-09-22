@@ -888,6 +888,32 @@ function App({ me, onSignOut }){
   const isTrainee = (me?.roles || []).includes('trainee');
   const isReadOnly = (me?.roles || []).some(r => r === 'viewer' || r === 'auditor');
   const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
+  const canEditSchedule = hasPerm('task.assign') && isPrivileged && !isTrainee;
+  const canEditResponsible = hasPerm('task.update') && isPrivileged && !isTrainee;
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const modal = document.getElementById('orientationTaskModal');
+    const scheduleFlag = canEditSchedule ? 'true' : 'false';
+    const responsibleFlag = canEditResponsible ? 'true' : 'false';
+    if (modal) {
+      modal.dataset.canEditSchedule = scheduleFlag;
+      modal.dataset.canEditResponsible = responsibleFlag;
+    }
+    if (document.body) {
+      document.body.dataset.orientationCanEditSchedule = scheduleFlag;
+      document.body.dataset.orientationCanEditResponsible = responsibleFlag;
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orientation:permissions', {
+        detail: {
+          canEditSchedule,
+          canEditResponsible,
+        },
+      }));
+    }
+    return undefined;
+  }, [canEditSchedule, canEditResponsible]);
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -3621,6 +3647,61 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const dayjsGlobal = window.dayjs || null;
       let timeOptionsReady = false;
 
+      const normalizeBoolean = (value) => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          const lower = value.toLowerCase();
+          if (lower === 'true') return true;
+          if (lower === 'false') return false;
+        }
+        return false;
+      };
+
+      const readPermissionState = (override = {}) => {
+        const bodyDataset = (document.body && document.body.dataset) || {};
+        const scheduleRaw = Object.prototype.hasOwnProperty.call(override, 'canEditSchedule')
+          ? override.canEditSchedule
+          : (typeof modal.dataset.canEditSchedule !== 'undefined'
+            ? modal.dataset.canEditSchedule
+            : bodyDataset.orientationCanEditSchedule);
+        const responsibleRaw = Object.prototype.hasOwnProperty.call(override, 'canEditResponsible')
+          ? override.canEditResponsible
+          : (typeof modal.dataset.canEditResponsible !== 'undefined'
+            ? modal.dataset.canEditResponsible
+            : bodyDataset.orientationCanEditResponsible);
+        return {
+          schedule: normalizeBoolean(scheduleRaw),
+          responsible: normalizeBoolean(responsibleRaw)
+        };
+      };
+
+      let permissionState = readPermissionState();
+
+      const applyFieldPermissions = () => {
+        const scheduleAllowed = permissionState.schedule;
+        const responsibleAllowed = permissionState.responsible;
+        if (timeField) {
+          timeField.disabled = !scheduleAllowed;
+          timeField.setAttribute('aria-disabled', scheduleAllowed ? 'false' : 'true');
+        }
+        if (responsibleField) {
+          responsibleField.disabled = !responsibleAllowed;
+          responsibleField.readOnly = !responsibleAllowed;
+          responsibleField.setAttribute('aria-disabled', responsibleAllowed ? 'false' : 'true');
+        }
+      };
+
+      const handlePermissionUpdate = (event) => {
+        permissionState = readPermissionState((event && event.detail) || {});
+        applyFieldPermissions();
+      };
+
+      applyFieldPermissions();
+      if (typeof window !== 'undefined' && modal && modal.dataset.permissionsListenerReady !== 'true') {
+        window.addEventListener('orientation:permissions', handlePermissionUpdate);
+        modal.dataset.permissionsListenerReady = 'true';
+      }
+
       const ensureTimeOptions = () => {
         if (!timeField || timeOptionsReady) return;
         const minutes = ['00', '15', '30', '45'];
@@ -3783,8 +3864,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
     };
 
     const openModal = (trigger) => {
+      if (!trigger) return;
       activeTrigger = trigger;
-      lastFocusedElement = document.activeElement;
+      lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      permissionState = readPermissionState();
+      applyFieldPermissions();
       const { dataset } = trigger;
       modal.dataset.taskId = dataset.taskId || '';
       if (fieldMap.title) fieldMap.title.textContent = toDisplay(dataset.title || trigger.textContent || '—');
@@ -3824,8 +3908,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           }
           return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
         };
-        const validTime = clampTimeToWindow(existingTime) || '07:00';
-        timeField.value = validTime;
+        if (permissionState.schedule) {
+          const validTime = clampTimeToWindow(existingTime) || '07:00';
+          timeField.value = validTime;
+        } else {
+          const readonlyTime = clampTimeToWindow(existingTime) || '';
+          timeField.value = readonlyTime;
+        }
       }
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
       const journalValue = dataset.journal_entry && dataset.journal_entry !== '—' ? dataset.journal_entry : '';
@@ -3867,13 +3956,18 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const timeValue = timeField ? timeField.value : '';
       const parentDay = activeTrigger.closest('[data-date]');
       const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
-      const scheduledForValue = combineScheduledWithTime(activeTrigger.dataset.scheduled_for || '', timeValue, parentDate);
+      const datasetScheduledFor = activeTrigger.dataset.scheduled_for || '';
+      const scheduledForValue = permissionState.schedule
+        ? combineScheduledWithTime(datasetScheduledFor || '', timeValue, parentDate)
+        : datasetScheduledFor;
 
       const payload = {
-        journal_entry: entryValue.trim() === '' ? null : entryValue,
-        responsible_person: responsibleValue.trim() === '' ? null : responsibleValue
+        journal_entry: entryValue.trim() === '' ? null : entryValue
       };
-      if (timeField) {
+      if (permissionState.responsible) {
+        payload.responsible_person = responsibleValue.trim() === '' ? null : responsibleValue;
+      }
+      if (permissionState.schedule) {
         payload.scheduled_time = timeValue ? timeValue : null;
         payload.scheduled_for = scheduledForValue ? scheduledForValue : null;
       }
@@ -3894,21 +3988,35 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       activeTrigger.dataset.journal_entry = journalDisplay;
       activeTrigger.dataset.responsible_person = responsibleDisplay;
 
+      const datasetTimeValue = activeTrigger.dataset.scheduled_time && activeTrigger.dataset.scheduled_time !== '—'
+        ? activeTrigger.dataset.scheduled_time
+        : parseTimeString(activeTrigger.dataset.scheduled_for);
+
       let nextScheduledFor = scheduledForValue;
       if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_for')) {
         nextScheduledFor = updatedRow.scheduled_for || '';
+      } else if (!permissionState.schedule) {
+        nextScheduledFor = datasetScheduledFor;
       }
 
-      let nextTimeValue = timeValue;
+      let nextTimeValue = permissionState.schedule ? timeValue : (datasetTimeValue || '');
       if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_time')) {
         nextTimeValue = updatedRow.scheduled_time || '';
-      } else if (!nextTimeValue && nextScheduledFor) {
+      } else if (permissionState.schedule && !nextTimeValue && nextScheduledFor) {
         const derived = parseTimeString(nextScheduledFor);
         if (derived) nextTimeValue = derived;
+      } else if (!permissionState.schedule) {
+        nextTimeValue = datasetTimeValue || '';
       }
 
       if (timeField) {
-        activeTrigger.dataset.scheduled_time = nextTimeValue || '';
+        if (permissionState.schedule) {
+          activeTrigger.dataset.scheduled_time = nextTimeValue || '';
+          timeField.value = nextTimeValue || '';
+        } else {
+          activeTrigger.dataset.scheduled_time = datasetTimeValue || '';
+          timeField.value = datasetTimeValue || '';
+        }
       }
       activeTrigger.dataset.scheduled_for = nextScheduledFor || '';
 
@@ -3921,8 +4029,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           taskId,
           journal_entry: typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue,
           responsible_person: typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue,
-          scheduled_time: timeField ? (nextTimeValue || '') : timeValue,
-          scheduled_for: typeof updatedRow.scheduled_for !== 'undefined' ? updatedRow.scheduled_for : scheduledForValue
+          scheduled_time: typeof updatedRow.scheduled_time !== 'undefined'
+            ? updatedRow.scheduled_time
+            : (permissionState.schedule ? (nextTimeValue || '') : (datasetTimeValue || '')),
+          scheduled_for: typeof updatedRow.scheduled_for !== 'undefined' ? updatedRow.scheduled_for : nextScheduledFor
         }
       }));
       closeModal();
