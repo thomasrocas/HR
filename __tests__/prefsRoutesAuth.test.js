@@ -85,8 +85,32 @@ describe('preferences routes', () => {
     let res = await agent.get('/prefs').expect(200);
     expect(res.body.program_id).toBe('prog1');
 
-    res = await agent.patch('/prefs').send({ program_id: 'prog2' }).expect(200);
+    res = await agent.patch('/prefs').send({ user_id: userId, program_id: 'prog2' }).expect(200);
     expect(res.body.program_id).toBe('prog2');
+  });
+
+  test('returns 400 when body user_id is invalid and does not run preference queries', async () => {
+    const userId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+      [userId, 'invalidpatch', hash, 'local', 'Invalid Patch User']
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'invalidpatch', password: 'passpass' }).expect(200);
+
+    const querySpy = jest.spyOn(pool, 'query');
+
+    const res = await agent.patch('/prefs').send({ user_id: 'not-a-uuid', program_id: 'prog1' }).expect(400);
+    expect(res.body).toEqual({ error: 'invalid_user_id' });
+
+    const roleQueryCalls = querySpy.mock.calls.filter(
+      call => typeof call[0] === 'string' && call[0].includes('from user_roles ur join roles r on ur.role_id=r.role_id where ur.user_id=$1')
+    );
+    expect(roleQueryCalls).toHaveLength(0);
+
+    querySpy.mockRestore();
   });
 
   test.each(['not-a-uuid', '12345', ''])('returns 400 when user_id query is invalid (%s)', async invalidUserId => {
