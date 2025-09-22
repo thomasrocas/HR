@@ -24,9 +24,13 @@ export interface Template {
   updatedAt?: string;
   status?: 'draft' | 'published' | 'deprecated';
   deletedAt?: string | null;
+
   disciplineType?: string | null;
   typeDelivery?: string | null;
   department?: string | null;
+  organization: string | null;
+  subUnit: string | null;
+
 }
 
 type UserListResponse = { data: User[]; meta: { total: number; page: number } };
@@ -341,7 +345,7 @@ const normalizeProgramList = (payload: unknown): ProgramListResponse => {
 
 const normalizeTemplate = (raw: any): Template => {
   if (!raw || typeof raw !== 'object') {
-    return { id: '', programId: '', name: '', category: 'General' };
+    return { id: '', programId: '', name: '', category: 'General', organization: null, subUnit: null };
   }
 
   const idCandidate = raw.id ?? raw.template_id ?? raw.uid ?? '';
@@ -353,11 +357,43 @@ const normalizeTemplate = (raw: any): Template => {
     ? (statusCandidate as Template['status'])
     : undefined;
   const updatedCandidate = raw.updatedAt ?? raw.updated_at ?? raw.updated ?? raw.modified_at ?? null;
+
   const disciplineTypeSource =
     raw.discipline_type ?? raw.disciplineType ?? raw.discipline ?? undefined;
   const typeDeliverySource =
     raw.type_delivery ?? raw.typeDelivery ?? raw.delivery_type ?? raw.deliveryType ?? undefined;
   const departmentSource = raw.department ?? raw.department_name ?? undefined;
+
+  const organizationSource =
+    raw.organization ??
+    raw.org ??
+    raw.organization_name ??
+    raw.organizationName ??
+    raw.org_name ??
+    null;
+  let organization: string | null = null;
+  if (typeof organizationSource === 'string') {
+    const trimmed = organizationSource.trim();
+    organization = trimmed ? trimmed : null;
+  } else if (organizationSource === null) {
+    organization = null;
+  }
+  const subUnitSource =
+    raw.subUnit ??
+    raw.sub_unit ??
+    raw.subunit ??
+    raw.subUnitName ??
+    raw.sub_unit_name ??
+    raw.department ??
+    null;
+  let subUnit: string | null = null;
+  if (typeof subUnitSource === 'string') {
+    const trimmed = subUnitSource.trim();
+    subUnit = trimmed ? trimmed : null;
+  } else if (subUnitSource === null) {
+    subUnit = null;
+  }
+
 
   const template: Template = {
     id: String(idCandidate ?? ''),
@@ -367,6 +403,8 @@ const normalizeTemplate = (raw: any): Template => {
         ? String(nameCandidate)
         : `Template ${String(idCandidate ?? '')}`,
     category: String(categoryCandidate ?? 'General'),
+    organization,
+    subUnit,
   };
   if (disciplineTypeSource !== undefined) {
     let normalized: string | null;
@@ -483,9 +521,13 @@ const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, u
     programId: _programId,
     updatedAt: _updatedAt,
     deletedAt: _deletedAt,
+
     disciplineType,
     typeDelivery,
     department,
+    organization,
+    subUnit,
+
     ...rest
   } = payload;
   const body: Record<string, unknown> = { ...rest };
@@ -501,6 +543,7 @@ const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, u
       body.status = normalized;
     }
   }
+
   const hasDisciplineType =
     Object.prototype.hasOwnProperty.call(payload, 'disciplineType') ||
     Object.prototype.hasOwnProperty.call(payload as Record<string, unknown>, 'discipline_type');
@@ -540,6 +583,22 @@ const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, u
       body.department = trimmed ? trimmed : null;
     } else if (department === null) {
       body.department = null;
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'organization')) {
+    if (typeof organization === 'string') {
+      const trimmed = organization.trim();
+      body.organization = trimmed ? trimmed : null;
+    } else if (organization === null) {
+      body.organization = null;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'subUnit')) {
+    if (typeof subUnit === 'string') {
+      const trimmed = subUnit.trim();
+      body.sub_unit = trimmed ? trimmed : null;
+    } else if (subUnit === null) {
+      body.sub_unit = null;
+
     }
   }
   return body;
@@ -825,10 +884,14 @@ export const cloneProgram = (id: string) =>
 
 export const getProgramTemplates = async (
   programId: string,
-  params: { includeDeleted?: boolean } = {},
+  params: { includeDeleted?: boolean; organization?: string | null; subUnit?: string | null } = {},
 ): Promise<TemplateListResponse> => {
   const search = new URLSearchParams();
   if (params.includeDeleted) search.set('include_deleted', 'true');
+  const organization = params.organization?.trim();
+  if (organization) search.set('organization', organization);
+  const subUnit = params.subUnit?.trim();
+  if (subUnit) search.set('sub_unit', subUnit);
   const query = search.toString();
   const raw = await apiFetch<unknown>(
     `${programTemplatesBase(programId)}${query ? `?${query}` : ''}`,
@@ -918,9 +981,32 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
     case /^\/programs\/[^/]+\/restore$/.test(url) && method === 'POST':
       return { restored: true } as any;
     case /^\/programs\/[^/]+\/templates(?:\?.*)?$/.test(url) && method === 'GET': {
-      const programId = url.split('/')[2]?.split('?')[0];
+      const urlObj = new URL(url, 'https://example.com');
+      const pathParts = urlObj.pathname.split('/');
+      const programId = pathParts[2] ?? '';
+      const organizationParam = urlObj.searchParams.get('organization');
+      const subUnitParam = urlObj.searchParams.get('sub_unit');
+      const includeDeleted = urlObj.searchParams.get('include_deleted') === 'true';
+      let data = seed.templates.filter(t => t.programId === programId);
+      if (!includeDeleted) {
+        data = data.filter(t => !t.deletedAt);
+      }
+      if (organizationParam) {
+        const normalizedOrg = organizationParam.trim().toLowerCase();
+        if (normalizedOrg) {
+          data = data.filter(
+            template => (template.organization ?? '').trim().toLowerCase() === normalizedOrg,
+          );
+        }
+      }
+      if (subUnitParam) {
+        const normalizedSub = subUnitParam.trim().toLowerCase();
+        if (normalizedSub) {
+          data = data.filter(template => (template.subUnit ?? '').trim().toLowerCase() === normalizedSub);
+        }
+      }
       return {
-        data: seed.templates.filter(t => t.programId === programId),
+        data,
       } as any;
     }
     case /^\/programs\/[^/]+\/templates$/.test(url) && method === 'POST': {
@@ -1036,9 +1122,14 @@ export const seed = {
       category: 'Engineering',
       updatedAt: '2024-05-15',
       status: 'published',
+
       disciplineType: 'Technical',
       typeDelivery: 'Virtual',
       department: 'Engineering',
+
+      organization: 'People Ops',
+      subUnit: 'New Hires',
+
     },
     {
       id: 't2',
@@ -1047,9 +1138,25 @@ export const seed = {
       category: 'Operations',
       updatedAt: '2024-04-20',
       status: 'draft',
+
       disciplineType: 'Operations',
       typeDelivery: 'In-person',
       department: 'Retail',
+
+      organization: 'People Ops',
+      subUnit: 'Leadership',
+    },
+    {
+      id: 't3',
+      programId: 'p1',
+      name: 'Onboarding Checklist',
+      category: 'General',
+      updatedAt: '2024-03-01',
+      status: 'deprecated',
+      deletedAt: '2024-06-01',
+      organization: 'People Ops',
+      subUnit: 'New Hires',
+
     },
   ] as Template[],
   audit: [
