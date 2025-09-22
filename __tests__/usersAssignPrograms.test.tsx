@@ -1,5 +1,3 @@
-jest.mock('react', () => require('../test-utils/reactStub'));
-
 import UsersLanding from '../src/users/UsersLanding';
 import { User } from '../src/rbac';
 import ReactStub = require('../test-utils/reactStub');
@@ -87,27 +85,32 @@ describe('UsersLanding program assignment flow', () => {
     jest.useRealTimers();
   });
 
-  it('removes an assigned program after confirmation', async () => {
+  it('renders assigned programs from fetch and removes them after unassigning', async () => {
     const assignedUser = {
       id: 'user-1',
-      name: 'Trainee User',
       email: 'trainee@example.com',
+      full_name: 'Trainee User',
       roles: ['trainee'],
       status: 'active',
-      programs: [
-        { id: 'orientation', name: 'Orientation Program' },
+      assigned_programs: [
+        { program_id: 'orientation', title: 'Orientation Program' },
       ],
-    } as unknown as User;
+    } as unknown as typeof apiModule.seed.users[number];
 
     const refreshedUser = {
       ...assignedUser,
-      programs: [],
-    } as unknown as User;
+      assigned_programs: [],
+    } as typeof assignedUser;
 
+    apiModule.seed.users = [assignedUser];
+
+    jest.useFakeTimers();
     const root = (ReactStub as any).__createRoot(UsersLanding, { currentUser: adminUser });
-    root.hooks[0] = [assignedUser];
-    root.render();
-    await flushPromises();
+
+    for (let i = 0; i < 3; i += 1) {
+      jest.runOnlyPendingTimers();
+      await flushPromises();
+    }
 
     expect(containsText(root.tree, 'Orientation Program')).toBe(true);
 
@@ -116,17 +119,15 @@ describe('UsersLanding program assignment flow', () => {
 
     const alertMock = jest.fn();
     (globalThis as any).alert = alertMock;
-    apiModule.seed.users = [refreshedUser as unknown as typeof apiModule.seed.users[number]];
+    apiModule.seed.users = [refreshedUser];
 
-    jest.useFakeTimers();
     void removeButton.props.onClick({ preventDefault() {}, stopPropagation() {} });
-    jest.runAllTimers();
-    await flushPromises();
-    jest.useRealTimers();
+    for (let i = 0; i < 3; i += 1) {
+      jest.runOnlyPendingTimers();
+      await flushPromises();
+    }
 
-    root.hooks[0] = [refreshedUser];
-    root.render();
-    await flushPromises();
+    jest.useRealTimers();
 
     expect((globalThis as any).confirm).toHaveBeenCalledWith('Remove Orientation Program from Trainee User?');
     expect(alertMock).toHaveBeenCalledWith('Orientation Program removed from Trainee User');

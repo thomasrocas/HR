@@ -51,11 +51,34 @@ describe('rbac admin routes', () => {
         role_id int references public.roles(role_id),
         perm_key text
       );
+      create table public.programs (
+        program_id uuid primary key,
+        title text,
+        deleted boolean default false
+      );
+      create table public.orientation_tasks (
+        task_id uuid primary key,
+        user_id uuid,
+        trainee text,
+        label text,
+        scheduled_for date,
+        scheduled_time time,
+        due_date date,
+        done boolean,
+        program_id uuid,
+        week_number int,
+        notes text,
+        journal_entry text,
+        responsible_person text,
+        deleted boolean default false
+      );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
   });
 
   afterEach(async () => {
+    await pool.query('delete from public.orientation_tasks');
+    await pool.query('delete from public.programs');
     await pool.query('delete from public.session');
     await pool.query('delete from public.users');
     await pool.query('delete from public.user_roles');
@@ -70,11 +93,28 @@ describe('rbac admin routes', () => {
     await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [userId, 'user', 'User', hash, 'local']);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
 
+    const programId = crypto.randomUUID();
+    await pool.query('insert into public.programs(program_id, title) values ($1,$2)', [programId, 'Orientation Program']);
+    await pool.query(
+      'insert into public.orientation_tasks(task_id, user_id, label, program_id, deleted) values ($1,$2,$3,$4,false)',
+      [crypto.randomUUID(), userId, 'Welcome Task', programId]
+    );
+
     const adminAgent = request.agent(app);
     await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
 
     const listRes = await adminAgent.get('/rbac/users').expect(200);
     expect(listRes.body.length).toBe(2);
+    const targetUser = listRes.body.find(entry => entry.id === userId);
+    expect(targetUser).toBeTruthy();
+    expect(targetUser.assigned_programs).toEqual([
+      {
+        id: programId,
+        name: 'Orientation Program',
+        program_id: programId,
+        title: 'Orientation Program',
+      },
+    ]);
 
     await adminAgent.patch(`/rbac/users/${userId}/roles`).send({ roles: ['manager'] }).expect(200);
     const { rows } = await pool.query('select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1', [userId]);
