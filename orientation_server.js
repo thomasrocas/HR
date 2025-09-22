@@ -2193,6 +2193,102 @@ const copySql = `
   }
 });
 
+app.delete('/rbac/users/:id/programs/:program_id', ensureAuth, async (req, res) => {
+  try {
+    const { id: targetUserId, program_id: programId } = req.params;
+    if (!targetUserId || !programId) {
+      return res.status(400).json({ error: 'invalid_request' });
+    }
+
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const hasManagerRole = roles.includes('manager');
+
+    let canManage = isAdmin || hasManagerRole;
+    if (!canManage) {
+      try {
+        canManage = await userManagesProgram(req.user.id, programId);
+      } catch (_e) {
+        /* ignore permission lookup errors */
+      }
+    }
+
+    if (!canManage) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const result = await withTransaction(req, async client => {
+      const { rowCount: userExists } = await client.query(
+        'select 1 from public.users where id=$1 limit 1',
+        [targetUserId]
+      );
+      if (!userExists) {
+        throw createHttpError(404, 'user_not_found');
+      }
+
+      const { rowCount: deletedTasks } = await client.query(
+        `update public.orientation_tasks
+            set deleted = true
+          where user_id = $1
+            and program_id = $2`,
+        [targetUserId, programId]
+      );
+
+      let clearedPreference = false;
+      try {
+        const prefRows = await client.query(
+          'select program_id from public.user_preferences where user_id = $1',
+          [targetUserId]
+        );
+        if (prefRows.rows.length && prefRows.rows[0].program_id === programId) {
+          const updateResult = await client.query(
+            `update public.user_preferences
+                set program_id = null,
+                    start_date = null,
+                    due_date = null,
+                    num_weeks = null,
+                    notes = null,
+                    updated_at = now()
+              where user_id = $1`,
+            [targetUserId]
+          );
+          clearedPreference = updateResult.rowCount > 0;
+        }
+      } catch (_prefErr) {
+        /* ignore when preferences table is unavailable */
+      }
+
+      try {
+        await client.query(
+          `delete from program_memberships
+            where user_id = $1
+              and program_id = $2
+              and role <> 'manager'`,
+          [targetUserId, programId]
+        );
+      } catch (_membershipErr) {
+        /* ignore when memberships table is unavailable */
+      }
+
+      return { deletedTasks, clearedPreference };
+    });
+
+    res.json({ ok: true, deleted: result.deletedTasks, clearedPreference: result.clearedPreference });
+  } catch (err) {
+    if (err && typeof err === 'object' && err.status === 404) {
+      return res.status(404).json({ error: err.code || 'not_found' });
+    }
+    if (err && typeof err === 'object' && err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_request' });
+    }
+    if (err && typeof err === 'object' && err.status === 403) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    console.error('DELETE /rbac/users/:id/programs/:program_id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==== 8) API: tasks (per-user) ====
 // Expect public.orientation_tasks to include: user_id uuid references users(id)
 // If you haven’t added user_id yet, run the migration described in comments below.

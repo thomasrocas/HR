@@ -5,10 +5,12 @@ import {
   updateUser,
   updateUserRoles,
   assignPrograms as assignProgramsApi,
+  deleteUserProgram,
   deactivateUser,
   reactivateUser,
   archiveUser,
   getPrograms,
+  normalizeUserPrograms,
   seed,
 } from '../api';
 import type { Program } from '../api';
@@ -22,6 +24,8 @@ import ConfirmUserActionModal from './ConfirmUserActionModal';
  * Landing page for managing users.
  * Provides search, filters, table, and modals/drawers for user lifecycle actions.
  */
+type AssignedProgram = ReturnType<typeof normalizeUserPrograms>[number];
+
 export default function UsersLanding({ currentUser }: { currentUser: User }) {
   const [users, setUsers] = useState<User[]>([]);
   const [query, setQuery] = useState('');
@@ -34,6 +38,7 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
     user: User;
   } | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [removingProgram, setRemovingProgram] = useState<{ userId: string; programId: string } | null>(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -145,6 +150,33 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
     await assignProgramsApi(programModalUser.id, values);
     await fetchUsers();
   };
+
+  const handleRemoveProgram = useCallback(
+    async (user: User, program: AssignedProgram) => {
+      if (!globalActions.canAssignPrograms || !program.id) return;
+      const confirmationMessage = `Remove ${program.name} from ${user.name}?`;
+      const confirmed =
+        typeof window === 'undefined' || typeof window.confirm !== 'function'
+          ? true
+          : window.confirm(confirmationMessage);
+      if (!confirmed) return;
+      setRemovingProgram({ userId: user.id, programId: program.id });
+      try {
+        await deleteUserProgram(user.id, program.id);
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert(`${program.name} removed from ${user.name}`);
+        }
+        await fetchUsers();
+      } catch (_err) {
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert('Failed to remove program. Please try again.');
+        }
+      } finally {
+        setRemovingProgram(null);
+      }
+    },
+    [fetchUsers, globalActions.canAssignPrograms],
+  );
 
   const handleCloseAssign = () => {
     setProgramModalUser(null);
@@ -328,12 +360,41 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
                     ))}
                   </td>
                   <td>{u.status}</td>
-                  <td className="space-x-1">
-                    {(u as any).programs?.map((p: string) => (
-                      <span key={p} className="badge bg-[var(--brand-accent)] text-white">
-                        {p}
-                      </span>
-                    ))}
+                  <td>
+                    {(() => {
+                      const assigned = normalizeUserPrograms((u as any).programs);
+                      if (!assigned.length) {
+                        return <span className="text-[var(--text-muted)]">—</span>;
+                      }
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          {assigned.map(program => {
+                            const isRemoving =
+                              removingProgram?.userId === u.id && removingProgram?.programId === program.id;
+                            const canRemove = globalActions.canAssignPrograms && Boolean(program.id);
+                            return (
+                              <span
+                                key={`${u.id}-${program.id}`}
+                                className="inline-flex items-center gap-1 badge bg-[var(--brand-accent)] text-white"
+                              >
+                                <span>{program.name}</span>
+                                {canRemove && (
+                                  <button
+                                    type="button"
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold leading-none text-white hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-white/70 disabled:opacity-60"
+                                    aria-label={`Remove ${program.name}`}
+                                    onClick={() => handleRemoveProgram(u, program)}
+                                    disabled={isRemoving}
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td>{(u as any).lastActive ?? '--'}</td>
                   <td className="flex flex-wrap gap-2">

@@ -897,6 +897,107 @@ test('rbac instantiate applies scheduling metadata', async () => {
   expect(pref.num_weeks).toBe(4);
 });
 
+test('admin can unassign a program and remove assigned tasks', async () => {
+  const adminId = crypto.randomUUID();
+  const adminHash = await bcrypt.hash('passpass', 1);
+  await pool.query(
+    'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+    [adminId, 'admin-unassign', adminHash, 'local', 'Admin User'],
+  );
+  await pool.query(
+    'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+    [adminId, 'admin'],
+  );
+
+  const assigneeId = crypto.randomUUID();
+  await pool.query(
+    'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+    [assigneeId, 'trainee-unassign', adminHash, 'local', 'Trainee User'],
+  );
+
+  const agent = request.agent(app);
+  await agent
+    .post('/auth/local/login')
+    .send({ username: 'admin-unassign', password: 'passpass' })
+    .expect(200);
+
+  const progId = 'unassign-prog';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [
+    progId,
+    'Unassignable Program',
+    adminId,
+  ]);
+
+  const tmplId = nextTemplateId();
+  await pool.query(
+    'insert into public.program_task_templates(template_id, week_number, label, notes) values ($1,$2,$3,$4)',
+    [tmplId, 1, 'Orientation call', 'Template note'],
+  );
+  await pool.query(
+    'insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)',
+    [crypto.randomUUID(), tmplId, progId],
+  );
+
+  const startDate = '2024-03-04';
+  const dueDate = '2024-03-25';
+
+  await agent
+    .post(`/rbac/users/${assigneeId}/programs/${progId}/instantiate`)
+    .send({ startDate, dueDate, notes: 'Weekly check-in' })
+    .expect(200);
+
+  let tasks = await pool.query(
+    'select program_id, deleted from public.orientation_tasks where user_id=$1',
+    [assigneeId],
+  );
+  expect(tasks.rows).toHaveLength(1);
+  expect(tasks.rows[0].program_id).toBe(progId);
+  expect(tasks.rows[0].deleted).toBe(false);
+
+  let prefs = await pool.query(
+    'select program_id, start_date, due_date, num_weeks, notes from public.user_preferences where user_id=$1',
+    [assigneeId],
+  );
+  expect(prefs.rows).toHaveLength(1);
+  const prefBefore = prefs.rows[0];
+  const toDateString = value => (value instanceof Date ? value.toISOString().slice(0, 10) : value);
+  expect(prefBefore.program_id).toBe(progId);
+  expect(toDateString(prefBefore.start_date)).toBe(startDate);
+  expect(toDateString(prefBefore.due_date)).toBe(dueDate);
+  expect(prefBefore.num_weeks).toBeGreaterThan(0);
+  expect(prefBefore.notes).toBe('Weekly check-in');
+
+  const deleteRes = await agent
+    .delete(`/rbac/users/${assigneeId}/programs/${progId}`)
+    .expect(200);
+  expect(deleteRes.body).toMatchObject({ ok: true });
+  expect(deleteRes.body.deleted).toBeGreaterThanOrEqual(0);
+
+  tasks = await pool.query(
+    'select deleted from public.orientation_tasks where user_id=$1 and program_id=$2',
+    [assigneeId, progId],
+  );
+  expect(tasks.rows.every(row => row.deleted === true)).toBe(true);
+
+  const activeCount = await pool.query(
+    'select count(*)::int as count from public.orientation_tasks where user_id=$1 and program_id=$2 and coalesce(deleted,false) = false',
+    [assigneeId, progId],
+  );
+  expect(activeCount.rows[0].count).toBe(0);
+
+  prefs = await pool.query(
+    'select program_id, start_date, due_date, num_weeks, notes from public.user_preferences where user_id=$1',
+    [assigneeId],
+  );
+  expect(prefs.rows).toHaveLength(1);
+  const prefAfter = prefs.rows[0];
+  expect(prefAfter.program_id).toBeNull();
+  expect(prefAfter.start_date).toBeNull();
+  expect(prefAfter.due_date).toBeNull();
+  expect(prefAfter.num_weeks).toBeNull();
+  expect(prefAfter.notes).toBeNull();
+});
+
 test('deleted task can be restored', async () => {
   const userId = crypto.randomUUID();
   const hash = await bcrypt.hash('passpass', 1);
