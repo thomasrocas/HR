@@ -1408,6 +1408,8 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
                         coalesce(l.sort_order, t.sort_order) as sort_order,
                         t.status,
                         t.deleted_at,
+                        t.external_link as external_link,
+                        t.external_link as hyperlink,
                         l.id as link_id,
                         l.created_at,
                         l.updated_at,
@@ -1447,6 +1449,15 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
     const sanitizedNotes = notes === null ? null : toNullableString(notes);
     const sanitizedLabel = label === null || label === undefined ? null : toNullableString(label);
     const sanitizedVisible = toNullableBoolean(visible);
+    let externalLinkRaw = null;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'external_link')) {
+      externalLinkRaw = req.body.external_link;
+    } else if (Object.prototype.hasOwnProperty.call(req.body || {}, 'externalLink')) {
+      externalLinkRaw = req.body.externalLink;
+    } else if (Object.prototype.hasOwnProperty.call(req.body || {}, 'hyperlink')) {
+      externalLinkRaw = req.body.hyperlink;
+    }
+    const sanitizedExternalLink = toNullableString(externalLinkRaw);
     let status = null;
     if (typeof req.body?.status === 'string') {
       const normalized = req.body.status.toLowerCase();
@@ -1457,9 +1468,9 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
     }
     const sql = `
       with inserted as (
-        insert into public.program_task_templates (week_number, label, notes, due_offset_days, required, visibility, sort_order, status)
-        values ($1,$2,$3,$4,$5,$6,$7,$8)
-        returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at
+        insert into public.program_task_templates (week_number, label, notes, due_offset_days, required, visibility, sort_order, status, external_link)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        returning template_id, week_number, label, notes, due_offset_days, required, visibility, sort_order, status, deleted_at, external_link
       ), linked as (
         insert into public.program_template_links (
           template_id,
@@ -1475,16 +1486,16 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
           updated_by
         )
         select template_id,
-               $9,
+               $10,
                week_number,
                sort_order,
                due_offset_days,
                required,
                visibility,
-               coalesce($10, true),
+               coalesce($11, true),
                notes,
-               $11,
-               $11
+               $12,
+               $12
           from inserted
         returning id as link_id,
                   template_id,
@@ -1513,6 +1524,8 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
              l.sort_order,
              i.status,
              i.deleted_at,
+             i.external_link as external_link,
+             i.external_link as hyperlink,
              l.link_id,
              l.created_at,
              l.updated_at,
@@ -1529,6 +1542,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
       sanitizedVisibility,
       sanitizedSortOrder,
       status ?? 'draft',
+      sanitizedExternalLink,
       program_id,
       sanitizedVisible,
       req.user?.id ?? null,
