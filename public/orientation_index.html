@@ -964,6 +964,8 @@ function App({ me, onSignOut }){
   const [acctUsername, setAcctUsername] = useState(me?.username || '');
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [acctMsg, setAcctMsg] = useState('');
   const [pwMsg, setPwMsg] = useState('');
 
@@ -3041,11 +3043,43 @@ useEffect(() => {
                 <form className="space-y-2" onSubmit={changePassword}>
                   <div>
                     <label htmlFor="pw_current" className="text-sm block mb-1">Current Password</label>
-                    <input id="pw_current" type="password" className="input" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
+                    <div className="relative">
+                      <input
+                        id="pw_current"
+                        type={showCurrentPassword ? 'text' : 'password'}
+                        className="input pr-10"
+                        value={pwCurrent}
+                        onChange={e=> setPwCurrent(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-700"
+                        onClick={()=> setShowCurrentPassword(v => !v)}
+                        aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+                      >
+                        <span aria-hidden="true">{showCurrentPassword ? '🙈' : '👁️'}</span>
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label htmlFor="pw_new" className="text-sm block mb-1">New Password</label>
-                    <input id="pw_new" type="password" className="input" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
+                    <div className="relative">
+                      <input
+                        id="pw_new"
+                        type={showNewPassword ? 'text' : 'password'}
+                        className="input pr-10"
+                        value={pwNew}
+                        onChange={e=> setPwNew(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-700"
+                        onClick={()=> setShowNewPassword(v => !v)}
+                        aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                      >
+                        <span aria-hidden="true">{showNewPassword ? '🙈' : '👁️'}</span>
+                      </button>
+                    </div>
                   </div>
                   {pwMsg && <div className="text-xs text-slate-500">{pwMsg}</div>}
                   <button className="btn btn-primary w-full mt-2" type="submit">Change Password</button>
