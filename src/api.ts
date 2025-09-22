@@ -717,6 +717,8 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   switch (true) {
     case url.startsWith('/api/users?'):
       return { data: u, meta: { total: u.length, page: 1 } } as any;
+    case url === '/api/users' && method === 'GET':
+      return { data: u, meta: { total: u.length, page: 1 } } as any;
     case url === '/api/users' && method === 'POST':
       return { ...opts?.body && JSON.parse(opts.body.toString()), id: 'u-new' } as any;
     case /^\/api\/users\/[^/]+\/programs$/.test(url) && method === 'POST':

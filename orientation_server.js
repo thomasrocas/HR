@@ -1383,25 +1383,93 @@ app.get('/rbac/users', async (req, res) => {
   try {
     if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
     const sqlWithOrganization = `
-      select u.id, u.full_name, u.username, u.organization,
-             coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
+      select
+        u.id,
+        u.full_name,
+        u.username,
+        u.organization,
+        coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
+        coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
       from public.users u
       left join public.user_roles ur on ur.user_id = u.id
       left join roles r on r.role_id = ur.role_id
-      group by u.id
+      left join (
+        select
+          dedup.user_id,
+          array_agg(dedup.program_id::text || '|~|' || dedup.display order by dedup.display) as program_pairs
+        from (
+          select distinct
+            ot.user_id,
+            ot.program_id,
+            coalesce(p.title, ot.program_id::text) as display
+          from public.orientation_tasks ot
+          left join public.programs p on p.program_id = ot.program_id
+          where coalesce(ot.deleted, false) = false
+            and ot.program_id is not null
+        ) dedup
+        group by dedup.user_id
+      ) assigned on assigned.user_id = u.id
+      group by u.id, u.full_name, u.username, u.organization, assigned.program_pairs
       order by u.full_name`;
     const sqlWithoutOrganization = `
-      select u.id, u.full_name, u.username,
-             coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
+      select
+        u.id,
+        u.full_name,
+        u.username,
+        coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
+        coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
       from public.users u
       left join public.user_roles ur on ur.user_id = u.id
       left join roles r on r.role_id = ur.role_id
-      group by u.id
+      left join (
+        select
+          dedup.user_id,
+          array_agg(dedup.program_id::text || '|~|' || dedup.display order by dedup.display) as program_pairs
+        from (
+          select distinct
+            ot.user_id,
+            ot.program_id,
+            coalesce(p.title, ot.program_id::text) as display
+          from public.orientation_tasks ot
+          left join public.programs p on p.program_id = ot.program_id
+          where coalesce(ot.deleted, false) = false
+            and ot.program_id is not null
+        ) dedup
+        group by dedup.user_id
+      ) assigned on assigned.user_id = u.id
+      group by u.id, u.full_name, u.username, assigned.program_pairs
       order by u.full_name`;
     let resultRows;
     try {
       const { rows } = await pool.query(sqlWithOrganization);
-      resultRows = rows.map(r => ({ ...r, roles: r.roles || [] }));
+      resultRows = rows.map(r => {
+        const { assigned_program_pairs: rawPairs, ...rest } = r;
+        const assignments = Array.isArray(rawPairs) ? rawPairs : [];
+        const assignedPrograms = assignments
+          .map(value => {
+            if (typeof value !== 'string') return null;
+            const parts = value.split('|~|');
+            const idRaw = parts.shift() ?? '';
+            const nameRaw = parts.join('|~|');
+            const trimmedId = idRaw.trim();
+            const trimmedName = nameRaw.trim();
+            if (!trimmedId && !trimmedName) return null;
+            const finalId = trimmedId || trimmedName;
+            const finalName = trimmedName || trimmedId;
+            return {
+              id: finalId,
+              name: finalName,
+              program_id: finalId,
+              title: finalName,
+            };
+          })
+          .filter(Boolean);
+        return {
+          ...rest,
+          roles: rest.roles || [],
+          assigned_programs: assignedPrograms,
+        };
+      });
     } catch (queryError) {
       if (
         queryError &&
@@ -1409,7 +1477,35 @@ app.get('/rbac/users', async (req, res) => {
         queryError.message.toLowerCase().includes('u.organization')
       ) {
         const { rows } = await pool.query(sqlWithoutOrganization);
-        resultRows = rows.map(r => ({ ...r, roles: r.roles || [], organization: null }));
+        resultRows = rows.map(r => {
+          const { assigned_program_pairs: rawPairs, ...rest } = r;
+          const assignments = Array.isArray(rawPairs) ? rawPairs : [];
+          const assignedPrograms = assignments
+            .map(value => {
+              if (typeof value !== 'string') return null;
+              const parts = value.split('|~|');
+              const idRaw = parts.shift() ?? '';
+              const nameRaw = parts.join('|~|');
+              const trimmedId = idRaw.trim();
+              const trimmedName = nameRaw.trim();
+              if (!trimmedId && !trimmedName) return null;
+              const finalId = trimmedId || trimmedName;
+              const finalName = trimmedName || trimmedId;
+              return {
+                id: finalId,
+                name: finalName,
+                program_id: finalId,
+                title: finalName,
+              };
+            })
+            .filter(Boolean);
+          return {
+            ...rest,
+            roles: rest.roles || [],
+            organization: null,
+            assigned_programs: assignedPrograms,
+          };
+        });
       } else {
         throw queryError;
       }
