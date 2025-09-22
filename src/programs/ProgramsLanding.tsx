@@ -11,6 +11,7 @@ import {
   Program,
   Template,
 } from '../api';
+import { ORGANIZATION_OPTIONS, SUB_UNIT_OPTIONS } from '../../shared/field-options.js';
 import { can, User } from '../rbac';
 
 type TabKey = 'programs' | 'templates' | 'assignments';
@@ -64,8 +65,8 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
   const refreshPrograms = useCallback(async () => {
     const response = await getPrograms({
       query: searchQuery,
-      organization: organizationFilter,
-      subUnit: subUnitFilter,
+      organization: organizationFilter || undefined,
+      subUnit: subUnitFilter || undefined,
     });
     setPrograms(response.data);
     setSelectedProgramId(prev => {
@@ -84,25 +85,19 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
         setTemplates([]);
         return [] as Template[];
       }
-      const trimmedOrganization = templateOrganizationFilter.trim();
-      const trimmedSubUnit = templateSubUnitFilter.trim();
+      const organization = templateOrganizationFilter || undefined;
+      const subUnit = templateSubUnitFilter || undefined;
       const response = await getProgramTemplates(targetProgramId, {
         includeDeleted: true,
-        organization: trimmedOrganization || undefined,
-        subUnit: trimmedSubUnit || undefined,
+        organization,
+        subUnit,
       });
       let filtered = response.data;
-      if (trimmedOrganization) {
-        const normalizedOrg = trimmedOrganization.toLowerCase();
-        filtered = filtered.filter(
-          template => (template.organization ?? '').trim().toLowerCase() === normalizedOrg,
-        );
+      if (organization) {
+        filtered = filtered.filter(template => (template.organization ?? '') === organization);
       }
-      if (trimmedSubUnit) {
-        const normalizedSub = trimmedSubUnit.toLowerCase();
-        filtered = filtered.filter(
-          template => (template.subUnit ?? '').trim().toLowerCase() === normalizedSub,
-        );
+      if (subUnit) {
+        filtered = filtered.filter(template => (template.subUnit ?? '') === subUnit);
       }
       setTemplates(filtered);
       return response.data;
@@ -308,27 +303,37 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                 <label htmlFor="program-organization" className="text-[var(--text-muted)]">
                   Organization
                 </label>
-                <input
+                <select
                   id="program-organization"
                   className="form-field"
-                  placeholder="e.g. People Ops"
                   value={organizationFilter}
                   onChange={event => setOrganizationFilter(event.target.value)}
-                  onBlur={event => setOrganizationFilter(event.target.value.trim())}
-                />
+                >
+                  <option value="">All organizations</option>
+                  {ORGANIZATION_OPTIONS.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex flex-col gap-1 text-sm">
                 <label htmlFor="program-sub-unit" className="text-[var(--text-muted)]">
                   Sub-unit
                 </label>
-                <input
+                <select
                   id="program-sub-unit"
                   className="form-field"
-                  placeholder="e.g. New Hire Experience"
                   value={subUnitFilter}
                   onChange={event => setSubUnitFilter(event.target.value)}
-                  onBlur={event => setSubUnitFilter(event.target.value.trim())}
-                />
+                >
+                  <option value="">All sub-units</option>
+                  {SUB_UNIT_OPTIONS.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
             {can(currentUser, 'create', 'program') && (
@@ -457,29 +462,39 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                 <label htmlFor="template-organization-filter" className="text-[var(--text-muted)]">
                   Organization
                 </label>
-                <input
+                <select
                   id="template-organization-filter"
                   className="form-field"
-                  placeholder="e.g. People Ops"
                   value={templateOrganizationFilter}
                   onChange={event => setTemplateOrganizationFilter(event.target.value)}
-                  onBlur={event => setTemplateOrganizationFilter(event.target.value.trim())}
                   disabled={!selectedProgramId}
-                />
+                >
+                  <option value="">All organizations</option>
+                  {ORGANIZATION_OPTIONS.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex flex-col gap-1 text-sm">
                 <label htmlFor="template-sub-unit-filter" className="text-[var(--text-muted)]">
                   Sub-unit
                 </label>
-                <input
+                <select
                   id="template-sub-unit-filter"
                   className="form-field"
-                  placeholder="e.g. New Hire Experience"
                   value={templateSubUnitFilter}
                   onChange={event => setTemplateSubUnitFilter(event.target.value)}
-                  onBlur={event => setTemplateSubUnitFilter(event.target.value.trim())}
                   disabled={!selectedProgramId}
-                />
+                >
+                  <option value="">All sub-units</option>
+                  {SUB_UNIT_OPTIONS.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
