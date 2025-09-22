@@ -329,6 +329,14 @@
                 <span class="text-slate-500">Roles will appear once a user is selected.</span>
               </div>
             </div>
+
+            <div class="mt-4">
+              <div class="text-xs font-semibold uppercase text-slate-500">Assigned programs</div>
+              <div id="selectedPrograms" class="mt-2 flex flex-col gap-2 text-xs text-slate-600">
+                <span class="text-slate-500">Programs will appear once a user is selected.</span>
+              </div>
+              <div id="selectedProgramsFeedback" class="mt-2 text-xs text-slate-500"></div>
+            </div>
           </div>
 
           <div class="border rounded-xl p-4">
@@ -531,6 +539,13 @@ async function preloadForUser(userId, programId) {
     credentials: 'include'
   });
 }
+
+async function removeUserProgram(userId, programId) {
+  return fetch(`${API}/rbac/users/${userId}/programs/${encodeURIComponent(programId)}`, {
+    method: 'DELETE',
+    credentials: 'include'
+  });
+}
 async function createUser(payload) {
   return fetch(`${API}/api/users`, {
     method: 'POST',
@@ -580,6 +595,8 @@ const elSelectedUsername = document.getElementById('selectedUsername');
 const elSelectedOrganization = document.getElementById('selectedOrganization');
 const elSelectedStatus = document.getElementById('selectedStatus');
 const elSelectedRoles = document.getElementById('selectedRoles');
+const elSelectedPrograms = document.getElementById('selectedPrograms');
+const elSelectedProgramsFeedback = document.getElementById('selectedProgramsFeedback');
 const elBtnReloadUsers = document.getElementById('btnReloadUsers');
 const actionHint = document.getElementById('actionHint');
 
@@ -670,6 +687,31 @@ function renderRolesChips(user) {
   `).join('');
 }
 
+function renderProgramAssignments(user) {
+  if (!elSelectedPrograms) return;
+  const programs = user && Array.isArray(user.assigned_programs) ? user.assigned_programs : [];
+  if (!programs.length) {
+    elSelectedPrograms.innerHTML = '<span class="text-xs text-slate-500">No programs assigned.</span>';
+    return;
+  }
+  elSelectedPrograms.innerHTML = programs.map(program => {
+    const rawId = program && (program.program_id ?? program.id ?? '');
+    const hasId = typeof rawId === 'string' ? rawId.trim().length > 0 : Boolean(rawId);
+    const programId = escapeHtml(hasId ? rawId : '');
+    const programName = escapeHtml(program?.title ?? program?.name ?? (hasId ? rawId : '') || 'Program');
+    const buttonAttrs = hasId
+      ? `data-program-id="${programId}" data-program-name="${programName}"`
+      : 'disabled';
+    const buttonLabel = hasId ? 'Remove' : 'Unavailable';
+    return `
+      <div class="flex items-center justify-between gap-3 border rounded-xl px-3 py-2 bg-slate-50">
+        <span class="truncate" title="${programName}">${programName}</span>
+        <button type="button" class="btn btn-danger-outline text-xs" ${buttonAttrs}>${buttonLabel}</button>
+      </div>
+    `;
+  }).join('');
+}
+
 function setLifecycleButtons(status) {
   const normalized = (status || '').toLowerCase();
   const allowDeactivate = normalized ? ['active', 'pending'].includes(normalized) : true;
@@ -696,6 +738,12 @@ function renderSelectedUser(user) {
     elSelectedStatus.textContent = '';
     elSelectedStatus.classList.add('hidden');
     elSelectedRoles.innerHTML = '<span class="text-xs text-slate-500">Roles will appear once a user is selected.</span>';
+    if (elSelectedPrograms) {
+      elSelectedPrograms.innerHTML = '<span class="text-xs text-slate-500">Programs will appear once a user is selected.</span>';
+    }
+    if (elSelectedProgramsFeedback) {
+      elSelectedProgramsFeedback.textContent = '';
+    }
     actionHint.textContent = 'Select a user to enable profile actions.';
     setUserActionState(false);
     setLifecycleButtons('');
@@ -723,6 +771,10 @@ function renderSelectedUser(user) {
     elSelectedStatus.classList.add('hidden');
   }
   renderRolesChips(user);
+  renderProgramAssignments(user);
+  if (elSelectedProgramsFeedback) {
+    elSelectedProgramsFeedback.textContent = '';
+  }
   actionHint.textContent = `Managing ${displayName}.`;
   rolesUserName.textContent = displayName;
   programsUserName.textContent = displayName;
@@ -780,6 +832,58 @@ elUserList.addEventListener('click', e => {
 elBtnReloadUsers.addEventListener('click', async () => {
   await reloadUsers();
 });
+
+if (elSelectedPrograms) {
+  elSelectedPrograms.addEventListener('click', async event => {
+    const btn = event.target.closest('button[data-program-id]');
+    if (!btn || !elSelectedPrograms.contains(btn)) return;
+    if (!selectedUser) return;
+    const programId = btn.getAttribute('data-program-id');
+    if (!programId) return;
+    const programName = btn.getAttribute('data-program-name') || 'Program';
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+    if (elSelectedProgramsFeedback) {
+      elSelectedProgramsFeedback.textContent = '';
+    }
+    try {
+      const res = await removeUserProgram(selectedUser.id, programId);
+      if (res.ok) {
+        await reloadUsers(true);
+        if (elSelectedProgramsFeedback) {
+          elSelectedProgramsFeedback.textContent = `${programName} removed.`;
+        }
+        return;
+      }
+      let message = 'Failed to remove program.';
+      if (res.status === 403) {
+        message = 'You do not have permission to remove this program.';
+      } else if (res.status === 404) {
+        message = 'Program assignment not found.';
+      } else {
+        try {
+          const errorText = await res.text();
+          if (errorText) message = errorText;
+        } catch (readErr) {
+          console.error(readErr);
+        }
+      }
+      if (elSelectedProgramsFeedback) {
+        elSelectedProgramsFeedback.textContent = message;
+      }
+    } catch (err) {
+      console.error(err);
+      if (elSelectedProgramsFeedback) {
+        elSelectedProgramsFeedback.textContent = 'Failed to remove program.';
+      }
+    } finally {
+      if (!btn.isConnected) return;
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+}
 
 btnOpenCreate.addEventListener('click', () => {
   formCreate.reset();
