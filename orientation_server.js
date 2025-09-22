@@ -1230,7 +1230,7 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 app.get('/rbac/users', async (req, res) => {
   try {
     if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
-    const sql = `
+    const sqlWithOrganization = `
       select u.id, u.full_name, u.username, u.organization,
              coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
       from public.users u
@@ -1238,8 +1238,31 @@ app.get('/rbac/users', async (req, res) => {
       left join roles r on r.role_id = ur.role_id
       group by u.id
       order by u.full_name`;
-    const { rows } = await pool.query(sql);
-    res.json(rows.map(r => ({ ...r, roles: r.roles || [] })));
+    const sqlWithoutOrganization = `
+      select u.id, u.full_name, u.username,
+             coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles
+      from public.users u
+      left join public.user_roles ur on ur.user_id = u.id
+      left join roles r on r.role_id = ur.role_id
+      group by u.id
+      order by u.full_name`;
+    let resultRows;
+    try {
+      const { rows } = await pool.query(sqlWithOrganization);
+      resultRows = rows.map(r => ({ ...r, roles: r.roles || [] }));
+    } catch (queryError) {
+      if (
+        queryError &&
+        typeof queryError.message === 'string' &&
+        queryError.message.toLowerCase().includes('u.organization')
+      ) {
+        const { rows } = await pool.query(sqlWithoutOrganization);
+        resultRows = rows.map(r => ({ ...r, roles: r.roles || [], organization: null }));
+      } else {
+        throw queryError;
+      }
+    }
+    res.json(resultRows);
   } catch (err) {
     console.error('GET /rbac/users error', err);
     res.status(500).json({ error: 'Internal server error' });

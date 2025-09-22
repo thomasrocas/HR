@@ -108,6 +108,9 @@ export default function ConfirmUserActionModal({
           <p>
             <span className="font-medium">{user?.name}</span> will be {action === 'reactivate' ? 'restored' : action}.
           </p>
+          <p className="mt-1 text-[var(--text-muted)]">
+            Organization: {user?.organization ? user.organization : '—'}
+          </p>
           <p className="mt-2 text-[var(--text-muted)]">{copy.description}</p>
         </div>
         {action === 'deactivate' && (

@@ -8,6 +8,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  organization?: string | null;
   roles: Role[];
   status: 'active' | 'pending' | 'suspended' | 'archived';
 }

@@ -4,14 +4,15 @@ import UserModal from './UserModal';
 
 export interface EditUserModalProps {
   open: boolean;
-  user: Pick<User, 'name' | 'email'> | null;
+  user: Pick<User, 'name' | 'email' | 'organization'> | null;
   onClose: () => void;
-  onSave: (values: { name: string; email: string }) => Promise<void>;
+  onSave: (values: { name: string; email: string; organization: string }) => Promise<void>;
 }
 
 export default function EditUserModal({ open, user, onClose, onSave }: EditUserModalProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [organization, setOrganization] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -19,10 +20,12 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
     if (open && user) {
       setName(user.name);
       setEmail(user.email);
+      setOrganization(user.organization ?? '');
     }
     if (!open) {
       setName('');
       setEmail('');
+      setOrganization('');
       setError('');
       setSubmitting(false);
     }
@@ -34,7 +37,7 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
     try {
       setSubmitting(true);
       setError('');
-      await onSave({ name: name.trim(), email: email.trim() });
+      await onSave({ name: name.trim(), email: email.trim(), organization: organization.trim() });
       onClose();
     } catch (_err) {
       setError('Unable to update the profile. Please try again.');
@@ -79,6 +82,17 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
             value={name}
             onChange={event => setName(event.target.value)}
             placeholder="Jane Doe"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            Organization
+          </label>
+          <input
+            className="w-full border border-[var(--border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+            value={organization}
+            onChange={event => setOrganization(event.target.value)}
+            placeholder="Acme Corp"
           />
         </div>
         <div className="space-y-1">

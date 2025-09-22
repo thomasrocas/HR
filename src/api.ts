@@ -109,6 +109,22 @@ const normalizeUser = (raw: any): User => {
     ? (statusCandidate as User['status'])
     : 'active';
   const roles = normalizeRoles(raw.roles ?? raw.role_keys ?? raw.role ?? []);
+  const organizationSource =
+    raw.organization ??
+    raw.org ??
+    raw.organization_name ??
+    raw.organizationName ??
+    raw.org_name ??
+    raw.company ??
+    raw.employer ??
+    null;
+  let organization: string | null = null;
+  if (typeof organizationSource === 'string') {
+    const trimmed = organizationSource.trim();
+    organization = trimmed ? trimmed : null;
+  } else if (organizationSource === null) {
+    organization = null;
+  }
   const fallbackName =
     rawName && String(rawName).trim().length
       ? String(rawName)
@@ -120,6 +136,7 @@ const normalizeUser = (raw: any): User => {
     id: String(idCandidate ?? ''),
     name: fallbackName,
     email: String(emailCandidate ?? ''),
+    organization,
     roles,
     status,
   };
@@ -608,6 +625,16 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { data: u, meta: { total: u.length, page: 1 } } as any;
     case url === '/api/users' && method === 'POST':
       return { ...opts?.body && JSON.parse(opts.body.toString()), id: 'u-new' } as any;
+    case /^\/api\/users\/[^/]+$/.test(url) && method === 'PATCH': {
+      const id = url.split('/').at(-1) ?? '';
+      const payload = (opts?.body && JSON.parse(opts.body.toString())) || {};
+      const existing = u.find(user => user.id === id);
+      return {
+        ...existing,
+        ...payload,
+        id,
+      } as any;
+    }
     case (url === PROGRAMS_BASE || url.startsWith(`${PROGRAMS_BASE}?`)) && method === 'GET':
       return { data: p, meta: { total: p.length, page: 1 } } as any;
     case url === PROGRAMS_BASE && method === 'POST':
