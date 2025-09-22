@@ -1293,13 +1293,6 @@ useEffect(() => {
     }
   }
 
-  const progress = useMemo(()=>{
-    const all = weeks.flatMap(w=> w.tasks||[]);
-    const done = all.filter(t=> t.completed).length;
-    const total = all.length || 1;
-    return {done, total, pct: Math.round(100*done/total)};
-  }, [weeks]);
-
   const calendarRange = useMemo(() => {
     const startOfGrid = dayjs(startDate).startOf('week');
     const totalDays = Math.max(7, numWeeks * 7);
@@ -1365,6 +1358,44 @@ useEffect(() => {
   }, [programVisibility]);
 
   const calendarEvents = calendarMode === 'all' ? allCalendarEvents : singleProgramCalendarEvents;
+
+  const progress = useMemo(() => {
+    const normalizeCompletion = (value) => {
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value !== 0;
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return false;
+        return ['true', '1', 'yes', 'y', 'done', 'complete', 'completed', 'checked', 'on'].includes(normalized);
+      }
+      return Boolean(value);
+    };
+
+    const collectTasks = () => {
+      if (calendarMode === 'all') {
+        const events = Array.isArray(calendarEvents) ? calendarEvents : [];
+        if (!events.length) return [];
+        const filterSet = visibleProgramSet;
+        return events.filter((event) => {
+          if (!event) return false;
+          if (!filterSet) return true;
+          const programId = String(event.programId || event.program_id || '');
+          if (!programId) return false;
+          return filterSet.has(programId);
+        });
+      }
+      return weeks.flatMap((week) => week?.tasks || []).filter(Boolean);
+    };
+
+    const tasks = collectTasks();
+    const total = tasks.length || 1;
+    const done = tasks.reduce((acc, task) => {
+      const completionValue = task?.completed ?? task?.done;
+      return acc + (normalizeCompletion(completionValue) ? 1 : 0);
+    }, 0);
+
+    return { done, total, pct: Math.round((done / total) * 100) };
+  }, [calendarMode, calendarEvents, visibleProgramSet, weeks]);
 
   const legendPrograms = useMemo(() => (
     Array.isArray(allCalendarPrograms)
