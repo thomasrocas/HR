@@ -451,11 +451,36 @@ export const updateUserRoles = async (id: string, roles: string[]): Promise<User
 export const assignPrograms = (
   id: string,
   payload: { programId: string; startDate: string; dueDate: string; notes?: string },
-) =>
-  apiFetch(`/api/users/${id}/programs`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+) => {
+  const { programId, startDate, dueDate, notes } = payload;
+  const requests = useMock
+    ? [
+        {
+          url: `/api/users/${id}/programs`,
+          init: { method: 'POST', body: JSON.stringify(payload) },
+        },
+      ]
+    : [
+        {
+          url: `/rbac/users/${id}/programs/${programId}/instantiate`,
+          init: {
+            method: 'POST',
+            body: JSON.stringify({
+              programId,
+              startDate,
+              dueDate,
+              notes: typeof notes === 'string' ? notes : undefined,
+            }),
+          },
+        },
+        {
+          url: `/api/users/${id}/programs`,
+          init: { method: 'POST', body: JSON.stringify(payload) },
+        },
+      ];
+
+  return attemptRequests<unknown>(requests);
+};
 
 export const deactivateUser = (id: string, reason: string) =>
   apiFetch(`/api/users/${id}/deactivate`, { method: 'POST', body: JSON.stringify({ reason }) });

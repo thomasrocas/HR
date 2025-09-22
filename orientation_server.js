@@ -57,6 +57,20 @@ const toNullableString = value => {
   const trimmed = str.trim();
   return trimmed === '' ? null : trimmed;
 };
+
+const toNullableDateString = value => {
+  const str = toNullableString(value);
+  if (str === null) return null;
+  const normalized = str.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw createValidationError('invalid_date');
+  }
+  const parsed = new Date(`${normalized}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw createValidationError('invalid_date');
+  }
+  return normalized;
+};
 let transporter;
 try {
   const nodemailer = require('nodemailer');
@@ -2070,6 +2084,25 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     }
     if (!canManage) return res.status(403).json({ error: 'forbidden' });
 
+    const body = req.body || {};
+    const startDateValue = toNullableDateString(body.startDate ?? body.start_date);
+    const dueDateValue = toNullableDateString(body.dueDate ?? body.due_date);
+    const assignmentNotes = toNullableString(body.notes ?? body.assignmentNotes ?? body.assignment_notes);
+
+    let numWeeks = null;
+    if (startDateValue && dueDateValue) {
+      const start = new Date(`${startDateValue}T00:00:00Z`);
+      const due = new Date(`${dueDateValue}T00:00:00Z`);
+      if (due < start) {
+        throw createValidationError('invalid_due_date');
+      }
+      const dayMs = 24 * 60 * 60 * 1000;
+      const diffMs = due.getTime() - start.getTime();
+      numWeeks = Math.max(1, Math.ceil((diffMs + dayMs) / (7 * dayMs)));
+    } else if (dueDateValue && !startDateValue) {
+      throw createValidationError('invalid_start_date');
+    }
+
     // Get target user's display name for the "trainee" field
     const { rows: urows } = await pool.query(
       'select id, full_name from public.users where id=$1',
@@ -2080,11 +2113,29 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
     const trainee = urows[0].full_name || '';
 
     // Copy program templates to target user's orientation_tasks
-    
+
 const copySql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, journal_entry, responsible_person)
-  select $1, $2, t.label, null, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes), null, null
+    (user_id, trainee, label, scheduled_for, scheduled_time, due_date, done, program_id, week_number, notes, journal_entry, responsible_person)
+  select $1,
+         $2,
+         t.label,
+         case
+           when $4::date is null then null
+           else $4::date
+         end,
+         null,
+         $5::date,
+         false,
+         l.program_id,
+         coalesce(l.week_number, t.week_number),
+         case
+           when $6 is not null and $6 <> '' and coalesce(l.notes, t.notes) is not null then coalesce(l.notes, t.notes) || E'\n\n' || $6
+           when $6 is not null and $6 <> '' then $6
+           else coalesce(l.notes, t.notes)
+         end,
+         null,
+         null
   from public.program_task_templates t
   join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
@@ -2099,18 +2150,44 @@ const copySql = `
   order by coalesce(l.week_number, t.week_number), coalesce(l.sort_order, t.sort_order), t.template_id
   returning task_id;`;
 
-    const { rowCount } = await pool.query(copySql, [targetUserId, trainee, program_id]);
+    const { rowCount } = await pool.query(copySql, [
+      targetUserId,
+      trainee,
+      program_id,
+      startDateValue,
+      dueDateValue,
+      assignmentNotes ?? null,
+    ]);
+
+    const traineePreference = trainee && trainee.trim() ? trainee : null;
 
     // Make this program the target user's current program preference (so their UI opens on it)
     await pool.query(`
-      insert into public.user_preferences (user_id, program_id, updated_at)
-      values ($1, $2, now())
+      insert into public.user_preferences (user_id, program_id, start_date, due_date, num_weeks, trainee, notes, updated_at)
+      values ($1, $2, $3, $4, $5, $6, $7, now())
       on conflict (user_id) do update
-        set program_id = excluded.program_id, updated_at = now()
-    `, [targetUserId, program_id]);
+        set program_id = excluded.program_id,
+            start_date = excluded.start_date,
+            due_date = excluded.due_date,
+            num_weeks = excluded.num_weeks,
+            trainee = coalesce(excluded.trainee, public.user_preferences.trainee),
+            notes = excluded.notes,
+            updated_at = now()
+    `, [
+      targetUserId,
+      program_id,
+      startDateValue,
+      dueDateValue,
+      numWeeks,
+      traineePreference,
+      assignmentNotes ?? null,
+    ]);
 
     res.json({ ok: true, created: rowCount });
   } catch (err) {
+    if (err && typeof err === 'object' && err.status === 400) {
+      return res.status(400).json({ error: err.code || 'invalid_request' });
+    }
     console.error('POST /rbac/users/:id/programs/:program_id/instantiate error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -2438,9 +2515,18 @@ create index if not exists idx_program_template_links_program on public.program_
 alter table public.orientation_tasks
   add column if not exists user_id uuid references public.users(id);
 
+alter table public.orientation_tasks
+  add column if not exists due_date date;
+
 -- Soft delete flag for tasks
 alter table public.orientation_tasks
   add column if not exists deleted boolean default false;
+
+alter table public.user_preferences
+  add column if not exists due_date date;
+
+alter table public.user_preferences
+  add column if not exists notes text;
 
 -- Optional backfill for legacy rows (assign to first admin user)
 -- update public.orientation_tasks set user_id = (select id from public.users order by created_at limit 1) where user_id is null;
