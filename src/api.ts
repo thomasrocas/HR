@@ -26,6 +26,9 @@ export interface Template {
   deletedAt?: string | null;
   organization: string | null;
   subUnit: string | null;
+  disciplineType: string | null;
+  typeDelivery: string | null;
+  department: string | null;
 }
 
 type UserListResponse = { data: User[]; meta: { total: number; page: number } };
@@ -340,7 +343,17 @@ const normalizeProgramList = (payload: unknown): ProgramListResponse => {
 
 const normalizeTemplate = (raw: any): Template => {
   if (!raw || typeof raw !== 'object') {
-    return { id: '', programId: '', name: '', category: 'General', organization: null, subUnit: null };
+    return {
+      id: '',
+      programId: '',
+      name: '',
+      category: 'General',
+      organization: null,
+      subUnit: null,
+      disciplineType: null,
+      typeDelivery: null,
+      department: null,
+    };
   }
 
   const idCandidate = raw.id ?? raw.template_id ?? raw.uid ?? '';
@@ -367,19 +380,47 @@ const normalizeTemplate = (raw: any): Template => {
     organization = null;
   }
   const subUnitSource =
-    raw.subUnit ??
-    raw.sub_unit ??
-    raw.subunit ??
-    raw.subUnitName ??
-    raw.sub_unit_name ??
-    raw.department ??
-    null;
+    raw.subUnit ?? raw.sub_unit ?? raw.subunit ?? raw.subUnitName ?? raw.sub_unit_name ?? null;
   let subUnit: string | null = null;
   if (typeof subUnitSource === 'string') {
     const trimmed = subUnitSource.trim();
     subUnit = trimmed ? trimmed : null;
   } else if (subUnitSource === null) {
     subUnit = null;
+  }
+
+  const disciplineSource =
+    raw.disciplineType ?? raw.discipline_type ?? raw.discipline ?? raw.templateDiscipline ?? null;
+  let disciplineType: string | null = null;
+  if (typeof disciplineSource === 'string') {
+    const trimmed = disciplineSource.trim();
+    disciplineType = trimmed ? trimmed : null;
+  } else if (disciplineSource === null) {
+    disciplineType = null;
+  }
+
+  const deliverySource =
+    raw.typeDelivery ??
+    raw.type_delivery ??
+    raw.deliveryType ??
+    raw.delivery_type ??
+    raw.templateDeliveryType ??
+    null;
+  let typeDelivery: string | null = null;
+  if (typeof deliverySource === 'string') {
+    const trimmed = deliverySource.trim();
+    typeDelivery = trimmed ? trimmed : null;
+  } else if (deliverySource === null) {
+    typeDelivery = null;
+  }
+
+  const departmentSource = raw.department ?? raw.dept ?? raw.departmentName ?? null;
+  let department: string | null = null;
+  if (typeof departmentSource === 'string') {
+    const trimmed = departmentSource.trim();
+    department = trimmed ? trimmed : null;
+  } else if (departmentSource === null) {
+    department = null;
   }
 
   const template: Template = {
@@ -392,6 +433,9 @@ const normalizeTemplate = (raw: any): Template => {
     category: String(categoryCandidate ?? 'General'),
     organization,
     subUnit,
+    disciplineType,
+    typeDelivery,
+    department,
   };
   const parsedDate = toDateString(updatedCandidate);
   if (parsedDate) {
@@ -471,6 +515,9 @@ const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, u
     deletedAt: _deletedAt,
     organization,
     subUnit,
+    disciplineType,
+    typeDelivery,
+    department,
     ...rest
   } = payload;
   const body: Record<string, unknown> = { ...rest };
@@ -500,6 +547,50 @@ const buildTemplateWritePayload = (payload: Partial<Template>): Record<string, u
       body.sub_unit = trimmed ? trimmed : null;
     } else if (subUnit === null) {
       body.sub_unit = null;
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'disciplineType') ||
+    Object.prototype.hasOwnProperty.call(payload as any, 'discipline_type')
+  ) {
+    const disciplineCandidate = Object.prototype.hasOwnProperty.call(payload, 'disciplineType')
+      ? disciplineType
+      : (payload as any).discipline_type;
+    if (typeof disciplineCandidate === 'string') {
+      const trimmed = disciplineCandidate.trim();
+      body.discipline_type = trimmed ? trimmed : null;
+    } else if (disciplineCandidate === null) {
+      body.discipline_type = null;
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'typeDelivery') ||
+    Object.prototype.hasOwnProperty.call(payload as any, 'type_delivery') ||
+    Object.prototype.hasOwnProperty.call(payload as any, 'delivery_type')
+  ) {
+    const deliveryCandidate = Object.prototype.hasOwnProperty.call(payload, 'typeDelivery')
+      ? typeDelivery
+      : (payload as any).type_delivery ?? (payload as any).delivery_type;
+    if (typeof deliveryCandidate === 'string') {
+      const trimmed = deliveryCandidate.trim();
+      body.type_delivery = trimmed ? trimmed : null;
+    } else if (deliveryCandidate === null) {
+      body.type_delivery = null;
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'department') ||
+    Object.prototype.hasOwnProperty.call(payload as any, 'department') ||
+    Object.prototype.hasOwnProperty.call(payload as any, 'dept')
+  ) {
+    const departmentCandidate = Object.prototype.hasOwnProperty.call(payload, 'department')
+      ? department
+      : (payload as any).department ?? (payload as any).dept;
+    if (typeof departmentCandidate === 'string') {
+      const trimmed = departmentCandidate.trim();
+      body.department = trimmed ? trimmed : null;
+    } else if (departmentCandidate === null) {
+      body.department = null;
     }
   }
   return body;
@@ -1025,6 +1116,9 @@ export const seed = {
       status: 'published',
       organization: 'People Ops',
       subUnit: 'New Hires',
+      disciplineType: 'Technical',
+      typeDelivery: 'In person',
+      department: 'Engineering',
     },
     {
       id: 't2',
@@ -1035,6 +1129,9 @@ export const seed = {
       status: 'draft',
       organization: 'People Ops',
       subUnit: 'Leadership',
+      disciplineType: 'Customer Service',
+      typeDelivery: 'Virtual',
+      department: 'Retail',
     },
     {
       id: 't3',
@@ -1046,6 +1143,9 @@ export const seed = {
       deletedAt: '2024-06-01',
       organization: 'People Ops',
       subUnit: 'New Hires',
+      disciplineType: 'Operations',
+      typeDelivery: 'Self-paced',
+      department: 'People Ops',
     },
   ] as Template[],
   audit: [

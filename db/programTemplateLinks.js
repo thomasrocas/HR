@@ -133,6 +133,9 @@ function createProgramTemplateLinksDao(pool) {
              t.external_link as external_link,
              t.organization,
              t.sub_unit,
+             t.discipline_type,
+             t.type_delivery,
+             t.department,
              l.program_id,
              l.id as link_id,
              l.created_at,
@@ -247,19 +250,24 @@ function createProgramTemplateLinksDao(pool) {
       where += ' and t.deleted_at is null';
     }
     const sql = `
-      select t.template_id,
-             t.week_number,
-             t.label,
-             t.notes,
-             t.due_offset_days,
-             t.required,
-             t.visibility,
-             t.sort_order,
-             t.status,
-             t.deleted_at,
-             t.external_link as external_link,
-             l.program_id,
-             l.created_at
+        select t.template_id,
+               t.week_number,
+               t.label,
+               t.notes,
+               t.due_offset_days,
+               t.required,
+               t.visibility,
+               t.sort_order,
+               t.status,
+               t.deleted_at,
+               t.external_link as external_link,
+               t.organization,
+               t.sub_unit,
+               t.discipline_type,
+               t.type_delivery,
+               t.department,
+               l.program_id,
+               l.created_at
         from public.program_task_templates t
         join public.program_template_links l on l.template_id = t.template_id
        ${where}
@@ -279,13 +287,18 @@ function createProgramTemplateLinksDao(pool) {
       where += ' and t.deleted_at is null';
     }
     const sql = `
-      select t.template_id,
-             t.label,
-             t.status,
-             t.deleted_at,
-             t.external_link as external_link,
-             l.program_id,
-             l.id as link_id,
+        select t.template_id,
+               t.label,
+               t.status,
+               t.deleted_at,
+               t.external_link as external_link,
+               t.organization,
+               t.sub_unit,
+               t.discipline_type,
+               t.type_delivery,
+               t.department,
+               l.program_id,
+               l.id as link_id,
              l.created_at,
              l.updated_at,
              coalesce(l.week_number, t.week_number) as week_number,
