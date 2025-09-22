@@ -2130,8 +2130,8 @@ const copySql = `
          l.program_id,
          coalesce(l.week_number, t.week_number),
          case
-           when $6 is not null and $6 <> '' and coalesce(l.notes, t.notes) is not null then coalesce(l.notes, t.notes) || E'\n\n' || $6
-           when $6 is not null and $6 <> '' then $6
+           when $6::text is not null and $6::text <> '' and coalesce(l.notes, t.notes) is not null then coalesce(l.notes, t.notes) || E'\n\n' || $6::text
+           when $6::text is not null and $6::text <> '' then $6::text
            else coalesce(l.notes, t.notes)
          end,
          null,
