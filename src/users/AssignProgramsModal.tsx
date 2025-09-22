@@ -30,6 +30,18 @@ export default function AssignProgramsModal({
   const [error, setError] = useState('');
 
   const hasPrograms = useMemo(() => programs && programs.length > 0, [programs]);
+  const selectedProgram = useMemo(
+    () => programs.find(program => program.id === programId) ?? null,
+    [programId, programs],
+  );
+
+  const formatOrgOrSubUnit = (value: string | null | undefined) => {
+    if (!value) {
+      return '—';
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : '—';
+  };
 
   useEffect(() => {
     if (open) {
@@ -103,10 +115,23 @@ export default function AssignProgramsModal({
             {!hasPrograms && <option value="">No programs available</option>}
             {programs.map(program => (
               <option key={program.id} value={program.id}>
-                {program.name} · v{program.version}
+                {program.name} · v{program.version} — {formatOrgOrSubUnit(program.organization)} ·{' '}
+                {formatOrgOrSubUnit(program.subUnit)}
               </option>
             ))}
           </select>
+          {selectedProgram && (
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2 text-xs text-[var(--text-muted)]">
+              <p>
+                <span className="font-semibold text-[var(--text-primary)]">Organization:</span>{' '}
+                {formatOrgOrSubUnit(selectedProgram.organization)}
+              </p>
+              <p>
+                <span className="font-semibold text-[var(--text-primary)]">Sub-unit:</span>{' '}
+                {formatOrgOrSubUnit(selectedProgram.subUnit)}
+              </p>
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1">
