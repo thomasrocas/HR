@@ -107,8 +107,10 @@ describe('program routes', () => {
         user_id uuid primary key,
         program_id text,
         start_date date,
+        due_date date,
         num_weeks int,
         trainee text,
+        notes text,
         updated_at timestamptz default now()
       );
       create table public.orientation_tasks (
@@ -118,6 +120,7 @@ describe('program routes', () => {
         label text not null,
         scheduled_for date,
         scheduled_time time,
+        due_date date,
         done boolean,
         program_id text,
         week_number int,
@@ -818,6 +821,80 @@ test('instantiate skips soft deleted templates', async () => {
   const { rows } = await pool.query('select label from public.orientation_tasks where user_id=$1', [userId]);
   expect(rows).toHaveLength(1);
   expect(rows[0].label).toBe('active');
+});
+
+test('rbac instantiate applies scheduling metadata', async () => {
+  const adminId = crypto.randomUUID();
+  const adminHash = await bcrypt.hash('passpass', 1);
+  await pool.query(
+    'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+    [adminId, 'admin-assign', adminHash, 'local', 'Admin User'],
+  );
+  await pool.query(
+    'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+    [adminId, 'admin'],
+  );
+
+  const assigneeId = crypto.randomUUID();
+  await pool.query(
+    'insert into public.users(id, username, password_hash, provider, full_name) values ($1,$2,$3,$4,$5)',
+    [assigneeId, 'assignee', adminHash, 'local', 'Trainee User'],
+  );
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username: 'admin-assign', password: 'passpass' }).expect(200);
+
+  const progId = 'sched-prog';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [
+    progId,
+    'Scheduled Program',
+    adminId,
+  ]);
+
+  const tmplId = nextTemplateId();
+  await pool.query(
+    'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days) values ($1,$2,$3,$4,$5)',
+    [tmplId, 1, 'Orientation call', 'Template note', 3],
+  );
+  await pool.query(
+    'insert into public.program_template_links(id, template_id, program_id, due_offset_days) values ($1,$2,$3,$4)',
+    [crypto.randomUUID(), tmplId, progId, 2],
+  );
+
+  const startDate = '2024-02-01';
+  const dueDate = '2024-02-28';
+  const assignmentNotes = 'Check in weekly';
+
+  const res = await agent
+    .post(`/rbac/users/${assigneeId}/programs/${progId}/instantiate`)
+    .send({ startDate, dueDate, notes: assignmentNotes })
+    .expect(200);
+
+  expect(res.body).toMatchObject({ ok: true, created: 1 });
+
+  const taskRows = await pool.query(
+    'select program_id, scheduled_for, due_date, notes from public.orientation_tasks where user_id=$1',
+    [assigneeId],
+  );
+  expect(taskRows.rows).toHaveLength(1);
+  const task = taskRows.rows[0];
+  const toDateString = value => (value instanceof Date ? value.toISOString().slice(0, 10) : value);
+  expect(task.program_id).toBe(progId);
+  expect(toDateString(task.scheduled_for)).toBe(startDate);
+  expect(toDateString(task.due_date)).toBe(dueDate);
+  expect(task.notes).toBe('Template note\n\nCheck in weekly');
+
+  const prefs = await pool.query(
+    'select program_id, start_date, due_date, num_weeks, notes from public.user_preferences where user_id=$1',
+    [assigneeId],
+  );
+  expect(prefs.rows).toHaveLength(1);
+  const pref = prefs.rows[0];
+  expect(pref.program_id).toBe(progId);
+  expect(toDateString(pref.start_date)).toBe(startDate);
+  expect(toDateString(pref.due_date)).toBe(dueDate);
+  expect(pref.notes).toBe(assignmentNotes);
+  expect(pref.num_weeks).toBe(4);
 });
 
 test('deleted task can be restored', async () => {
