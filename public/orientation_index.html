@@ -409,6 +409,7 @@ function AuthPanel({ onAuthed }){
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [err, setErr] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   async function doLogin(e){
     e.preventDefault(); setErr('');
@@ -455,7 +456,24 @@ function AuthPanel({ onAuthed }){
         </div>
         <div className="mb-4">
           <label htmlFor="password" className="text-sm block mb-1">Password</label>
-          <input id="password" className="input" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
+          <div className="relative">
+            <input
+              id="password"
+              className="input pr-10"
+              type={showPassword ? 'text' : 'password'}
+              value={p}
+              onChange={e=>setP(e.target.value)}
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-700"
+              onClick={()=>setShowPassword(v=>!v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              <span aria-hidden="true">{showPassword ? '🙈' : '👁️'}</span>
+            </button>
+          </div>
         </div>
               <div className="flex flex-col items-center space-y-2 mt-2">
   {mode === 'login' ? (
