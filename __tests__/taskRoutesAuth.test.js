@@ -263,6 +263,8 @@ describe('task routes authorization', () => {
     await traineeAgent.post('/auth/local/login').send({ username:'trainee', password:'passpass'}).expect(200);
     await traineeAgent.patch(`/tasks/${taskId}`).send({ label:'new' }).expect(403);
     await traineeAgent.patch(`/tasks/${taskId}`).send({ done:true }).expect(200);
+    const journalRes = await traineeAgent.patch(`/tasks/${taskId}`).send({ journal_entry: 'my notes' }).expect(200);
+    expect(journalRes.body.journal_entry).toBe('my notes');
 
     const mgrAgent = request.agent(app);
     await mgrAgent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
