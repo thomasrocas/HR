@@ -54,6 +54,8 @@ describe('program routes', () => {
         title text not null,
         total_weeks int,
         description text,
+        organization text,
+        sub_unit text,
         created_by uuid,
         created_at timestamptz default now(),
         deleted_at timestamp
@@ -218,6 +220,38 @@ describe('program routes', () => {
     expect(countAfter.rows[0].count).toBe(countBefore.rows[0].count);
   });
 
+  test('creates program with organization metadata', async () => {
+    const adminId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+      adminId,
+      'admin-org',
+      hash,
+      'local'
+    ]);
+    await pool.query(
+      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='admin'",
+      [adminId]
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'admin-org', password: 'passpass' }).expect(200);
+
+    const res = await agent
+      .post('/programs')
+      .send({ title: 'Org Program', total_weeks: 4, organization: '  Org  ', sub_unit: '  Team  ' })
+      .expect(201);
+
+    expect(res.body.organization).toBe('Org');
+    expect(res.body.sub_unit).toBe('Team');
+
+    const { rows } = await pool.query('select organization, sub_unit from public.programs where program_id=$1', [
+      res.body.program_id
+    ]);
+    expect(rows[0].organization).toBe('Org');
+    expect(rows[0].sub_unit).toBe('Team');
+  });
+
   test('rejects invalid total_weeks when updating a program', async () => {
     const adminId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
@@ -355,13 +389,23 @@ describe('program routes', () => {
     const progId = 'prog1';
     await pool.query('insert into public.programs(program_id, title, total_weeks, description, created_by) values ($1,$2,$3,$4,$5)', [progId, 'Old', 4, 'desc', userId]);
 
-    const res = await agent.patch(`/programs/${progId}`).send({ title: 'New', total_weeks: 8 }).expect(200);
+    const res = await agent
+      .patch(`/programs/${progId}`)
+      .send({ title: 'New', total_weeks: 8, organization: ' Division ', sub_unit: '' })
+      .expect(200);
     expect(res.body.title).toBe('New');
     expect(res.body.total_weeks).toBe(8);
+    expect(res.body.organization).toBe('Division');
+    expect(res.body.sub_unit).toBeNull();
 
-    const { rows } = await pool.query('select title, total_weeks from public.programs where program_id=$1', [progId]);
+    const { rows } = await pool.query(
+      'select title, total_weeks, organization, sub_unit from public.programs where program_id=$1',
+      [progId]
+    );
     expect(rows[0].title).toBe('New');
     expect(rows[0].total_weeks).toBe(8);
+    expect(rows[0].organization).toBe('Division');
+    expect(rows[0].sub_unit).toBeNull();
   });
 
   test('program can be soft deleted and restored', async () => {

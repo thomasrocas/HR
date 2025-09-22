@@ -1466,13 +1466,31 @@ app.get('/programs', ensurePerm('program.read'), async (req, res) => {
 
 app.post('/programs', ensurePerm('program.create'), async (req, res) => {
   try {
-    const { program_id = crypto.randomUUID(), title, total_weeks, description = null } = req.body || {};
+    const {
+      program_id = crypto.randomUUID(),
+      title,
+      total_weeks,
+      description = null,
+      organization,
+      sub_unit
+    } = req.body || {};
     const sanitizedTotalWeeks = sanitizeProgramTotalWeeks(total_weeks);
+    const sanitizedOrganization = toNullableString(organization);
+    const sanitizedSubUnit = toNullableString(sub_unit);
     const sql = `
-      insert into public.programs (program_id, title, total_weeks, description, created_by)
-      values ($1,$2,$3,$4,$5)
+      insert into public.programs (program_id, title, total_weeks, description, organization, sub_unit, created_by)
+      values ($1,$2,$3,$4,$5,$6,$7)
       returning *;`;
-    const { rows } = await pool.query(sql, [program_id, title, sanitizedTotalWeeks, description, req.user.id]);
+    const params = [
+      program_id,
+      title,
+      sanitizedTotalWeeks,
+      description,
+      sanitizedOrganization,
+      sanitizedSubUnit,
+      req.user.id
+    ];
+    const { rows } = await pool.query(sql, params);
     res.status(201).json(rows[0]);
   } catch (err) {
     if (err.status === 400) {
@@ -1493,10 +1511,12 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
     const fields = [];
     const vals = [];
 
-    for (const key of ['title', 'total_weeks', 'description']) {
+    for (const key of ['title', 'total_weeks', 'description', 'organization', 'sub_unit']) {
       if (key in req.body) {
         if (key === 'total_weeks') {
           vals.push(sanitizeProgramTotalWeeks(req.body[key]));
+        } else if (key === 'organization' || key === 'sub_unit') {
+          vals.push(toNullableString(req.body[key]));
         } else {
           vals.push(req.body[key]);
         }
@@ -2488,6 +2508,8 @@ create table if not exists public.programs (
   title        text not null,
   total_weeks  int,
   description  text,
+  organization text,
+  sub_unit     text,
   created_by   uuid references public.users(id),
   created_at   timestamptz default now(),
   deleted_at   timestamp
