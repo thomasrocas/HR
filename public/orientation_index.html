@@ -1246,10 +1246,12 @@ useEffect(() => {
 
   const visibleProgramSet = useMemo(() => {
     const entries = Object.entries(programVisibility || {});
+    
     if (!entries.length) return null;
     const enabled = entries.filter(([, value]) => value !== false).map(([id]) => String(id));
     if (enabled.length === entries.length) return null;
     return new Set(enabled);
+    
   }, [programVisibility]);
 
   const calendarEvents = calendarMode === 'all' ? allCalendarEvents : singleProgramCalendarEvents;
@@ -1264,7 +1266,9 @@ useEffect(() => {
     const map = {};
     calendarEvents.forEach((event) => {
       if (!event || !event.scheduled_for) return;
+
       if (calendarMode === 'all' && visibleProgramSet && !visibleProgramSet.has(String(event.programId || ''))) {
+
         return;
       }
       const key = dayjs(event.scheduled_for).format('YYYY-MM-DD');
@@ -1292,7 +1296,7 @@ useEffect(() => {
     });
     return map;
   }, [calendarEvents, calendarMode, visibleProgramSet, programInfoMap, getProgramPalette]);
-
+  
   const combinedWeeksView = useMemo(() => {
     if (calendarMode !== 'all') return [];
     const filterSet = visibleProgramSet;
