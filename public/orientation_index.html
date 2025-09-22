@@ -888,6 +888,17 @@ function App({ me, onSignOut }){
   const isTrainee = (me?.roles || []).includes('trainee');
   const isReadOnly = (me?.roles || []).some(r => r === 'viewer' || r === 'auditor');
   const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
+  const canManageAssignments = hasPerm('task.assign') && isPrivileged && !isTrainee;
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.body) return undefined;
+    document.body.dataset.canManageAssignments = canManageAssignments ? 'true' : 'false';
+    return () => {
+      if (document.body) {
+        delete document.body.dataset.canManageAssignments;
+      }
+    };
+  }, [canManageAssignments]);
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -3611,6 +3622,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const journalField = document.getElementById('orientationTaskJournal');
       const responsibleField = document.getElementById('orientationTaskResponsible');
       const timeField = document.getElementById('orientationTaskTime');
+      const canEditAssignments =
+        ((document?.body?.dataset?.canManageAssignments || '').toLowerCase() === 'true');
+
+      if (responsibleField) {
+        responsibleField.disabled = !canEditAssignments;
+      }
+      if (timeField) {
+        timeField.disabled = !canEditAssignments;
+      }
       const fieldMap = {
         title: modal.querySelector('[data-modal-field="title"]'),
         week: modal.querySelector('[data-modal-field="week"]'),
@@ -3863,19 +3883,36 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         return;
       }
       const entryValue = journalField.value;
-      const responsibleValue = responsibleField ? responsibleField.value : '';
-      const timeValue = timeField ? timeField.value : '';
-      const parentDay = activeTrigger.closest('[data-date]');
-      const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
-      const scheduledForValue = combineScheduledWithTime(activeTrigger.dataset.scheduled_for || '', timeValue, parentDate);
+      const canEditAssignments =
+        ((document?.body?.dataset?.canManageAssignments || '').toLowerCase() === 'true');
+      const currentResponsible = activeTrigger.dataset.responsible_person || '';
+      const currentScheduledFor = activeTrigger.dataset.scheduled_for || '';
+      const currentScheduledTime = activeTrigger.dataset.scheduled_time || '';
+
+      let responsibleValue = currentResponsible;
+      let timeValue = currentScheduledTime;
+      let scheduledForValue = currentScheduledFor;
 
       const payload = {
-        journal_entry: entryValue.trim() === '' ? null : entryValue,
-        responsible_person: responsibleValue.trim() === '' ? null : responsibleValue
+        journal_entry: entryValue.trim() === '' ? null : entryValue
       };
-      if (timeField) {
-        payload.scheduled_time = timeValue ? timeValue : null;
-        payload.scheduled_for = scheduledForValue ? scheduledForValue : null;
+
+      if (canEditAssignments) {
+        responsibleValue = responsibleField ? responsibleField.value : '';
+        payload.responsible_person = responsibleValue.trim() === '' ? null : responsibleValue;
+
+        if (timeField) {
+          timeValue = timeField.value || '';
+          const parentDay = activeTrigger.closest('[data-date]');
+          const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
+          scheduledForValue = combineScheduledWithTime(
+            activeTrigger.dataset.scheduled_for || '',
+            timeValue,
+            parentDate
+          );
+          payload.scheduled_time = timeValue ? timeValue : null;
+          payload.scheduled_for = scheduledForValue ? scheduledForValue : null;
+        }
       }
 
       let updatedRow = null;
@@ -3889,40 +3926,65 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       }
 
       const journalDisplay = toDisplay(typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue);
-      const responsibleDisplay = toDisplay(typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue);
 
       activeTrigger.dataset.journal_entry = journalDisplay;
-      activeTrigger.dataset.responsible_person = responsibleDisplay;
+      let nextResponsible = currentResponsible;
+      let nextScheduledFor = currentScheduledFor;
+      let nextTimeValue = currentScheduledTime;
 
-      let nextScheduledFor = scheduledForValue;
-      if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_for')) {
-        nextScheduledFor = updatedRow.scheduled_for || '';
-      }
+      if (canEditAssignments) {
+        const responsibleDisplay = toDisplay(
+          Object.prototype.hasOwnProperty.call(updatedRow, 'responsible_person')
+            ? updatedRow.responsible_person
+            : responsibleValue
+        );
+        activeTrigger.dataset.responsible_person = responsibleDisplay;
+        nextResponsible = responsibleDisplay;
 
-      let nextTimeValue = timeValue;
-      if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_time')) {
-        nextTimeValue = updatedRow.scheduled_time || '';
-      } else if (!nextTimeValue && nextScheduledFor) {
-        const derived = parseTimeString(nextScheduledFor);
-        if (derived) nextTimeValue = derived;
-      }
+        if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_for')) {
+          nextScheduledFor = updatedRow.scheduled_for || '';
+        } else {
+          nextScheduledFor = scheduledForValue;
+        }
 
-      if (timeField) {
-        activeTrigger.dataset.scheduled_time = nextTimeValue || '';
-      }
-      activeTrigger.dataset.scheduled_for = nextScheduledFor || '';
+        if (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_time')) {
+          nextTimeValue = updatedRow.scheduled_time || '';
+        } else if (!nextTimeValue && nextScheduledFor) {
+          const derived = parseTimeString(nextScheduledFor);
+          if (derived) nextTimeValue = derived;
+        } else {
+          nextTimeValue = timeValue;
+        }
 
-      if (fieldMap.scheduled) {
-        fieldMap.scheduled.textContent = formatScheduledForDisplay(nextScheduledFor, nextTimeValue || '');
+        if (timeField) {
+          activeTrigger.dataset.scheduled_time = nextTimeValue || '';
+        }
+        activeTrigger.dataset.scheduled_for = nextScheduledFor || '';
+
+        if (fieldMap.scheduled) {
+          fieldMap.scheduled.textContent = formatScheduledForDisplay(nextScheduledFor, nextTimeValue || '');
+        }
       }
 
       window.dispatchEvent(new CustomEvent('orientation:journal:update', {
         detail: {
           taskId,
           journal_entry: typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue,
-          responsible_person: typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue,
-          scheduled_time: timeField ? (nextTimeValue || '') : timeValue,
-          scheduled_for: typeof updatedRow.scheduled_for !== 'undefined' ? updatedRow.scheduled_for : scheduledForValue
+          responsible_person: canEditAssignments
+            ? (Object.prototype.hasOwnProperty.call(updatedRow, 'responsible_person')
+              ? updatedRow.responsible_person
+              : responsibleValue)
+            : nextResponsible,
+          scheduled_time: canEditAssignments
+            ? (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_time')
+              ? updatedRow.scheduled_time || ''
+              : nextTimeValue || '')
+            : nextTimeValue || '',
+          scheduled_for: canEditAssignments
+            ? (Object.prototype.hasOwnProperty.call(updatedRow, 'scheduled_for')
+              ? updatedRow.scheduled_for
+              : nextScheduledFor)
+            : nextScheduledFor
         }
       }));
       closeModal();
