@@ -54,6 +54,8 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
   const [searchQuery, setSearchQuery] = useState('');
   const [organizationFilter, setOrganizationFilter] = useState('');
   const [subUnitFilter, setSubUnitFilter] = useState('');
+  const [templateOrganizationFilter, setTemplateOrganizationFilter] = useState('');
+  const [templateSubUnitFilter, setTemplateSubUnitFilter] = useState('');
 
   const selectedProgram = selectedProgramId
     ? programs.find(program => program.id === selectedProgramId) ?? null
@@ -82,11 +84,30 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
         setTemplates([]);
         return [] as Template[];
       }
-      const response = await getProgramTemplates(targetProgramId, { includeDeleted: true });
-      setTemplates(response.data);
+      const trimmedOrganization = templateOrganizationFilter.trim();
+      const trimmedSubUnit = templateSubUnitFilter.trim();
+      const response = await getProgramTemplates(targetProgramId, {
+        includeDeleted: true,
+        organization: trimmedOrganization || undefined,
+        subUnit: trimmedSubUnit || undefined,
+      });
+      let filtered = response.data;
+      if (trimmedOrganization) {
+        const normalizedOrg = trimmedOrganization.toLowerCase();
+        filtered = filtered.filter(
+          template => (template.organization ?? '').trim().toLowerCase() === normalizedOrg,
+        );
+      }
+      if (trimmedSubUnit) {
+        const normalizedSub = trimmedSubUnit.toLowerCase();
+        filtered = filtered.filter(
+          template => (template.subUnit ?? '').trim().toLowerCase() === normalizedSub,
+        );
+      }
+      setTemplates(filtered);
       return response.data;
     },
-    [selectedProgramId],
+    [selectedProgramId, templateOrganizationFilter, templateSubUnitFilter],
   );
 
   useEffect(() => {
@@ -195,10 +216,15 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
   const archivedTemplates = templates.filter(template => !!template.deletedAt);
   const hasActiveTemplates = activeTemplates.length > 0;
   const hasArchivedTemplates = archivedTemplates.length > 0;
+  const hasTemplateFilters =
+    templateOrganizationFilter.trim().length > 0 || templateSubUnitFilter.trim().length > 0;
 
   const templateEmptyMessage = (() => {
     if (programs.length === 0) {
       return 'Create a program to manage templates.';
+    }
+    if (hasTemplateFilters) {
+      return `No templates match the selected filters for ${selectedProgram?.name ?? 'this program'}.`;
     }
     if (!hasActiveTemplates && hasArchivedTemplates) {
       return `All templates for ${selectedProgram?.name ?? 'this program'} are archived. Restore one to make it active.`;
@@ -391,11 +417,10 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
 
       {tab === 'templates' && (
         <section className="space-y-4">
-          <div className="panel flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-              <input className="form-field md:w-64" placeholder="Search templates" />
+          <div className="panel space-y-4 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               {programs.length > 0 ? (
-                <div className="flex flex-col text-sm">
+                <div className="flex flex-col text-sm md:flex-row md:items-center md:gap-3">
                   <label htmlFor="template-program-filter" className="text-[var(--text-muted)]">
                     Program
                   </label>
@@ -417,16 +442,46 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                   Create a program to manage templates.
                 </span>
               )}
+              {can(currentUser, 'create', 'template') && (
+                <button
+                  type="button"
+                  className="btn btn-primary self-start md:self-auto"
+                  disabled={!selectedProgramId}
+                >
+                  New Template
+                </button>
+              )}
             </div>
-            {can(currentUser, 'create', 'template') && (
-              <button
-                type="button"
-                className="btn btn-primary self-start md:self-auto"
-                disabled={!selectedProgramId}
-              >
-                New Template
-              </button>
-            )}
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-1 text-sm">
+                <label htmlFor="template-organization-filter" className="text-[var(--text-muted)]">
+                  Organization
+                </label>
+                <input
+                  id="template-organization-filter"
+                  className="form-field"
+                  placeholder="e.g. People Ops"
+                  value={templateOrganizationFilter}
+                  onChange={event => setTemplateOrganizationFilter(event.target.value)}
+                  onBlur={event => setTemplateOrganizationFilter(event.target.value.trim())}
+                  disabled={!selectedProgramId}
+                />
+              </div>
+              <div className="flex flex-col gap-1 text-sm">
+                <label htmlFor="template-sub-unit-filter" className="text-[var(--text-muted)]">
+                  Sub-unit
+                </label>
+                <input
+                  id="template-sub-unit-filter"
+                  className="form-field"
+                  placeholder="e.g. New Hire Experience"
+                  value={templateSubUnitFilter}
+                  onChange={event => setTemplateSubUnitFilter(event.target.value)}
+                  onBlur={event => setTemplateSubUnitFilter(event.target.value.trim())}
+                  disabled={!selectedProgramId}
+                />
+              </div>
+            </div>
           </div>
           {hasActiveTemplates ? (
             <div className="grid gap-4 md:grid-cols-3">
@@ -445,6 +500,10 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                       )}
                     </div>
                   </div>
+                  <p className="text-sm">
+                    Organization: {template.organization ?? '—'}
+                  </p>
+                  <p className="text-sm">Sub-unit: {template.subUnit ?? '—'}</p>
                   <p className="text-sm">Updated: {template.updatedAt || '--'}</p>
                   <div className="flex flex-wrap gap-2 pt-2">
                     {can(currentUser, 'update', 'template') && (
@@ -494,6 +553,10 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                         </span>
                       </div>
                     </div>
+                    <p className="text-sm">
+                      Organization: {template.organization ?? '—'}
+                    </p>
+                    <p className="text-sm">Sub-unit: {template.subUnit ?? '—'}</p>
                     <p className="text-sm">Archived: {template.deletedAt || '--'}</p>
                     <div className="flex flex-wrap gap-2 pt-2">
                       {can(currentUser, 'delete', 'template') && (

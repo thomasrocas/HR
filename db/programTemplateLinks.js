@@ -94,6 +94,8 @@ function createProgramTemplateLinksDao(pool) {
       offset = 0,
       includeDeleted = false,
       status,
+      organization,
+      subUnit,
     } = options;
     if (!programId) {
       return { data: [], meta: { total: 0, limit: normalizeLimit(limit), offset: normalizeOffset(offset) } };
@@ -106,6 +108,20 @@ function createProgramTemplateLinksDao(pool) {
       where += ' and t.deleted_at is null';
     }
     where += buildStatusFilter(status, params);
+    if (typeof organization === 'string') {
+      const trimmed = organization.trim();
+      if (trimmed) {
+        params.push(trimmed.toLowerCase());
+        where += ` and lower(coalesce(t.organization, '')) = $${params.length}`;
+      }
+    }
+    if (typeof subUnit === 'string') {
+      const trimmed = subUnit.trim();
+      if (trimmed) {
+        params.push(trimmed.toLowerCase());
+        where += ` and lower(coalesce(t.sub_unit, '')) = $${params.length}`;
+      }
+    }
     const filterParams = params.slice();
     params.push(normalizedLimit);
     params.push(normalizedOffset);
@@ -115,6 +131,8 @@ function createProgramTemplateLinksDao(pool) {
              t.status,
              t.deleted_at,
              t.external_link as external_link,
+             t.organization,
+             t.sub_unit,
              l.program_id,
              l.id as link_id,
              l.created_at,
