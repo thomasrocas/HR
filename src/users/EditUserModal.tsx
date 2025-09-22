@@ -1,4 +1,5 @@
 import React, { FormEvent, useEffect, useState } from 'react';
+import { ORGANIZATION_OPTIONS } from '../../shared/field-options.js';
 import { User } from '../rbac';
 import UserModal from './UserModal';
 
@@ -88,12 +89,18 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
           <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
             Organization
           </label>
-          <input
+          <select
             className="w-full border border-[var(--border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
             value={organization}
             onChange={event => setOrganization(event.target.value)}
-            placeholder="Acme Corp"
-          />
+          >
+            <option value="">Select an organization</option>
+            {ORGANIZATION_OPTIONS.map(option => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="space-y-1">
           <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
