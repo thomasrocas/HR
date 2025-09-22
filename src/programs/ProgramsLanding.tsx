@@ -51,13 +51,20 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [organizationFilter, setOrganizationFilter] = useState('');
+  const [subUnitFilter, setSubUnitFilter] = useState('');
 
   const selectedProgram = selectedProgramId
     ? programs.find(program => program.id === selectedProgramId) ?? null
     : null;
 
   const refreshPrograms = useCallback(async () => {
-    const response = await getPrograms({});
+    const response = await getPrograms({
+      query: searchQuery,
+      organization: organizationFilter,
+      subUnit: subUnitFilter,
+    });
     setPrograms(response.data);
     setSelectedProgramId(prev => {
       if (prev && response.data.some(program => program.id === prev)) {
@@ -66,7 +73,7 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
       return response.data[0]?.id ?? null;
     });
     return response.data;
-  }, []);
+  }, [organizationFilter, searchQuery, subUnitFilter]);
 
   const refreshTemplates = useCallback(
     async (programId?: string) => {
@@ -257,7 +264,47 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
       {tab === 'programs' && (
         <section className="space-y-4">
           <div className="panel flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
-            <input className="form-field md:w-64" placeholder="Search programs" />
+            <div className="grid w-full gap-3 md:max-w-3xl md:grid-cols-3">
+              <div className="flex flex-col gap-1 text-sm">
+                <label htmlFor="program-search" className="text-[var(--text-muted)]">
+                  Search
+                </label>
+                <input
+                  id="program-search"
+                  className="form-field"
+                  placeholder="Search programs"
+                  value={searchQuery}
+                  onChange={event => setSearchQuery(event.target.value)}
+                  onBlur={event => setSearchQuery(event.target.value.trim())}
+                />
+              </div>
+              <div className="flex flex-col gap-1 text-sm">
+                <label htmlFor="program-organization" className="text-[var(--text-muted)]">
+                  Organization
+                </label>
+                <input
+                  id="program-organization"
+                  className="form-field"
+                  placeholder="e.g. People Ops"
+                  value={organizationFilter}
+                  onChange={event => setOrganizationFilter(event.target.value)}
+                  onBlur={event => setOrganizationFilter(event.target.value.trim())}
+                />
+              </div>
+              <div className="flex flex-col gap-1 text-sm">
+                <label htmlFor="program-sub-unit" className="text-[var(--text-muted)]">
+                  Sub-unit
+                </label>
+                <input
+                  id="program-sub-unit"
+                  className="form-field"
+                  placeholder="e.g. New Hire Experience"
+                  value={subUnitFilter}
+                  onChange={event => setSubUnitFilter(event.target.value)}
+                  onBlur={event => setSubUnitFilter(event.target.value.trim())}
+                />
+              </div>
+            </div>
             {can(currentUser, 'create', 'program') && (
               <button type="button" className="btn btn-primary self-start md:self-auto">
                 New Program
@@ -280,6 +327,12 @@ export default function ProgramsLanding({ currentUser }: { currentUser: User }) 
                     </span>
                   </div>
                   <p className="text-sm">Owner: {program.owner}</p>
+                  <p className="text-sm">
+                    Organization: {program.organization ?? '—'}
+                  </p>
+                  <p className="text-sm">
+                    Sub-unit: {program.subUnit ?? '—'}
+                  </p>
                   <p className="text-sm">Assigned: {program.assignedCount}</p>
                   <p className="text-sm">Updated: {program.updatedAt}</p>
                   <div className="flex flex-wrap gap-2 pt-2">

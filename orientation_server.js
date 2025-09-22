@@ -1550,12 +1550,35 @@ app.patch('/rbac/users/:id/roles', async (req, res) => {
 app.get('/programs', ensurePerm('program.read'), async (req, res) => {
   try {
     const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
+    const organizationFilter = toNullableString(req.query?.organization);
+    const subUnitFilter = toNullableString(req.query?.sub_unit ?? req.query?.subUnit ?? null);
+
+    const params = [];
     const conds = [];
     if (!includeDeleted) conds.push('deleted_at is null');
-    let sql = 'select * from public.programs';
+    if (organizationFilter) {
+      params.push(organizationFilter);
+      conds.push(`organization = $${params.length}`);
+    }
+    if (subUnitFilter) {
+      params.push(subUnitFilter);
+      conds.push(`sub_unit = $${params.length}`);
+    }
+
+    let sql = `
+      select program_id,
+             title,
+             total_weeks,
+             description,
+             created_by,
+             created_at,
+             deleted_at,
+             organization,
+             sub_unit
+        from public.programs`;
     if (conds.length) sql += ` where ${conds.join(' and ')}`;
     sql += ' order by created_at desc';
-    const { rows } = await pool.query(sql);
+    const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (err) {
     console.error('GET /programs error', err);

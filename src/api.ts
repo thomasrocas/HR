@@ -12,6 +12,8 @@ export interface Program {
   owner: string;
   updatedAt: string;
   assignedCount: number;
+  organization: string | null;
+  subUnit: string | null;
 }
 
 export interface Template {
@@ -227,6 +229,8 @@ const normalizeProgram = (raw: any): Program => {
       owner: '',
       updatedAt: '',
       assignedCount: 0,
+      organization: null,
+      subUnit: null,
     };
   }
 
@@ -261,6 +265,36 @@ const normalizeProgram = (raw: any): Program => {
         : 0
   );
 
+  const organizationSource =
+    raw.organization ??
+    raw.org ??
+    raw.organization_name ??
+    raw.organizationName ??
+    raw.orgName ??
+    null;
+  let organization: string | null = null;
+  if (typeof organizationSource === 'string') {
+    const trimmed = organizationSource.trim();
+    organization = trimmed ? trimmed : null;
+  } else if (organizationSource === null) {
+    organization = null;
+  }
+
+  const subUnitSource =
+    raw.sub_unit ??
+    raw.subUnit ??
+    raw.sub_unit_name ??
+    raw.subUnitName ??
+    raw.subunit ??
+    null;
+  let subUnit: string | null = null;
+  if (typeof subUnitSource === 'string') {
+    const trimmed = subUnitSource.trim();
+    subUnit = trimmed ? trimmed : null;
+  } else if (subUnitSource === null) {
+    subUnit = null;
+  }
+
   return {
     id: String(idCandidate ?? ''),
     name:
@@ -275,6 +309,8 @@ const normalizeProgram = (raw: any): Program => {
     owner: ownerCandidate ? String(ownerCandidate) : '',
     updatedAt: toDateString(updatedCandidate),
     assignedCount,
+    organization,
+    subUnit,
   };
 };
 
@@ -357,7 +393,14 @@ const normalizeTemplateList = (payload: unknown): TemplateListResponse => {
 };
 
 const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unknown> => {
-  const { id: _id, updatedAt: _updatedAt, assignedCount: _assignedCount, ...rest } = payload;
+  const {
+    id: _id,
+    updatedAt: _updatedAt,
+    assignedCount: _assignedCount,
+    organization,
+    subUnit,
+    ...rest
+  } = payload;
   const body: Record<string, unknown> = { ...rest };
   if (payload.name && !body.title) {
     body.title = payload.name;
@@ -366,6 +409,22 @@ const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unk
     const numeric = Number(payload.version);
     if (!Number.isNaN(numeric)) {
       body.total_weeks = numeric;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'organization')) {
+    if (typeof organization === 'string') {
+      const trimmed = organization.trim();
+      body.organization = trimmed ? trimmed : null;
+    } else if (organization === null) {
+      body.organization = null;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'subUnit')) {
+    if (typeof subUnit === 'string') {
+      const trimmed = subUnit.trim();
+      body.sub_unit = trimmed ? trimmed : null;
+    } else if (subUnit === null) {
+      body.sub_unit = null;
     }
   }
   return body;
@@ -567,16 +626,29 @@ export const getAuditLog = (userId: string) =>
 
 /* ------------------- Programs & Templates ------------------- */
 export const getPrograms = async (
-  params: { status?: string; query?: string; page?: number; includeDeleted?: boolean } = {},
+  params: {
+    status?: string;
+    query?: string;
+    page?: number;
+    includeDeleted?: boolean;
+    organization?: string | null;
+    subUnit?: string | null;
+  } = {},
 ): Promise<ProgramListResponse> => {
   const search = new URLSearchParams();
-  if (params.status) search.set('status', params.status);
-  if (params.query) search.set('query', params.query);
+  const status = params.status?.trim();
+  if (status) search.set('status', status);
+  const query = params.query?.trim();
+  if (query) search.set('query', query);
   if (typeof params.page === 'number') search.set('page', String(params.page));
   if (params.includeDeleted) search.set('include_deleted', 'true');
+  const organization = params.organization?.trim();
+  if (organization) search.set('organization', organization);
+  const subUnit = params.subUnit?.trim();
+  if (subUnit) search.set('sub_unit', subUnit);
 
-  const query = search.toString();
-  const raw = await apiFetch<unknown>(`${PROGRAMS_BASE}${query ? `?${query}` : ''}`);
+  const queryString = search.toString();
+  const raw = await apiFetch<unknown>(`${PROGRAMS_BASE}${queryString ? `?${queryString}` : ''}`);
   return normalizeProgramList(raw);
 };
 
@@ -844,6 +916,8 @@ export const seed = {
       owner: 'Alice Admin',
       updatedAt: '2024-05-01',
       assignedCount: 3,
+      organization: 'People Ops',
+      subUnit: 'New Hires',
     },
     {
       id: 'p2',
@@ -853,6 +927,8 @@ export const seed = {
       owner: 'Mark Manager',
       updatedAt: '2024-04-10',
       assignedCount: 1,
+      organization: 'People Ops',
+      subUnit: 'Leadership',
     },
   ] as Program[],
   templates: [
