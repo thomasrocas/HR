@@ -729,6 +729,429 @@ function templatesToCSV() {
   return `\uFEFF${rows.join('\r\n')}`;
 }
 
+function readFileAsText(file) {
+  if (!(file instanceof File)) return Promise.reject(new Error('A valid file must be selected.'));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error || new Error('Unable to read the selected file.'));
+    reader.readAsText(file);
+  });
+}
+
+function stripBom(text) {
+  if (typeof text !== 'string') return '';
+  return text.replace(/^\uFEFF/, '');
+}
+
+function parseCsvRows(text) {
+  const input = stripBom(text);
+  const rows = [];
+  let current = '';
+  let insideQuotes = false;
+  const pushCell = () => {
+    rows[rows.length - 1].push(current);
+    current = '';
+  };
+  const ensureRow = () => {
+    if (!rows.length) {
+      rows.push([]);
+    } else if (rows[rows.length - 1]) {
+      // no-op
+    }
+  };
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (char === '"') {
+      if (insideQuotes && input[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+      continue;
+    }
+    if (!insideQuotes && (char === '\n' || char === '\r')) {
+      ensureRow();
+      pushCell();
+      if (char === '\r' && input[index + 1] === '\n') {
+        index += 1;
+      }
+      rows.push([]);
+      continue;
+    }
+    if (!insideQuotes && char === ',') {
+      ensureRow();
+      pushCell();
+      continue;
+    }
+    current += char;
+  }
+  if (!rows.length) {
+    rows.push([]);
+  }
+  pushCell();
+  return rows
+    .filter(row => row.length)
+    .map(row => row.map(cell => (cell ?? '').toString()));
+}
+
+function parseTemplateImportCsv(text) {
+  const rows = parseCsvRows(text);
+  if (!rows.length) return [];
+  const [headerRow, ...dataRows] = rows;
+  const headers = headerRow.map(header => (header || '').trim()).map(header => header || null);
+  if (!headers.some(Boolean)) return [];
+  const records = [];
+  dataRows.forEach(cells => {
+    const isEmptyRow = cells.every(cell => (cell || '').trim() === '');
+    if (isEmptyRow) return;
+    const record = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      record[header] = cells[index] ?? '';
+    });
+    if (Object.keys(record).length) {
+      records.push(record);
+    }
+  });
+  return records;
+}
+
+function extractTemplatesFromImportPayload(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+  const candidateKeys = ['templates', 'data', 'items', 'results', 'rows', 'records'];
+  for (const key of candidateKeys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function parseTemplateImportJson(text) {
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(stripBom(text));
+    const extracted = extractTemplatesFromImportPayload(parsed);
+    if (extracted.length) {
+      return extracted;
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return [parsed];
+    }
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Failed to parse template import JSON.', error);
+    return [];
+  }
+}
+
+const TEMPLATE_IMPORT_IGNORED_KEYS = new Set([
+  'id',
+  'template_id',
+  'templateid',
+  'audit_inserted',
+  'audit_updated',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'archived_at',
+  'archived',
+  'inserted_by',
+]);
+
+function normalizeTemplateImportRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const normalized = {};
+  const assignString = (value) => {
+    if (value === null || value === undefined) return '';
+    return typeof value === 'string' ? value.trim() : String(value).trim();
+  };
+  let hasValue = false;
+  Object.entries(record).forEach(([key, value]) => {
+    if (!key) return;
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    const stringValue = assignString(value);
+    const isEmpty = stringValue === '';
+    switch (normalizedKey) {
+      case 'week':
+      case 'week_number':
+        if (!isEmpty) {
+          const weekNumber = toNullableNumber(stringValue);
+          if (weekNumber !== null) {
+            normalized.week_number = weekNumber;
+            hasValue = true;
+          }
+        }
+        break;
+      case 'sort':
+      case 'sort_order':
+      case 'order':
+        if (!isEmpty) {
+          const sortOrder = toNullableNumber(stringValue);
+          if (sortOrder !== null) {
+            normalized.sort_order = sortOrder;
+            hasValue = true;
+          }
+        }
+        break;
+      case 'name':
+      case 'label':
+      case 'title':
+        if (!isEmpty) {
+          normalized.label = stringValue;
+          hasValue = true;
+        }
+        break;
+      case 'notes':
+      case 'description':
+      case 'details':
+        if (!isEmpty) {
+          normalized.notes = stringValue;
+          hasValue = true;
+        }
+        break;
+      case 'organization':
+      case 'org':
+        if (!isEmpty) {
+          normalized.organization = stringValue;
+          hasValue = true;
+        }
+        break;
+      case 'sub_unit':
+      case 'subunit':
+      case 'sub_unit_name':
+      case 'department':
+        if (!isEmpty) {
+          normalized.sub_unit = stringValue;
+          hasValue = true;
+        }
+        break;
+      case 'external_link':
+      case 'hyperlink':
+      case 'link':
+      case 'url':
+        if (!isEmpty) {
+          normalized.external_link = stringValue;
+          normalized.hyperlink = stringValue;
+          hasValue = true;
+        }
+        break;
+      case 'status':
+        if (!isEmpty) {
+          normalized.status = stringValue.toLowerCase();
+          hasValue = true;
+        }
+        break;
+      default:
+        if (!isEmpty && !normalized[normalizedKey] && !TEMPLATE_IMPORT_IGNORED_KEYS.has(normalizedKey)) {
+          normalized[normalizedKey] = stringValue;
+          hasValue = true;
+        }
+        break;
+    }
+  });
+  if (!hasValue) return null;
+  if (normalized.notes === '') delete normalized.notes;
+  if (normalized.organization === '') delete normalized.organization;
+  if (normalized.sub_unit === '') delete normalized.sub_unit;
+  if (normalized.external_link === '') delete normalized.external_link;
+  if (normalized.hyperlink === '') delete normalized.hyperlink;
+  if (normalized.status === '') delete normalized.status;
+  return normalized;
+}
+
+async function readErrorMessageFromResponse(response) {
+  if (!response) return '';
+  try {
+    const data = await response.clone().json();
+    if (data) {
+      if (typeof data === 'string') return data;
+      if (typeof data === 'object') {
+        const message = data.message || data.error || data.detail || data.title;
+        if (message) {
+          return typeof message === 'string' ? message : JSON.stringify(message);
+        }
+      }
+    }
+  } catch (error) {
+    // ignore JSON parse errors
+  }
+  try {
+    const text = await response.text();
+    return text;
+  } catch (error) {
+    return '';
+  }
+}
+
+async function tryImportTemplatesBulk(records) {
+  const importUrl = `${TEMPLATE_API}/import`;
+  const res = await fetch(importUrl, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ templates: records }),
+  }).catch(error => {
+    const networkError = new Error(error?.message || 'Failed to reach the template import service.');
+    networkError.cause = error;
+    networkError.fallback = true;
+    throw networkError;
+  });
+  if (!res) {
+    return { fallback: true };
+  }
+  if (res.ok) {
+    return { success: records.length, failure: 0 };
+  }
+  if ([404, 405, 501].includes(res.status)) {
+    const unsupportedError = new Error('Bulk template import is not available on this server.');
+    unsupportedError.status = res.status;
+    unsupportedError.fallback = true;
+    throw unsupportedError;
+  }
+  const message = await readErrorMessageFromResponse(res);
+  const error = new Error(message || `Template import failed (${res.status}).`);
+  error.status = res.status;
+  throw error;
+}
+
+async function importTemplatesSequentially(records) {
+  const total = records.length;
+  let success = 0;
+  let failure = 0;
+  const errors = [];
+  for (let index = 0; index < total; index += 1) {
+    const record = records[index];
+    if (templateMessage) {
+      templateMessage.textContent = `Importing templates (${index + 1}/${total})…`;
+    }
+    try {
+      const res = await fetch(TEMPLATE_API, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record),
+      });
+      if (res.ok) {
+        success += 1;
+      } else {
+        failure += 1;
+        const message = await readErrorMessageFromResponse(res);
+        if (message) {
+          errors.push(message);
+        }
+      }
+    } catch (error) {
+      console.error('Template import request failed.', error);
+      failure += 1;
+      if (error?.message) {
+        errors.push(error.message);
+      }
+    }
+  }
+  return { success, failure, errors };
+}
+
+async function handleTemplateImportFile(file) {
+  if (!CAN_MANAGE_TEMPLATES) {
+    showToast('You do not have permission to import templates.', { type: 'error' });
+    return;
+  }
+  if (!file) return;
+  const fileName = file.name || 'selected file';
+  try {
+    templateMessage.textContent = `Reading ${fileName}…`;
+    const fileText = await readFileAsText(file);
+    const extension = (fileName.split('.').pop() || '').toLowerCase();
+    let rawRecords = [];
+    if (extension === 'json') {
+      rawRecords = parseTemplateImportJson(fileText);
+    } else if (extension === 'csv') {
+      rawRecords = parseTemplateImportCsv(fileText);
+    } else {
+      rawRecords = parseTemplateImportJson(fileText);
+      if (!rawRecords.length) {
+        rawRecords = parseTemplateImportCsv(fileText);
+      }
+    }
+    const normalizedRecords = rawRecords
+      .map(normalizeTemplateImportRecord)
+      .filter(Boolean);
+    if (!normalizedRecords.length) {
+      showToast('No templates were found in the selected file.', { type: 'error' });
+      templateMessage.textContent = 'No templates were imported. Please verify the file contents and try again.';
+      return;
+    }
+    const total = normalizedRecords.length;
+    templateMessage.textContent = `Importing ${total} template${total === 1 ? '' : 's'}…`;
+    showToast(`Importing ${total} template${total === 1 ? '' : 's'}…`, { type: 'info' });
+    let success = 0;
+    let failure = 0;
+    let errors = [];
+    try {
+      const bulkResult = await tryImportTemplatesBulk(normalizedRecords);
+      if (bulkResult?.success || bulkResult?.failure === 0) {
+        success = bulkResult.success || 0;
+        failure = bulkResult.failure || 0;
+      }
+    } catch (error) {
+      if (error?.fallback) {
+        const sequentialResult = await importTemplatesSequentially(normalizedRecords);
+        success = sequentialResult.success;
+        failure = sequentialResult.failure;
+        errors = sequentialResult.errors;
+      } else {
+        throw error;
+      }
+    }
+    if (success > 0 && failure === 0) {
+      showToast(`Successfully imported ${success} template${success === 1 ? '' : 's'}.`, { type: 'success' });
+      await loadTemplates({ preserveSelection: false });
+      templateMessage.textContent = `Import complete — ${success} template${success === 1 ? '' : 's'} added.`;
+      return;
+    }
+    if (success > 0 && failure > 0) {
+      const summary = `Import complete — ${success} succeeded, ${failure} failed.`;
+      showToast(summary, { type: 'error' });
+      await loadTemplates({ preserveSelection: false });
+      templateMessage.textContent = summary;
+      if (errors.length) {
+        showToast(errors[0], { type: 'error' });
+      }
+      return;
+    }
+    if (failure > 0) {
+      const summary = failure === total
+        ? 'Template import failed. All records were rejected.'
+        : `Template import failed for ${failure} record${failure === 1 ? '' : 's'}.`;
+      templateMessage.textContent = summary;
+      showToast(summary, { type: 'error' });
+      if (errors.length) {
+        showToast(errors[0], { type: 'error' });
+      }
+      return;
+    }
+    templateMessage.textContent = 'No templates were imported.';
+  } catch (error) {
+    console.error('Template import failed.', error);
+    const message = error?.message || 'Template import failed. Please try again.';
+    templateMessage.textContent = message;
+    showToast(message, { type: 'error' });
+  } finally {
+    if (inputImportTemplates) {
+      inputImportTemplates.value = '';
+    }
+  }
+}
+
 const meResponse = await fetch(`${API}/me`, { credentials: 'include' });
 if (!meResponse.ok) {
   window.location.href = '/';
@@ -772,6 +1195,8 @@ const btnExportProgramsCsv = document.getElementById('exportCsv');
 const btnExportTemplatesCsv = document.getElementById('tmplExportCsv');
 const btnNewTemplate = document.getElementById('btnNewTemplate');
 const btnEditTemplate = document.getElementById('btnEditTemplate');
+const btnImportTemplates = document.getElementById('btnImportTemplates');
+const inputImportTemplates = document.getElementById('inputImportTemplates');
 const programModal = document.getElementById('programModal');
 const programModalTitle = document.getElementById('programModalTitle');
 const programForm = document.getElementById('programForm');
@@ -1399,7 +1824,7 @@ if (!CAN_MANAGE_PROGRAMS) {
   if (confirmDeleteProgramButton) confirmDeleteProgramButton.disabled = false;
 }
 if (!CAN_MANAGE_TEMPLATES) {
-  templateActionHint.textContent = 'You have read-only access. Only admins or managers can change template statuses.';
+  templateActionHint.textContent = 'You have read-only access. Only admins or managers can change template statuses or import templates.';
   if (templateSelectAll) templateSelectAll.disabled = true;
   if (btnNewTemplate) {
     btnNewTemplate.disabled = true;
@@ -1409,6 +1834,13 @@ if (!CAN_MANAGE_TEMPLATES) {
     btnEditTemplate.disabled = true;
     btnEditTemplate.title = 'Only admins or managers can edit templates.';
     btnEditTemplate.removeAttribute('data-template-id');
+  }
+  if (btnImportTemplates) {
+    btnImportTemplates.disabled = true;
+    btnImportTemplates.title = 'Only admins or managers can import templates.';
+  }
+  if (inputImportTemplates) {
+    inputImportTemplates.disabled = true;
   }
   if (templateModalDeleteTrigger) {
     templateModalDeleteTrigger.disabled = true;
@@ -1423,6 +1855,13 @@ if (!CAN_MANAGE_TEMPLATES) {
   if (btnEditTemplate) {
     btnEditTemplate.disabled = true;
     btnEditTemplate.title = 'Select a template to edit.';
+  }
+  if (btnImportTemplates) {
+    btnImportTemplates.disabled = false;
+    btnImportTemplates.title = '';
+  }
+  if (inputImportTemplates) {
+    inputImportTemplates.disabled = false;
   }
   if (confirmDeleteTemplateButton) confirmDeleteTemplateButton.disabled = false;
 }
@@ -5774,6 +6213,22 @@ if (btnExportTemplatesCsv) {
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
+  });
+}
+
+if (btnImportTemplates && inputImportTemplates) {
+  btnImportTemplates.addEventListener('click', () => {
+    if (!CAN_MANAGE_TEMPLATES) return;
+    if (inputImportTemplates.disabled) return;
+    inputImportTemplates.click();
+  });
+  inputImportTemplates.addEventListener('change', event => {
+    const target = event.target;
+    const files = target?.files;
+    const file = files && files.length ? files[0] : null;
+    if (file) {
+      handleTemplateImportFile(file);
+    }
   });
 }
 
