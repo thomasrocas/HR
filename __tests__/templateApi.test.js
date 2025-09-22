@@ -55,6 +55,8 @@ describe('template api', () => {
         title text not null,
         total_weeks int,
         description text,
+        organization text,
+        sub_unit text,
         created_by uuid,
         created_at timestamptz default now(),
         deleted_at timestamp
