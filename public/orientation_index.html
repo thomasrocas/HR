@@ -16,6 +16,7 @@
   <!-- Day.js -->
   <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
   <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
+  <script src="./orientation_range_utils.js"></script>
   <style>
     .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
     .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
@@ -104,6 +105,24 @@
 <script type="text/babel" data-presets="env,react">
 const { useEffect, useMemo, useState, useRef, useCallback } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
+
+const rangeUtils = window.orientationRangeUtils || {};
+const deriveProgramRangeSafe = (rows, options = {}) => {
+  if (typeof rangeUtils.deriveProgramRange === 'function') {
+    return rangeUtils.deriveProgramRange(rows, options);
+  }
+  const fallbackStart = options.fallbackStartDate || dayjs().format('YYYY-MM-DD');
+  const fallbackWeeks = options.fallbackWeeks || 6;
+  return { startDate: fallbackStart, numWeeks: fallbackWeeks };
+};
+const deriveAllProgramsRangeSafe = (rows, options = {}) => {
+  if (typeof rangeUtils.deriveAllProgramsRange === 'function') {
+    return rangeUtils.deriveAllProgramsRange(rows, options);
+  }
+  const fallbackStart = options.fallbackStartDate || dayjs().format('YYYY-MM-DD');
+  const fallbackWeeks = options.fallbackWeeks || 6;
+  return { startDate: fallbackStart, numWeeks: fallbackWeeks };
+};
 
 /* Use same origin the page is served from */
 const API = window.location.origin;
@@ -743,6 +762,7 @@ function App({ me, onSignOut }){
   const [allCalendarEvents, setAllCalendarEvents] = useState([]);
   const [allCalendarPrograms, setAllCalendarPrograms] = useState([]);
   const [programVisibility, setProgramVisibility] = useState({});
+  const [rangeOverride, setRangeOverride] = useState({ single: false, all: false });
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
   const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
@@ -755,6 +775,32 @@ function App({ me, onSignOut }){
   const triggerRef = useRef(null);
   const calendarCacheRef = useRef(new Map());
   const programColorCache = useRef(new Map());
+  const rangeOverrideRef = useRef(rangeOverride);
+  useEffect(() => {
+    rangeOverrideRef.current = rangeOverride;
+  }, [rangeOverride]);
+  const markRangeOverrideForCurrentMode = useCallback(() => {
+    const key = calendarMode === 'all' ? 'all' : 'single';
+    setRangeOverride((prev) => {
+      if (prev[key]) return prev;
+      return { ...prev, [key]: true };
+    });
+  }, [calendarMode]);
+  const resetRangeOverrideForMode = useCallback((mode) => {
+    const key = mode === 'all' ? 'all' : 'single';
+    setRangeOverride((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      next[key] = false;
+      return next;
+    });
+  }, []);
+  const resetAllRangeOverrides = useCallback(() => {
+    setRangeOverride((prev) => {
+      if (!prev.single && !prev.all) return prev;
+      return { single: false, all: false };
+    });
+  }, []);
   const getProgramPalette = useCallback((programId, colorInput) => {
     const key = `${String(programId || '')}::${String(colorInput || '')}`;
     if (programColorCache.current.has(key)) {
@@ -778,7 +824,10 @@ function App({ me, onSignOut }){
       if (!normalizedId) return null;
       const name = program.title || program.name || program.program_name || program.full_name || 'Untitled Program';
       const color = program.color || program.brand_color || program.accent_color || program.hex_color || program.primary_color || null;
-      return { id: normalizedId, name, color };
+      const weeksRaw = program.total_weeks ?? program.totalWeeks ?? program.duration ?? null;
+      const weeksNormalized = normalizeWeekNumber(weeksRaw);
+      const totalWeeks = (typeof weeksNormalized === 'number' && weeksNormalized > 0) ? weeksNormalized : null;
+      return { id: normalizedId, name, color, totalWeeks };
     };
     programs.forEach((program) => {
       const info = extract(program);
@@ -825,6 +874,7 @@ function App({ me, onSignOut }){
     TARGET_USER_ID = uid;
     TARGET_USER_NAME = selectedName;
     writeStoredTrainee(uid, selectedName);
+    resetAllRangeOverrides();
     try {
       await apiPatchPrefs({ trainee: uid }, { skipUser: true });
     } catch (err) {
@@ -1082,16 +1132,34 @@ function App({ me, onSignOut }){
     return Object.values(byWeek).sort((a,b)=> a.wk - b.wk);
   }
 
-  async function reloadTasks(){
+  async function reloadTasks(options = {}){
+    const { resetRange = false } = options;
     if(!QS_PROGRAM_ID){
       setActiveProgramId(null);
       return 0;
+    }
+    if (resetRange) {
+      resetRangeOverrideForMode('single');
     }
     setActiveProgramId(QS_PROGRAM_ID);
     const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID, include_deleted: true });
     const active = rows.filter(r => !r.deleted);
     setWeeks(buildWeeks(active));
     setDeletedTasks(rows.filter(r => r.deleted));
+    if (!rangeOverrideRef.current.single) {
+      const programInfo = programInfoMap.get(String(QS_PROGRAM_ID)) || null;
+      const derivedRange = deriveProgramRangeSafe(active, {
+        fallbackStartDate: dayjs().format('YYYY-MM-DD'),
+        fallbackWeeks: 6,
+        programInfo,
+      });
+      if (derivedRange && derivedRange.startDate) {
+        setStartDate(derivedRange.startDate);
+      }
+      if (derivedRange && Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
+        setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
+      }
+    }
     calendarCacheRef.current.clear();
     return active.length;
   }
@@ -1373,17 +1441,47 @@ useEffect(() => {
           if (!row || row.deleted || !row.scheduled_for) return;
           const date = dayjs(row.scheduled_for);
           if (!date.isValid()) return;
-          if (date.isBefore(calendarRange.start, 'day') || date.isAfter(calendarRange.end, 'day')) return;
           const dedupeKey = `${row.task_id || row.id || row.guid || row.uuid || ''}::${row.program_id || ''}::${date.format('YYYY-MM-DD')}`;
           if (!dedupe.has(dedupeKey)) {
             dedupe.set(dedupeKey, row);
           }
         });
+        const dedupedRows = Array.from(dedupe.values());
+        const derivedRange = deriveAllProgramsRangeSafe(dedupedRows, {
+          fallbackStartDate: dayjs().format('YYYY-MM-DD'),
+          fallbackWeeks: 6,
+          programInfoMap,
+        });
+        let filterStart = calendarRange.start;
+        let filterEnd = calendarRange.end;
+        if (derivedRange && derivedRange.startDate && Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
+          const derivedStart = dayjs(derivedRange.startDate).startOf('day');
+          if (derivedStart.isValid()) {
+            const totalDays = Math.max(1, Math.trunc(derivedRange.numWeeks)) * 7;
+            const derivedEnd = derivedStart.add(totalDays - 1, 'day');
+            filterStart = derivedStart;
+            filterEnd = derivedEnd;
+          }
+          if (!rangeOverrideRef.current.all) {
+            setStartDate(derivedRange.startDate);
+            setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
+          }
+        } else if (derivedRange && !rangeOverrideRef.current.all) {
+          if (derivedRange.startDate) {
+            setStartDate(derivedRange.startDate);
+          }
+          if (Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
+            setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
+          }
+        }
         const events = [];
         const programMap = new Map();
-        dedupe.forEach((row) => {
+        dedupedRows.forEach((row) => {
           const programIdRaw = row.program_id || row.programId || '';
           const programId = programIdRaw ? String(programIdRaw) : '';
+          const date = dayjs(row.scheduled_for);
+          if (!date.isValid()) return;
+          if (date.isBefore(filterStart, 'day') || date.isAfter(filterEnd, 'day')) return;
           const info = programInfoMap.get(programId) || null;
           const fallbackName = row.program_name || row.program_title || row.program || 'Program';
           const fallbackColor = row.program_color || row.color || null;
@@ -1434,6 +1532,7 @@ useEffect(() => {
 
   async function refreshPrograms(newId){
     try {
+      const previousProgramId = QS_PROGRAM_ID;
       const list = await apiListPrograms();
       if(newId !== undefined){
         QS_PROGRAM_ID = newId;
@@ -1441,17 +1540,22 @@ useEffect(() => {
       if(QS_PROGRAM_ID && !list.find(p=> p.program_id === QS_PROGRAM_ID)){
         QS_PROGRAM_ID = list[0]?.program_id || null;
       }
+      const changedProgram = !sameId(previousProgramId, QS_PROGRAM_ID);
       if(QS_PROGRAM_ID){
         localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
         setActiveProgramId(QS_PROGRAM_ID);
         try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch(e){}
-        const count = await reloadTasks();
+        if (changedProgram) {
+          resetRangeOverrideForMode('single');
+        }
+        const count = await reloadTasks({ resetRange: changedProgram });
         if(!count){ setNeedsInstantiate(true); }
         else { setNeedsInstantiate(false); }
       } else {
         localStorage.removeItem('anx_program_id');
         setWeeks([]); setDeletedTasks([]); setNeedsInstantiate(false);
         setActiveProgramId(null);
+        resetRangeOverrideForMode('single');
       }
       await updateUserPrograms(list);
     } catch(err){
@@ -1875,6 +1979,26 @@ useEffect(() => {
     });
   };
 
+  const handleStartDateInput = useCallback((value) => {
+    markRangeOverrideForCurrentMode();
+    setStartDate(value);
+  }, [markRangeOverrideForCurrentMode]);
+
+  const handleNumWeeksInput = useCallback((updater) => {
+    markRangeOverrideForCurrentMode();
+    if (typeof updater === 'function') {
+      setNumWeeks((prev) => {
+        const next = updater(prev);
+        if (!Number.isFinite(next)) return prev;
+        return Math.min(24, Math.max(1, Math.trunc(next)));
+      });
+      return;
+    }
+    const numeric = Number(updater);
+    if (!Number.isFinite(numeric)) return;
+    setNumWeeks(Math.min(24, Math.max(1, Math.trunc(numeric))));
+  }, [markRangeOverrideForCurrentMode]);
+
   function handleDragStart(e){
     if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
     const { wi, ti, taskid, programId, source, scheduled_for: scheduledFor } = e.currentTarget.dataset;
@@ -2238,17 +2362,21 @@ useEffect(() => {
   const controlBar = !isTrainee && (
     <div className="flex items-center gap-3">
       <label className="text-sm text-slate-600">Start</label>
-      <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
+      <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> handleStartDateInput(e.target.value)} />
       <div className="h-6 w-px bg-slate-200" />
       <label className="text-sm text-slate-600">Weeks</label>
       <div className="flex items-center gap-1">
-        <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.max(1, w-1))} aria-label="Decrease weeks">−</button>
+        <button className="btn btn-outline" onClick={()=> handleNumWeeksInput((w)=> w - 1)} aria-label="Decrease weeks">−</button>
         <input type="number" min="1" max="24" step="1" className="input w-16 text-center" value={numWeeks}
-               onChange={(e)=> setNumWeeks(()=> { const v = parseInt(e.target.value||'1',10); return isNaN(v) ? 1 : Math.min(24, Math.max(1, v)); })} />
-        <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.min(24, w+1))} aria-label="Increase weeks">+</button>
+               onChange={(e)=> {
+                 const v = parseInt(e.target.value || '1', 10);
+                 const normalized = Number.isNaN(v) ? 1 : Math.min(24, Math.max(1, v));
+                 handleNumWeeksInput(normalized);
+               }} />
+        <button className="btn btn-outline" onClick={()=> handleNumWeeksInput((w)=> w + 1)} aria-label="Increase weeks">+</button>
       </div>
       <div className="h-6 w-px bg-slate-200" />
-      <button className="btn btn-ghost" title="Jump to today" onClick={()=> setStartDate(dayjs().format('YYYY-MM-DD'))}>Today</button>
+      <button className="btn btn-ghost" title="Jump to today" onClick={()=> handleStartDateInput(dayjs().format('YYYY-MM-DD'))}>Today</button>
     </div>
   );
 
