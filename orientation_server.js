@@ -71,6 +71,8 @@ const toNullableDateString = value => {
   }
   return normalized;
 };
+const isAccountDisabled = status => typeof status === 'string'
+  && ['suspended', 'archived'].includes(status.trim().toLowerCase());
 let transporter;
 try {
   const nodemailer = require('nodemailer');
@@ -219,16 +221,20 @@ passport.use(new GoogleStrategy({
       set email=excluded.email, full_name=excluded.full_name, picture_url=excluded.picture_url, updated_at=now()
       returning *;`;
     const { rows } = await pool.query(upsert, [profile.id, email, name, picture]);
+    const user = rows[0];
+    if (isAccountDisabled(user?.status)) {
+      return done(null, false, { message: 'account_disabled' });
+    }
     // Ensure a default role for SSO users (idempotent)
     try {
       await pool.query(
         `insert into public.user_roles(user_id, role_id)
          select $1, role_id from roles where role_key = $2
          on conflict do nothing`,
-        [rows[0].id, process.env.DEFAULT_ROLE || 'viewer']
+        [user.id, process.env.DEFAULT_ROLE || 'viewer']
       );
     } catch (_e) { /* ignore role seeding errors */ }
-    return done(null, rows[0]);
+    return done(null, user);
   } catch (e) { return done(e); }
 }));
 
@@ -249,21 +255,36 @@ app.get('/health', async (_req, res) => {
 // ==== 6) Auth routes ====
 // Google SSO
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/login' }),
-  async (req, res) => {
-    // Ensure a preferences row so UI can restore state
-    await pool.query(`
-      insert into public.user_preferences (user_id, trainee)
-      values ($1, $2)
-      on conflict (user_id) do nothing;`,
-      [req.user.id, req.user.id]);
-    if (req.session && req.user?.id) {
-      req.session.trainee = req.user.id;
+app.get('/auth/google/callback', (req, res, next) => {
+  passport.authenticate('google', (err, user, info) => {
+    if (err) return next(err);
+    if (!user) {
+      const message = info?.message || 'auth_failed';
+      const status = message === 'account_disabled' ? 403 : 401;
+      if (req.accepts('json')) {
+        return res.status(status).json({ error: message });
+      }
+      res.status(status);
+      return res.send(`Authentication failed: ${message}`);
     }
-    res.redirect('/');
-  }
-);
+    req.login(user, async loginErr => {
+      if (loginErr) return next(loginErr);
+      try {
+        await pool.query(`
+          insert into public.user_preferences (user_id, trainee)
+          values ($1, $2)
+          on conflict (user_id) do nothing;`,
+          [req.user.id, req.user.id]);
+      } catch (_e) {
+        /* ignore if preferences table is absent */
+      }
+      if (req.session && req.user?.id) {
+        req.session.trainee = req.user.id;
+      }
+      return res.redirect('/');
+    });
+  })(req, res, next);
+});
 
 // Local: register
 app.post('/auth/local/register', async (req, res) => {
@@ -319,6 +340,9 @@ app.post('/auth/local/login', async (req, res) => {
     if (!user || !user.password_hash) return res.status(401).json({ error: 'bad_username_or_password' });
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'bad_username_or_password' });
+    if (isAccountDisabled(user.status)) {
+      return res.status(403).json({ error: 'account_disabled' });
+    }
 
     await pool.query('update public.users set last_login_at=now() where id=$1', [user.id]);
 
