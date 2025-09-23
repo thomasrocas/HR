@@ -888,6 +888,7 @@ function App({ me, onSignOut }){
   const isTrainee = (me?.roles || []).includes('trainee');
   const isReadOnly = (me?.roles || []).some(r => r === 'viewer' || r === 'auditor');
   const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
+  const showKpis = (me?.roles || []).length > 0;
   const canEditSchedule = hasPerm('task.assign') && isPrivileged && !isTrainee;
   const canEditResponsible = hasPerm('task.update') && isPrivileged && !isTrainee;
   const canEditJournal = isTrainee || (isPrivileged && hasPerm('task.update'));
@@ -2562,7 +2563,7 @@ useEffect(() => {
           </header>
 
       {/* KPIs */}
-      {!isTrainee && (
+      {showKpis && (
         <div className="grid md:grid-cols-4 gap-4">
           <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={progress.pct}/></div>
           <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{progress.done}/{progress.total}</div></div>
