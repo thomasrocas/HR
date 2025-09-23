@@ -338,8 +338,10 @@
               <button id="btnOpenEdit" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Edit name &amp; email</button>
               <button id="btnOpenRoles" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Update roles</button>
               <button id="btnOpenPrograms" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Assign programs</button>
+              <button id="btnLoadCalendar" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Load calendar</button>
               <button id="btnOpenLifecycle" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm sm:col-span-2">Deactivate / Reactivate / Archive</button>
             </div>
+            <p id="loadCalendarStatus" class="mt-3 text-sm text-slate-500"></p>
             <p id="actionHint" class="mt-3 text-xs text-slate-500">Select a user to enable profile actions.</p>
           </div>
         </div>
@@ -608,6 +610,31 @@ async function archiveUserRequest(userId) {
   });
 }
 
+function persistSelectedTraineeSession(trainee) {
+  try {
+    if (!trainee || !trainee.id) {
+      sessionStorage.removeItem('anx_selected_trainee');
+      return;
+    }
+    const payload = {
+      id: trainee.id,
+      name: trainee.name || ''
+    };
+    sessionStorage.setItem('anx_selected_trainee', JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist trainee selection', error);
+  }
+}
+
+async function updatePreferredTrainee(userId) {
+  return fetch(`${API}/prefs`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trainee: userId })
+  });
+}
+
 let USERS = [];
 let PROGRAMS = [];
 let selectedUser = null;
@@ -641,6 +668,8 @@ const editMsg = document.getElementById('editMsg');
 const rolesDrawerMsg = document.getElementById('rolesDrawerMsg');
 const programsMsg = document.getElementById('programsMsg');
 const lifecycleMsg = document.getElementById('lifecycleMsg');
+const btnLoadCalendar = document.getElementById('btnLoadCalendar');
+const loadCalendarStatus = document.getElementById('loadCalendarStatus');
 
 const rolesInfo = document.getElementById('rolesInfo');
 const rolesUserName = document.getElementById('rolesUserName');
@@ -739,6 +768,11 @@ function renderSelectedUser(user) {
     elSelectedStatus.classList.add('hidden');
     elSelectedRoles.innerHTML = '<span class="text-xs text-slate-500">Roles will appear once a user is selected.</span>';
     actionHint.textContent = 'Select a user to enable profile actions.';
+    if (loadCalendarStatus) {
+      loadCalendarStatus.textContent = '';
+      loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
+      loadCalendarStatus.classList.add('text-slate-500');
+    }
     setUserActionState(false);
     setLifecycleButtons('');
     if (inputEditFullName) inputEditFullName.value = '';
@@ -772,6 +806,11 @@ function renderSelectedUser(user) {
   if (inputEditFullName) inputEditFullName.value = user.full_name || '';
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization || '');
   if (inputEditEmail) inputEditEmail.value = user.username || '';
+  if (loadCalendarStatus) {
+    loadCalendarStatus.textContent = '';
+    loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
+    loadCalendarStatus.classList.add('text-slate-500');
+  }
   setUserActionState(true);
   setLifecycleButtons(status);
 }
@@ -856,6 +895,43 @@ btnOpenLifecycle.addEventListener('click', () => {
   textareaDeactivateReason.value = '';
   openDrawer('drawerLifecycle');
 });
+
+if (btnLoadCalendar) {
+  btnLoadCalendar.addEventListener('click', async () => {
+    if (!selectedUser) return;
+    if (loadCalendarStatus) {
+      loadCalendarStatus.textContent = 'Loading calendar…';
+      loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
+      loadCalendarStatus.classList.add('text-slate-500');
+    }
+    const trainee = {
+      id: selectedUser.id,
+      name: selectedUser.full_name || selectedUser.username || ''
+    };
+    try {
+      persistSelectedTraineeSession(trainee);
+      const res = await updatePreferredTrainee(selectedUser.id);
+      if (!res.ok) {
+        throw new Error('Failed to update preferences');
+      }
+      if (loadCalendarStatus) {
+        loadCalendarStatus.textContent = 'Success! Redirecting…';
+        loadCalendarStatus.classList.add('text-emerald-600');
+        loadCalendarStatus.classList.remove('text-rose-600', 'text-slate-500');
+      }
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 600);
+    } catch (error) {
+      console.error(error);
+      if (loadCalendarStatus) {
+        loadCalendarStatus.textContent = 'Failed to load calendar. Please try again or contact support if the issue continues.';
+        loadCalendarStatus.classList.add('text-rose-600');
+        loadCalendarStatus.classList.remove('text-emerald-600', 'text-slate-500');
+      }
+    }
+  });
+}
 
 formCreate.addEventListener('submit', async e => {
   e.preventDefault();
