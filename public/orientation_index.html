@@ -1060,6 +1060,7 @@ function App({ me, onSignOut }){
         responsible_person: responsiblePerson,
         scheduled_time: scheduledTime,
         scheduled_for: scheduledFor,
+        external_link: externalLink,
       } = detail;
       if (!taskId) return;
 
@@ -1079,6 +1080,9 @@ function App({ me, onSignOut }){
               responsible_person: typeof responsiblePerson !== 'undefined'
                 ? ensureDisplayValue(responsiblePerson)
                 : task.responsible_person,
+              external_link: typeof externalLink !== 'undefined'
+                ? ensureDisplayValue(externalLink)
+                : task.external_link,
               scheduled_time: typeof scheduledTime !== 'undefined'
                 ? normalizeTimeValue(scheduledTime)
                 : task.scheduled_time,
@@ -1104,6 +1108,9 @@ function App({ me, onSignOut }){
             responsible_person: typeof responsiblePerson !== 'undefined'
               ? ensureDisplayValue(responsiblePerson)
               : event.responsible_person,
+            external_link: typeof externalLink !== 'undefined'
+              ? ensureDisplayValue(externalLink)
+              : event.external_link,
             scheduled_time: typeof scheduledTime !== 'undefined'
               ? normalizeTimeValue(scheduledTime)
               : event.scheduled_time,
@@ -1221,6 +1228,7 @@ function App({ me, onSignOut }){
         labels: toLabelList(r.labels),
         week_number: typeof r.week_number === 'number' ? r.week_number : ensureDisplayValue(r.week_number),
         journal_entry: ensureDisplayValue(r.journal_entry),
+        external_link: ensureDisplayValue(r.external_link),
         responsible_person: ensureDisplayValue(r.responsible_person),
         done: typeof r.done === 'boolean' ? r.done : ensureDisplayValue(r.done),
         program_id: programId ? String(programId) : '',
@@ -1391,6 +1399,7 @@ useEffect(() => {
           labels: toLabelString(task.labels),
           week: weekValue,
           journal_entry: ensureDisplayValue(task.journal_entry),
+          external_link: ensureDisplayValue(task.external_link),
           responsible_person: ensureDisplayValue(task.responsible_person),
           scheduled_for: ensureDisplayValue(task.scheduled_for),
           scheduled_time: scheduledTime,
@@ -1634,6 +1643,7 @@ useEffect(() => {
             labels: toLabelString(row.labels),
             week: weekValue,
             journal_entry: ensureDisplayValue(row.journal_entry),
+            external_link: ensureDisplayValue(row.external_link),
             responsible_person: ensureDisplayValue(row.responsible_person),
             scheduled_for: ensureDisplayValue(row.scheduled_for),
             scheduled_time: scheduledTime,
@@ -1790,6 +1800,7 @@ useEffect(() => {
               labels: toLabelString(updatedTask.labels),
               week: weekValue,
               journal_entry: ensureDisplayValue(updatedTask.journal_entry),
+              external_link: ensureDisplayValue(updatedTask.external_link),
               responsible_person: ensureDisplayValue(updatedTask.responsible_person),
               scheduled_for: updatedTask.scheduled_for || '',
               scheduled_time: scheduledTime,
@@ -1809,6 +1820,7 @@ useEffect(() => {
           labels: toLabelString(updatedTask.labels),
           week: weekValue,
           journal_entry: ensureDisplayValue(updatedTask.journal_entry),
+          external_link: ensureDisplayValue(updatedTask.external_link),
           responsible_person: ensureDisplayValue(updatedTask.responsible_person),
           scheduled_for: updatedTask.scheduled_for || '',
           scheduled_time: scheduledTime,
@@ -1939,6 +1951,7 @@ useEffect(() => {
           labels: toLabelList(created.labels),
           week_number: typeof created.week_number === 'number' ? created.week_number : ensureDisplayValue(created.week_number),
           journal_entry: ensureDisplayValue(created.journal_entry),
+          external_link: ensureDisplayValue(created.external_link),
           responsible_person: ensureDisplayValue(created.responsible_person),
           done: typeof created.done === 'boolean' ? created.done : ensureDisplayValue(created.done),
           program_id: programId ? String(programId) : '',
@@ -2001,6 +2014,7 @@ useEffect(() => {
           labels: toLabelList(res.labels),
           week_number: typeof res.week_number === 'number' ? res.week_number : ensureDisplayValue(res.week_number),
           journal_entry: ensureDisplayValue(res.journal_entry),
+          external_link: ensureDisplayValue(res.external_link),
           responsible_person: ensureDisplayValue(res.responsible_person),
           done: typeof res.done === 'boolean' ? res.done : ensureDisplayValue(res.done),
           program_id: programId ? String(programId) : '',
@@ -2042,6 +2056,7 @@ useEffect(() => {
               labels: toLabelString(res.labels),
               week: weekValue,
               journal_entry: ensureDisplayValue(res.journal_entry),
+              external_link: ensureDisplayValue(res.external_link),
               responsible_person: ensureDisplayValue(res.responsible_person),
               scheduled_for: res.scheduled_for || '',
               scheduled_time: scheduledTime,
@@ -2693,6 +2708,7 @@ useEffect(() => {
                            data-title={it.label}
                            data-week={typeof it.week === 'number' || typeof it.week === 'string' ? String(it.week) : toDisplayString(it.week)}
                            data-journal_entry={toDisplayString(it.journal_entry)}
+                           data-external_link={toDisplayString(it.external_link)}
                            data-responsible_person={toDisplayString(it.responsible_person)}
                            data-scheduled_for={toDisplayString(it.scheduled_for)}
                            data-scheduled_time={it.scheduled_time || ''}
@@ -2802,8 +2818,10 @@ useEffect(() => {
                           const timeDisplay = task.scheduled_time || '';
                           const responsible = toDisplayString(task.responsible_person);
                           const journal = toDisplayString(task.journal_entry);
+                          const externalLink = toDisplayString(task.external_link);
                           const hasResponsible = responsible && responsible !== '—';
                           const hasJournal = journal && journal !== '—';
+                          const hasExternalLink = externalLink && externalLink !== '—';
                           const done = typeof task.done === 'boolean'
                             ? task.done
                             : String(task.done).toLowerCase() === 'true';
@@ -2830,6 +2848,7 @@ useEffect(() => {
                               data-title={labelDisplay}
                               data-week={weekValue}
                               data-journal_entry={hasJournal ? journal : ''}
+                              data-external_link={hasExternalLink ? externalLink : ''}
                               data-responsible_person={hasResponsible ? responsible : ''}
                               data-scheduled_for={toDisplayString(task.scheduled_for)}
                               data-scheduled_time={timeDisplay}
@@ -2927,6 +2946,7 @@ useEffect(() => {
                         : String(t.completed).toLowerCase() === 'true';
                       const tooltipResponsible = toDisplayString(t.responsible_person);
                       const tooltipJournal = toDisplayString(t.journal_entry);
+                      const tooltipExternalLink = toDisplayString(t.external_link);
                       const hasTooltipJournal = tooltipJournal && tooltipJournal !== '—';
                       const showAssignedMeta = hasPerm('task.assign') && isPrivileged && !isTrainee;
                       return (
@@ -2945,6 +2965,7 @@ useEffect(() => {
                               data-title={toDisplayString(t.title)}
                               data-week={toDisplayString(w.wk)}
                               data-journal_entry={hasTooltipJournal ? tooltipJournal : ''}
+                              data-external_link={tooltipExternalLink && tooltipExternalLink !== '—' ? tooltipExternalLink : ''}
                               data-responsible_person={tooltipResponsible}
                               data-scheduled_for={toDisplayString(t.scheduled_for)}
                               data-scheduled_time={t.scheduled_time || ''}
@@ -3467,6 +3488,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           <span class="orientation-modal__value muted" data-modal-field="done">—</span>
         </div>
         <div class="orientation-modal__field full-span">
+          <span class="orientation-modal__label">External Link</span>
+          <input
+            type="url"
+            id="orientationTaskExternalLink"
+            class="orientation-modal__input"
+            name="external_link"
+            placeholder="Add an external link…"
+          />
+        </div>
+        <div class="orientation-modal__field full-span">
           <span class="orientation-modal__label">Journal Entry</span>
           <textarea name="journal_entry" id="orientationTaskJournal" placeholder="Add a journal entry…"></textarea>
         </div>
@@ -3672,6 +3703,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
     const setupModal = (triggerRoots, modal) => {
       const form = document.getElementById('orientationTaskForm');
       const journalField = document.getElementById('orientationTaskJournal');
+      const externalLinkField = document.getElementById('orientationTaskExternalLink');
       const responsibleField = document.getElementById('orientationTaskResponsible');
       const timeField = document.getElementById('orientationTaskTime');
       const fieldMap = {
@@ -3737,6 +3769,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           journalField.disabled = !journalAllowed;
           journalField.readOnly = !journalAllowed;
           journalField.setAttribute('aria-disabled', journalAllowed ? 'false' : 'true');
+        }
+        if (externalLinkField) {
+          externalLinkField.disabled = !journalAllowed;
+          externalLinkField.readOnly = !journalAllowed;
+          externalLinkField.setAttribute('aria-disabled', journalAllowed ? 'false' : 'true');
         }
       };
 
@@ -3932,6 +3969,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           : '';
         responsibleField.value = responsibleValue;
       }
+      if (externalLinkField) {
+        const externalValue = dataset.external_link && dataset.external_link !== '—'
+          ? dataset.external_link
+          : '';
+        externalLinkField.value = externalValue;
+      }
       ensureTimeOptions();
       if (timeField) {
         const existingTime = dataset.scheduled_time && dataset.scheduled_time !== '—'
@@ -4005,6 +4048,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         return;
       }
       const entryValue = journalField ? journalField.value : '';
+      const externalLinkValue = externalLinkField ? externalLinkField.value : '';
       const responsibleValue = responsibleField ? responsibleField.value : '';
       const timeValue = timeField ? timeField.value : '';
       const parentDay = activeTrigger.closest('[data-date]');
@@ -4013,6 +4057,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const datasetJournalRaw = activeTrigger.dataset.journal_entry && activeTrigger.dataset.journal_entry !== '—'
         ? activeTrigger.dataset.journal_entry
         : '';
+      const datasetExternalRaw = activeTrigger.dataset.external_link && activeTrigger.dataset.external_link !== '—'
+        ? activeTrigger.dataset.external_link
+        : '';
       const scheduledForValue = permissionState.schedule
         ? combineScheduledWithTime(datasetScheduledFor || '', timeValue, parentDate)
         : datasetScheduledFor;
@@ -4020,6 +4067,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const payload = {};
       if (permissionState.journal) {
         payload.journal_entry = entryValue.trim() === '' ? null : entryValue;
+        payload.external_link = externalLinkValue.trim() === '' ? null : externalLinkValue;
       }
       if (permissionState.responsible) {
         payload.responsible_person = responsibleValue.trim() === '' ? null : responsibleValue;
@@ -4048,11 +4096,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           : datasetJournalRaw);
       const journalDisplay = toDisplay(nextJournalValue);
       const responsibleDisplay = toDisplay(typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue);
+      const nextExternalLinkValue = permissionState.journal
+        ? (Object.prototype.hasOwnProperty.call(updatedRow, 'external_link')
+          ? updatedRow.external_link
+          : externalLinkValue)
+        : (Object.prototype.hasOwnProperty.call(updatedRow, 'external_link')
+          ? updatedRow.external_link
+          : datasetExternalRaw);
+      const externalLinkDisplay = toDisplay(nextExternalLinkValue);
 
       activeTrigger.dataset.journal_entry = journalDisplay;
       activeTrigger.dataset.responsible_person = responsibleDisplay;
+      activeTrigger.dataset.external_link = externalLinkDisplay;
       if (journalField) {
         journalField.value = journalDisplay === '—' ? '' : journalDisplay;
+      }
+      if (externalLinkField) {
+        externalLinkField.value = externalLinkDisplay === '—' ? '' : externalLinkDisplay;
       }
 
       const datasetTimeValue = activeTrigger.dataset.scheduled_time && activeTrigger.dataset.scheduled_time !== '—'
@@ -4099,7 +4159,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           scheduled_time: typeof updatedRow.scheduled_time !== 'undefined'
             ? updatedRow.scheduled_time
             : (permissionState.schedule ? (nextTimeValue || '') : (datasetTimeValue || '')),
-          scheduled_for: typeof updatedRow.scheduled_for !== 'undefined' ? updatedRow.scheduled_for : nextScheduledFor
+          scheduled_for: typeof updatedRow.scheduled_for !== 'undefined' ? updatedRow.scheduled_for : nextScheduledFor,
+          external_link: typeof updatedRow.external_link !== 'undefined' ? updatedRow.external_link : nextExternalLinkValue
         }
       }));
       closeModal();
