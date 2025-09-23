@@ -10,6 +10,7 @@ const LINK_WRITABLE_COLUMNS = new Set([
   'visibility',
   'visible',
   'notes',
+  'external_link',
   'created_by',
   'updated_by',
 ]);
@@ -38,6 +39,7 @@ const formatTemplateLinkRow = row => {
     program_id: row.program_id ?? null,
     linked_at: row.created_at ?? null,
     link_id: row.link_id ?? row.id ?? null,
+    link_external_link: toNullableString(row.link_external_link ?? null),
     visible: toNullableBoolean(row.visible),
     created_by: toNullableString(row.created_by ?? null),
     updated_by: toNullableString(row.updated_by ?? null),
@@ -76,6 +78,7 @@ function createProgramTemplateLinksDao(pool) {
     ...serializeTemplateRow(row),
     program_id: row.program_id ?? null,
     linked_at: row.created_at ?? null,
+    link_external_link: toNullableString(row.link_external_link ?? null),
   });
 
   const buildStatusFilter = (status, params) => {
@@ -130,7 +133,8 @@ function createProgramTemplateLinksDao(pool) {
              t.label,
              t.status,
              t.deleted_at,
-             t.external_link as external_link,
+             coalesce(l.external_link, t.external_link) as external_link,
+             l.external_link as link_external_link,
              t.organization,
              t.sub_unit,
              t.discipline_type,
@@ -260,7 +264,8 @@ function createProgramTemplateLinksDao(pool) {
                t.sort_order,
                t.status,
                t.deleted_at,
-               t.external_link as external_link,
+               coalesce(l.external_link, t.external_link) as external_link,
+               l.external_link as link_external_link,
                t.organization,
                t.sub_unit,
                t.discipline_type,
@@ -291,7 +296,8 @@ function createProgramTemplateLinksDao(pool) {
                t.label,
                t.status,
                t.deleted_at,
-               t.external_link as external_link,
+               coalesce(l.external_link, t.external_link) as external_link,
+               l.external_link as link_external_link,
                t.organization,
                t.sub_unit,
                t.discipline_type,
@@ -342,6 +348,16 @@ function createProgramTemplateLinksDao(pool) {
       };
     }
     const linkFields = pickLinkColumns(link);
+    if (!Object.prototype.hasOwnProperty.call(linkFields, 'external_link') || linkFields.external_link === undefined) {
+      const { rows: templateRows } = await runQuery(
+        db,
+        `select external_link from public.program_task_templates where template_id = $1 limit 1`,
+        [templateId]
+      );
+      if (templateRows.length) {
+        linkFields.external_link = templateRows[0]?.external_link ?? null;
+      }
+    }
     const columns = ['template_id', 'program_id'];
     const values = ['$1', '$2'];
     const params = [templateId, programId];
@@ -358,7 +374,7 @@ function createProgramTemplateLinksDao(pool) {
       values (${values.join(', ')})
       on conflict (program_id, template_id) do nothing
       returning id, template_id, program_id, week_number, sort_order, due_offset_days,
-                required, visibility, visible, notes, created_by, updated_by, created_at, updated_at
+                required, visibility, visible, notes, external_link, created_by, updated_by, created_at, updated_at
     `;
     const { rowCount, rows } = await runQuery(db, sql, params);
     return {
