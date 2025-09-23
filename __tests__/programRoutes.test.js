@@ -89,6 +89,7 @@ describe('program routes', () => {
         visibility text,
         visible boolean default true,
         notes text,
+        external_link text,
         created_by uuid,
         updated_by uuid,
         created_at timestamptz not null default now(),
@@ -840,20 +841,22 @@ test('instantiate skips soft deleted templates', async () => {
   await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
   const activeId = nextTemplateId();
   const deletedId = nextTemplateId();
-  await pool.query('insert into public.program_task_templates(template_id, week_number, label) values ($1,$2,$3)', [
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
     activeId,
     1,
     'active',
+    'https://templates.example.com/active',
   ]);
   await pool.query('insert into public.program_task_templates(template_id, week_number, label) values ($1,$2,$3)', [
     deletedId,
     2,
     'deleted',
   ]);
-  await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
+  await pool.query('insert into public.program_template_links(id, template_id, program_id, external_link) values ($1,$2,$3,$4)', [
     crypto.randomUUID(),
     activeId,
     progId,
+    'https://links.example.com/active',
   ]);
   await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
     crypto.randomUUID(),
@@ -866,9 +869,10 @@ test('instantiate skips soft deleted templates', async () => {
   const res = await agent.post(`/programs/${progId}/instantiate`).expect(200);
   expect(res.body.created).toBe(1);
 
-  const { rows } = await pool.query('select label from public.orientation_tasks where user_id=$1', [userId]);
+  const { rows } = await pool.query('select label, external_link from public.orientation_tasks where user_id=$1', [userId]);
   expect(rows).toHaveLength(1);
   expect(rows[0].label).toBe('active');
+  expect(rows[0].external_link).toBe('https://links.example.com/active');
 });
 
 test('rbac instantiate applies scheduling metadata', async () => {
