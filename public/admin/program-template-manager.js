@@ -244,6 +244,115 @@ function normalizeId(value) {
   return String(value);
 }
 
+const TEMPLATE_IDENTIFIER_KEYS = new Set([
+  'id',
+  'template_id',
+  'templateid',
+  'templateId',
+  'task_id',
+  'taskid',
+  'taskId',
+  'task',
+]);
+
+function normalizeTemplateIdentifier(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value >= 0) {
+      return String(value);
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^\d+$/.test(trimmed)) {
+      return trimmed;
+    }
+    const numeric = toNullableNumber(trimmed);
+    if (numeric !== null && Number.isInteger(numeric) && numeric >= 0) {
+      return String(numeric);
+    }
+  }
+  return null;
+}
+
+function hasTemplateIdentifier(record) {
+  if (!record || typeof record !== 'object') {
+    return false;
+  }
+  return Array.from(TEMPLATE_IDENTIFIER_KEYS).some(key => Object.prototype.hasOwnProperty.call(record, key));
+}
+
+function extractTemplateIdentifier(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  for (const key of TEMPLATE_IDENTIFIER_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) {
+      continue;
+    }
+    const normalized = normalizeTemplateIdentifier(record[key]);
+    if (normalized !== null) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function stripTemplateIdentifierFields(record) {
+  if (!record || typeof record !== 'object') {
+    return {};
+  }
+  const sanitized = {};
+  Object.entries(record).forEach(([key, value]) => {
+    if (TEMPLATE_IDENTIFIER_KEYS.has(key)) {
+      return;
+    }
+    sanitized[key] = value;
+  });
+  return sanitized;
+}
+
+function buildTemplateImportOperation(record, index) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  const hasIdentifierField = hasTemplateIdentifier(record);
+  const templateId = extractTemplateIdentifier(record);
+  const payload = stripTemplateIdentifierFields(record);
+  const payloadKeys = Object.keys(payload);
+  const operationType = templateId ? 'update' : (hasIdentifierField ? 'update' : 'create');
+  const operation = {
+    index,
+    original: record,
+    payload,
+    templateId,
+    type: operationType,
+  };
+
+  if (hasIdentifierField && templateId === null) {
+    operation.error = 'Invalid template identifier provided.';
+    return operation;
+  }
+
+  if (operation.type === 'update' && payloadKeys.length === 0) {
+    operation.error = 'No fields provided for template update.';
+    return operation;
+  }
+
+  if (operation.type === 'create' && payloadKeys.length === 0) {
+    operation.error = 'No fields provided for template creation.';
+    return operation;
+  }
+
+  return operation;
+}
+
 function isValidHttpUrl(value) {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim();
@@ -1123,6 +1232,18 @@ function normalizeTemplateImportRecord(record) {
     const stringValue = assignString(value);
     const isEmpty = stringValue === '';
     switch (normalizedKey) {
+      case 'id':
+      case 'template_id':
+      case 'templateid':
+      case 'task_id':
+      case 'taskid':
+      case 'task':
+        if (!isEmpty) {
+          const normalizedId = normalizeTemplateIdentifier(value);
+          normalized.template_id = normalizedId !== null ? normalizedId : stringValue;
+          hasValue = true;
+        }
+        break;
       case 'week':
       case 'week_number':
         if (!isEmpty) {
@@ -1260,13 +1381,20 @@ async function readErrorMessageFromResponse(response) {
   }
 }
 
-async function tryImportTemplatesBulk(records) {
+async function tryImportTemplatesBulk(operations) {
+  const createOperations = Array.isArray(operations)
+    ? operations.filter(operation => operation && operation.type === 'create' && !operation.error)
+    : [];
+  if (!createOperations.length) {
+    return { success: 0, failure: 0 };
+  }
+  const payload = createOperations.map(operation => operation.payload);
   const importUrl = `${TEMPLATE_API}/import`;
   const res = await fetch(importUrl, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ templates: records }),
+    body: JSON.stringify({ templates: payload }),
   }).catch(error => {
     const networkError = new Error(error?.message || 'Failed to reach the template import service.');
     networkError.cause = error;
@@ -1277,7 +1405,7 @@ async function tryImportTemplatesBulk(records) {
     return { fallback: true };
   }
   if (res.ok) {
-    return { success: records.length, failure: 0 };
+    return { success: payload.length, failure: 0 };
   }
   if ([404, 405, 501].includes(res.status)) {
     const unsupportedError = new Error('Bulk template import is not available on this server.');
@@ -1291,22 +1419,43 @@ async function tryImportTemplatesBulk(records) {
   throw error;
 }
 
-async function importTemplatesSequentially(records) {
-  const total = records.length;
+async function importTemplatesSequentially(operations) {
+  const entries = Array.isArray(operations) ? operations : [];
+  const total = entries.length;
   let success = 0;
   let failure = 0;
   const errors = [];
   for (let index = 0; index < total; index += 1) {
-    const record = records[index];
+    const operation = entries[index];
+    if (!operation) {
+      continue;
+    }
+    if (operation.error) {
+      failure += 1;
+      const baseMessage = operation.error;
+      const message = typeof operation.index === 'number'
+        ? `Template record ${operation.index + 1}: ${baseMessage}`
+        : baseMessage;
+      errors.push(message);
+      continue;
+    }
+    const { type, payload, templateId } = operation;
+    const isUpdate = type === 'update';
+    const actionLabel = isUpdate ? 'Updating' : 'Creating';
     if (templateMessage) {
-      templateMessage.textContent = `Importing templates (${index + 1}/${total})…`;
+      templateMessage.textContent = `${actionLabel} templates (${index + 1}/${total})…`;
     }
     try {
-      const res = await fetch(TEMPLATE_API, {
-        method: 'POST',
+      const requestUrl = isUpdate ? `${TEMPLATE_API}/${templateId}` : TEMPLATE_API;
+      const method = isUpdate ? 'PATCH' : 'POST';
+      if (isUpdate) {
+        console.info('[Template Import] Updating template via PATCH', { templateId, payload });
+      }
+      const res = await fetch(requestUrl, {
+        method,
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(record),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         success += 1;
@@ -1358,26 +1507,79 @@ async function handleTemplateImportFile(file) {
       templateMessage.textContent = 'No templates were imported. Please verify the file contents and try again.';
       return;
     }
+    const operations = normalizedRecords
+      .map((record, index) => buildTemplateImportOperation(record, index))
+      .filter(Boolean);
+    if (!operations.length) {
+      showToast('No templates were found in the selected file.', { type: 'error' });
+      templateMessage.textContent = 'No templates were imported. Please verify the file contents and try again.';
+      return;
+    }
+    const blockedOperations = [];
+    const actionableOperations = [];
+    operations.forEach(operation => {
+      if (!operation) {
+        return;
+      }
+      if (operation.error) {
+        blockedOperations.push(operation);
+        return;
+      }
+      if (operation.type === 'create' || operation.type === 'update') {
+        actionableOperations.push(operation);
+      }
+    });
+    const updateOperations = actionableOperations.filter(operation => operation.type === 'update');
+    const createOperations = actionableOperations.filter(operation => operation.type === 'create');
     const total = normalizedRecords.length;
     templateMessage.textContent = `Importing ${total} template${total === 1 ? '' : 's'}…`;
     showToast(`Importing ${total} template${total === 1 ? '' : 's'}…`, { type: 'info' });
     let success = 0;
     let failure = 0;
     let errors = [];
-    try {
-      const bulkResult = await tryImportTemplatesBulk(normalizedRecords);
-      if (bulkResult?.success || bulkResult?.failure === 0) {
-        success = bulkResult.success || 0;
-        failure = bulkResult.failure || 0;
+    if (blockedOperations.length) {
+      failure += blockedOperations.length;
+      blockedOperations.forEach(operation => {
+        const baseMessage = operation.error || 'Template import record could not be processed.';
+        const message = typeof operation.index === 'number'
+          ? `Template record ${operation.index + 1}: ${baseMessage}`
+          : baseMessage;
+        errors.push(message);
+      });
+      const blockedUpdates = blockedOperations.filter(operation => operation.type === 'update');
+      if (blockedUpdates.length) {
+        console.warn('[Template Import] Skipping template updates with errors.', blockedUpdates);
       }
-    } catch (error) {
-      if (error?.fallback) {
-        const sequentialResult = await importTemplatesSequentially(normalizedRecords);
-        success = sequentialResult.success;
-        failure = sequentialResult.failure;
-        errors = sequentialResult.errors;
-      } else {
-        throw error;
+    }
+    if (updateOperations.length) {
+      const updateLabel = `Detected ${updateOperations.length} template update${updateOperations.length === 1 ? '' : 's'} — applying PATCH requests.`;
+      showToast(updateLabel, { type: 'info', duration: 4000 });
+      console.info(`[Template Import] Processing ${updateOperations.length} template update${updateOperations.length === 1 ? '' : 's'} via PATCH.`);
+      const updateResult = await importTemplatesSequentially(updateOperations);
+      success += updateResult.success;
+      failure += updateResult.failure;
+      if (Array.isArray(updateResult.errors) && updateResult.errors.length) {
+        errors = errors.concat(updateResult.errors);
+      }
+    }
+    if (createOperations.length) {
+      try {
+        const bulkResult = await tryImportTemplatesBulk(createOperations);
+        if (bulkResult?.success || bulkResult?.failure === 0) {
+          success += bulkResult.success || 0;
+          failure += bulkResult.failure || 0;
+        }
+      } catch (error) {
+        if (error?.fallback) {
+          const sequentialResult = await importTemplatesSequentially(createOperations);
+          success += sequentialResult.success;
+          failure += sequentialResult.failure;
+          if (Array.isArray(sequentialResult.errors) && sequentialResult.errors.length) {
+            errors = errors.concat(sequentialResult.errors);
+          }
+        } else {
+          throw error;
+        }
       }
     }
     if (success > 0 && failure === 0) {
