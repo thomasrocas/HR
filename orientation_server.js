@@ -632,6 +632,69 @@ const createHttpError = (status, code) => {
   return error;
 };
 
+const USER_STATUS_VALUES = new Set(['active', 'pending', 'suspended', 'archived']);
+let userStatusReasonColumnChecked = false;
+let userStatusReasonColumnExists = false;
+
+async function hasUserStatusReasonColumn() {
+  if (userStatusReasonColumnChecked) {
+    return userStatusReasonColumnExists;
+  }
+  try {
+    const { rowCount } = await pool.query(
+      `select 1
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'users'
+          and column_name = 'status_reason'
+        limit 1`,
+    );
+    userStatusReasonColumnExists = rowCount > 0;
+  } catch (err) {
+    console.error('Failed to detect users.status_reason column', err);
+    userStatusReasonColumnExists = false;
+  }
+  userStatusReasonColumnChecked = true;
+  return userStatusReasonColumnExists;
+}
+
+async function updateUserStatus(req, userId, status, reason) {
+  if (!req?.roles?.includes('admin')) {
+    throw createHttpError(403, 'forbidden');
+  }
+  if (!isValidUuid(userId)) {
+    throw createHttpError(400, 'invalid_user_id');
+  }
+  if (typeof status !== 'string') {
+    throw createHttpError(400, 'invalid_status');
+  }
+  const normalizedStatus = status.trim().toLowerCase();
+  if (!USER_STATUS_VALUES.has(normalizedStatus)) {
+    throw createHttpError(400, 'invalid_status');
+  }
+
+  const normalizedReason = toNullableString(reason);
+  const includeReason = await hasUserStatusReasonColumn();
+  const values = [userId, normalizedStatus];
+  let setClause = 'status = $2, updated_at = now()';
+  if (includeReason) {
+    values.push(normalizedReason ?? null);
+    setClause += `, status_reason = $${values.length}`;
+  }
+  const returningClause = includeReason ? ', status_reason' : '';
+
+  const sql = `
+    update public.users
+       set ${setClause}
+     where id = $1
+     returning status${returningClause};`;
+  const { rows, rowCount } = await pool.query(sql, values);
+  if (!rowCount) {
+    throw createHttpError(404, 'not_found');
+  }
+  return rows[0];
+}
+
 async function withTransaction(req, work) {
   const client = await pool.connect();
   try {
@@ -1459,6 +1522,48 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('PATCH /api/users/:id error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+app.post('/api/users/:id/deactivate', ensureAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await updateUserStatus(req, id, 'suspended', req.body?.reason);
+    res.json({ status: result.status });
+  } catch (err) {
+    if (err && typeof err === 'object' && err.status && err.status < 500) {
+      return res.status(err.status).json({ error: err.code || 'invalid_request' });
+    }
+    console.error('POST /api/users/:id/deactivate error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+app.post('/api/users/:id/reactivate', ensureAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await updateUserStatus(req, id, 'active', req.body?.reason);
+    res.json({ status: result.status });
+  } catch (err) {
+    if (err && typeof err === 'object' && err.status && err.status < 500) {
+      return res.status(err.status).json({ error: err.code || 'invalid_request' });
+    }
+    console.error('POST /api/users/:id/reactivate error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+app.post('/api/users/:id/archive', ensureAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await updateUserStatus(req, id, 'archived', req.body?.reason);
+    res.json({ status: result.status });
+  } catch (err) {
+    if (err && typeof err === 'object' && err.status && err.status < 500) {
+      return res.status(err.status).json({ error: err.code || 'invalid_request' });
+    }
+    console.error('POST /api/users/:id/archive error', err);
     res.status(500).json({ error: 'internal_server_error' });
   }
 });
