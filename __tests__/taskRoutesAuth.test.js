@@ -201,7 +201,11 @@ describe('task routes authorization', () => {
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId,'manager']);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [traineeId,'trainee']);
     const taskId = crypto.randomUUID();
-    await pool.query('insert into public.orientation_tasks(task_id, user_id, label, scheduled_for, program_id) values ($1,$2,$3,$4,$5)', [taskId, traineeId,'task','2024-01-01','prog1']);
+    const initialJournal = 'existing journal';
+    await pool.query(
+      'insert into public.orientation_tasks(task_id, user_id, label, scheduled_for, program_id, journal_entry) values ($1,$2,$3,$4,$5,$6)',
+      [taskId, traineeId, 'task', '2024-01-01', 'prog1', initialJournal]
+    );
 
     const agent = request.agent(app);
     await agent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
@@ -211,6 +215,7 @@ describe('task routes authorization', () => {
       .expect(200);
     expect(new Date(res.body.scheduled_for).toISOString().startsWith('2024-02-02')).toBe(true);
     expect(res.body.scheduled_time).toBe('09:45:00');
+    expect(res.body.journal_entry).toBe(initialJournal);
   });
 
   test('manager with only task.assign cannot modify other fields', async () => {

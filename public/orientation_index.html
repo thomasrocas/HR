@@ -890,30 +890,35 @@ function App({ me, onSignOut }){
   const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
   const canEditSchedule = hasPerm('task.assign') && isPrivileged && !isTrainee;
   const canEditResponsible = hasPerm('task.update') && isPrivileged && !isTrainee;
+  const canEditJournal = isTrainee || (isPrivileged && hasPerm('task.update'));
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
     const modal = document.getElementById('orientationTaskModal');
     const scheduleFlag = canEditSchedule ? 'true' : 'false';
     const responsibleFlag = canEditResponsible ? 'true' : 'false';
+    const journalFlag = canEditJournal ? 'true' : 'false';
     if (modal) {
       modal.dataset.canEditSchedule = scheduleFlag;
       modal.dataset.canEditResponsible = responsibleFlag;
+      modal.dataset.canEditJournal = journalFlag;
     }
     if (document.body) {
       document.body.dataset.orientationCanEditSchedule = scheduleFlag;
       document.body.dataset.orientationCanEditResponsible = responsibleFlag;
+      document.body.dataset.orientationCanEditJournal = journalFlag;
     }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('orientation:permissions', {
         detail: {
           canEditSchedule,
           canEditResponsible,
+          canEditJournal,
         },
       }));
     }
     return undefined;
-  }, [canEditSchedule, canEditResponsible]);
+  }, [canEditSchedule, canEditResponsible, canEditJournal]);
   const restoreFocus = () => {
     triggerRef.current && triggerRef.current.focus();
   };
@@ -3669,9 +3674,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           : (typeof modal.dataset.canEditResponsible !== 'undefined'
             ? modal.dataset.canEditResponsible
             : bodyDataset.orientationCanEditResponsible);
+        const journalRaw = Object.prototype.hasOwnProperty.call(override, 'canEditJournal')
+          ? override.canEditJournal
+          : (typeof modal.dataset.canEditJournal !== 'undefined'
+            ? modal.dataset.canEditJournal
+            : bodyDataset.orientationCanEditJournal);
         return {
           schedule: normalizeBoolean(scheduleRaw),
-          responsible: normalizeBoolean(responsibleRaw)
+          responsible: normalizeBoolean(responsibleRaw),
+          journal: normalizeBoolean(journalRaw)
         };
       };
 
@@ -3680,6 +3691,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const applyFieldPermissions = () => {
         const scheduleAllowed = permissionState.schedule;
         const responsibleAllowed = permissionState.responsible;
+        const journalAllowed = permissionState.journal;
         if (timeField) {
           timeField.disabled = !scheduleAllowed;
           timeField.setAttribute('aria-disabled', scheduleAllowed ? 'false' : 'true');
@@ -3688,6 +3700,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           responsibleField.disabled = !responsibleAllowed;
           responsibleField.readOnly = !responsibleAllowed;
           responsibleField.setAttribute('aria-disabled', responsibleAllowed ? 'false' : 'true');
+        }
+        if (journalField) {
+          journalField.disabled = !journalAllowed;
+          journalField.readOnly = !journalAllowed;
+          journalField.setAttribute('aria-disabled', journalAllowed ? 'false' : 'true');
         }
       };
 
@@ -3918,13 +3935,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       }
       if (fieldMap.done) fieldMap.done.textContent = toStatus(dataset.done);
       const journalValue = dataset.journal_entry && dataset.journal_entry !== '—' ? dataset.journal_entry : '';
-      journalField.value = journalValue;
+      if (journalField) {
+        journalField.value = journalValue;
+      }
       modal.showModal();
       trapFocus();
-      window.requestAnimationFrame(() => {
-        journalField.focus();
-        journalField.setSelectionRange(journalField.value.length, journalField.value.length);
-      });
+      if (journalField && !journalField.disabled) {
+        window.requestAnimationFrame(() => {
+          journalField.focus();
+          journalField.setSelectionRange(journalField.value.length, journalField.value.length);
+        });
+      }
     };
 
     const closeModal = (restoreFocus = true) => {
@@ -3951,19 +3972,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         alert('Task not found.');
         return;
       }
-      const entryValue = journalField.value;
+      const entryValue = journalField ? journalField.value : '';
       const responsibleValue = responsibleField ? responsibleField.value : '';
       const timeValue = timeField ? timeField.value : '';
       const parentDay = activeTrigger.closest('[data-date]');
       const parentDate = parentDay && parentDay.dataset ? parentDay.dataset.date : '';
       const datasetScheduledFor = activeTrigger.dataset.scheduled_for || '';
+      const datasetJournalRaw = activeTrigger.dataset.journal_entry && activeTrigger.dataset.journal_entry !== '—'
+        ? activeTrigger.dataset.journal_entry
+        : '';
       const scheduledForValue = permissionState.schedule
         ? combineScheduledWithTime(datasetScheduledFor || '', timeValue, parentDate)
         : datasetScheduledFor;
 
-      const payload = {
-        journal_entry: entryValue.trim() === '' ? null : entryValue
-      };
+      const payload = {};
+      if (permissionState.journal) {
+        payload.journal_entry = entryValue.trim() === '' ? null : entryValue;
+      }
       if (permissionState.responsible) {
         payload.responsible_person = responsibleValue.trim() === '' ? null : responsibleValue;
       }
@@ -3982,11 +4007,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         return;
       }
 
-      const journalDisplay = toDisplay(typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue);
+      const nextJournalValue = permissionState.journal
+        ? (Object.prototype.hasOwnProperty.call(updatedRow, 'journal_entry')
+          ? updatedRow.journal_entry
+          : entryValue)
+        : (Object.prototype.hasOwnProperty.call(updatedRow, 'journal_entry')
+          ? updatedRow.journal_entry
+          : datasetJournalRaw);
+      const journalDisplay = toDisplay(nextJournalValue);
       const responsibleDisplay = toDisplay(typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue);
 
       activeTrigger.dataset.journal_entry = journalDisplay;
       activeTrigger.dataset.responsible_person = responsibleDisplay;
+      if (journalField) {
+        journalField.value = journalDisplay === '—' ? '' : journalDisplay;
+      }
 
       const datasetTimeValue = activeTrigger.dataset.scheduled_time && activeTrigger.dataset.scheduled_time !== '—'
         ? activeTrigger.dataset.scheduled_time
@@ -4027,7 +4062,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       window.dispatchEvent(new CustomEvent('orientation:journal:update', {
         detail: {
           taskId,
-          journal_entry: typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : entryValue,
+          journal_entry: typeof updatedRow.journal_entry !== 'undefined' ? updatedRow.journal_entry : nextJournalValue,
           responsible_person: typeof updatedRow.responsible_person !== 'undefined' ? updatedRow.responsible_person : responsibleValue,
           scheduled_time: typeof updatedRow.scheduled_time !== 'undefined'
             ? updatedRow.scheduled_time
