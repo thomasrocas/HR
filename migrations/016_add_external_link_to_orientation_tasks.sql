@@ -1,0 +1,1 @@
+ALTER TABLE public.orientation_tasks ADD COLUMN IF NOT EXISTS external_link text;
