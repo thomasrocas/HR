@@ -1125,9 +1125,11 @@ function App({ me, onSignOut }){
 
   useEffect(() => {
     if (!isPrivileged) return;
+    let isCancelled = false;
     (async () => {
       try {
         const list = await apiListUsers();
+        if (isCancelled) return;
         let normalized = Array.isArray(list) ? [...list] : [];
         if (CURRENT_USER_ID) {
           const hasCurrent = normalized.some(u => sameId(u.id, CURRENT_USER_ID));
@@ -1139,14 +1141,38 @@ function App({ me, onSignOut }){
             ];
           }
         }
+
+        const stored = readStoredTrainee();
+        let preferredTargetId = TARGET_USER_ID || (stored?.id ? String(stored.id) : null);
+        let preferredTargetName = TARGET_USER_NAME || stored?.name || '';
+
+        if (!preferredTargetId && CURRENT_USER_ID) {
+          preferredTargetId = String(CURRENT_USER_ID);
+          if (!preferredTargetName) {
+            preferredTargetName = me?.name || me?.full_name || me?.username || 'Current user';
+          }
+        }
+
+        if (preferredTargetId && !normalized.some(u => sameId(u.id, preferredTargetId))) {
+          const fallbackName = preferredTargetName || 'Selected trainee';
+          normalized = [
+            ...normalized,
+            { id: preferredTargetId, full_name: fallbackName, name: fallbackName },
+          ];
+        }
+
         setUserList(normalized);
-        if (CURRENT_USER_ID) {
-          setTargetUserId(String(CURRENT_USER_ID));
+
+        if (!TARGET_USER_ID && preferredTargetId) {
+          setTargetUserId(String(preferredTargetId));
         }
       } catch (err) {
         console.error('Failed to load users', err);
       }
     })();
+    return () => {
+      isCancelled = true;
+    };
   }, [isPrivileged, me]);
 
   useEffect(() => {
