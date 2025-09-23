@@ -541,6 +541,15 @@ const sanitizeLinkMetadata = (raw = {}) => {
     const trimmed = typeof linkValue === 'string' ? linkValue.trim() : '';
     sanitized.external_link = linkValue === null ? null : trimmed === '' ? null : linkValue;
   }
+  if (Object.prototype.hasOwnProperty.call(raw, 'type_delivery')) {
+    sanitized.type_delivery = toNullableString(raw.type_delivery);
+  } else if (Object.prototype.hasOwnProperty.call(raw, 'typeDelivery')) {
+    sanitized.type_delivery = toNullableString(raw.typeDelivery);
+  } else if (Object.prototype.hasOwnProperty.call(raw, 'delivery_type')) {
+    sanitized.type_delivery = toNullableString(raw.delivery_type);
+  } else if (Object.prototype.hasOwnProperty.call(raw, 'deliveryType')) {
+    sanitized.type_delivery = toNullableString(raw.deliveryType);
+  }
   return sanitized;
 };
 
@@ -572,6 +581,11 @@ const buildLinkPayloadFromTemplate = (template = {}, overrides = {}, userId = nu
     const linkValue = toNullableString(template.external_link ?? template.hyperlink ?? null);
     const trimmed = typeof linkValue === 'string' ? linkValue.trim() : '';
     payload.external_link = linkValue === null ? null : trimmed === '' ? null : linkValue;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'type_delivery')) {
+    const deliveryValue = toNullableString(template.type_delivery ?? template.typeDelivery ?? null);
+    const trimmed = typeof deliveryValue === 'string' ? deliveryValue.trim() : '';
+    payload.type_delivery = deliveryValue === null ? null : trimmed === '' ? null : deliveryValue;
   }
   if (userId) {
     if (!Object.prototype.hasOwnProperty.call(payload, 'created_by')) {
@@ -772,6 +786,11 @@ async function attachTemplateToProgram(req, programId, templateId) {
     const linkPayload = {};
     if (defaultLink !== undefined) {
       linkPayload.external_link = defaultLink;
+    }
+    if (Object.prototype.hasOwnProperty.call(foundTemplate, 'type_delivery')) {
+      linkPayload.type_delivery = foundTemplate.type_delivery ?? null;
+    } else if (Object.prototype.hasOwnProperty.call(foundTemplate, 'typeDelivery')) {
+      linkPayload.type_delivery = foundTemplate.typeDelivery ?? null;
     }
     const attachResult = await programTemplateLinksDao.attach({
       programId,
@@ -1934,7 +1953,8 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
                         t.organization,
                         t.sub_unit,
                         t.discipline_type,
-                        t.type_delivery,
+                        coalesce(l.type_delivery, t.type_delivery) as type_delivery,
+                        l.type_delivery as link_type_delivery,
                         t.department,
                         coalesce(l.notes, t.notes) as notes,
                         coalesce(l.due_offset_days, t.due_offset_days) as due_offset_days,
@@ -2055,6 +2075,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
           visible,
           notes,
           external_link,
+          type_delivery,
           created_by,
           updated_by
         )
@@ -2068,6 +2089,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
                coalesce($16, true),
                i.notes,
                i.external_link,
+               i.type_delivery,
                $17,
                $17
           from inserted i
@@ -2082,6 +2104,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
                   visible,
                   notes,
                   external_link,
+                  type_delivery,
                   created_by,
                   updated_by,
                   created_at,
@@ -2106,6 +2129,8 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
              i.deleted_at,
              coalesce(l.external_link, i.external_link) as external_link,
              coalesce(l.external_link, i.external_link) as hyperlink,
+             coalesce(l.type_delivery, i.type_delivery) as type_delivery,
+             l.type_delivery as link_type_delivery,
              l.external_link as link_external_link,
              l.link_id,
              l.created_at,
@@ -2480,7 +2505,7 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
     
 const sql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, external_link, journal_entry, responsible_person)
+    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, type_delivery, external_link, journal_entry, responsible_person)
   select $1,
          $2,
          t.label,
@@ -2490,6 +2515,7 @@ const sql = `
          l.program_id,
          coalesce(l.week_number, t.week_number),
          coalesce(l.notes, t.notes),
+         coalesce(l.type_delivery, t.type_delivery),
          coalesce(l.external_link, t.external_link),
          null,
          null
@@ -2572,7 +2598,7 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
 
 const copySql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, scheduled_time, due_date, done, program_id, week_number, notes, external_link, journal_entry, responsible_person)
+    (user_id, trainee, label, scheduled_for, scheduled_time, due_date, done, program_id, week_number, notes, type_delivery, external_link, journal_entry, responsible_person)
   select $1,
          $2,
          t.label,
@@ -2590,6 +2616,7 @@ const copySql = `
            when $6::text is not null and $6::text <> '' then $6::text
            else coalesce(l.notes, t.notes)
          end,
+         coalesce(l.type_delivery, t.type_delivery),
          coalesce(l.external_link, t.external_link),
          null,
          null
@@ -3071,6 +3098,7 @@ create table if not exists public.program_template_links (
   template_id bigint not null references public.program_task_templates(template_id) on delete cascade,
   program_id  text not null references public.programs(program_id) on delete cascade,
   created_at  timestamptz not null default now(),
+  type_delivery text,
   primary key (template_id, program_id)
 );
 create index if not exists idx_program_template_links_program on public.program_template_links(program_id);
@@ -3081,6 +3109,9 @@ alter table public.orientation_tasks
 
 alter table public.orientation_tasks
   add column if not exists due_date date;
+
+alter table public.orientation_tasks
+  add column if not exists type_delivery text;
 
 -- Soft delete flag for tasks
 alter table public.orientation_tasks

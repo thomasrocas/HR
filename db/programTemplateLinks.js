@@ -11,6 +11,7 @@ const LINK_WRITABLE_COLUMNS = new Set([
   'visible',
   'notes',
   'external_link',
+  'type_delivery',
   'created_by',
   'updated_by',
 ]);
@@ -40,6 +41,7 @@ const formatTemplateLinkRow = row => {
     linked_at: row.created_at ?? null,
     link_id: row.link_id ?? row.id ?? null,
     link_external_link: toNullableString(row.link_external_link ?? null),
+    link_type_delivery: toNullableString(row.link_type_delivery ?? null),
     visible: toNullableBoolean(row.visible),
     created_by: toNullableString(row.created_by ?? null),
     updated_by: toNullableString(row.updated_by ?? null),
@@ -79,6 +81,7 @@ function createProgramTemplateLinksDao(pool) {
     program_id: row.program_id ?? null,
     linked_at: row.created_at ?? null,
     link_external_link: toNullableString(row.link_external_link ?? null),
+    link_type_delivery: toNullableString(row.link_type_delivery ?? null),
   });
 
   const buildStatusFilter = (status, params) => {
@@ -138,7 +141,8 @@ function createProgramTemplateLinksDao(pool) {
              t.organization,
              t.sub_unit,
              t.discipline_type,
-             t.type_delivery,
+             coalesce(l.type_delivery, t.type_delivery) as type_delivery,
+             l.type_delivery as link_type_delivery,
              t.department,
              l.program_id,
              l.id as link_id,
@@ -269,7 +273,8 @@ function createProgramTemplateLinksDao(pool) {
                t.organization,
                t.sub_unit,
                t.discipline_type,
-               t.type_delivery,
+               coalesce(l.type_delivery, t.type_delivery) as type_delivery,
+               l.type_delivery as link_type_delivery,
                t.department,
                l.program_id,
                l.created_at
@@ -301,7 +306,8 @@ function createProgramTemplateLinksDao(pool) {
                t.organization,
                t.sub_unit,
                t.discipline_type,
-               t.type_delivery,
+               coalesce(l.type_delivery, t.type_delivery) as type_delivery,
+               l.type_delivery as link_type_delivery,
                t.department,
                l.program_id,
                l.id as link_id,
@@ -348,14 +354,23 @@ function createProgramTemplateLinksDao(pool) {
       };
     }
     const linkFields = pickLinkColumns(link);
-    if (!Object.prototype.hasOwnProperty.call(linkFields, 'external_link') || linkFields.external_link === undefined) {
+    const needsExternal = !Object.prototype.hasOwnProperty.call(linkFields, 'external_link')
+      || linkFields.external_link === undefined;
+    const needsDelivery = !Object.prototype.hasOwnProperty.call(linkFields, 'type_delivery')
+      || linkFields.type_delivery === undefined;
+    if (needsExternal || needsDelivery) {
       const { rows: templateRows } = await runQuery(
         db,
-        `select external_link from public.program_task_templates where template_id = $1 limit 1`,
+        `select external_link, type_delivery from public.program_task_templates where template_id = $1 limit 1`,
         [templateId]
       );
       if (templateRows.length) {
-        linkFields.external_link = templateRows[0]?.external_link ?? null;
+        if (needsExternal) {
+          linkFields.external_link = templateRows[0]?.external_link ?? null;
+        }
+        if (needsDelivery) {
+          linkFields.type_delivery = templateRows[0]?.type_delivery ?? null;
+        }
       }
     }
     const columns = ['template_id', 'program_id'];
@@ -374,7 +389,8 @@ function createProgramTemplateLinksDao(pool) {
       values (${values.join(', ')})
       on conflict (program_id, template_id) do nothing
       returning id, template_id, program_id, week_number, sort_order, due_offset_days,
-                required, visibility, visible, notes, external_link, created_by, updated_by, created_at, updated_at
+                required, visibility, visible, notes, external_link, type_delivery,
+                created_by, updated_by, created_at, updated_at
     `;
     const { rowCount, rows } = await runQuery(db, sql, params);
     return {

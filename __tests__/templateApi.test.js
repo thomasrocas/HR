@@ -33,6 +33,11 @@ const addExternalLinkMigration = fs.readFileSync(
   'utf-8'
 );
 
+const addTypeDeliveryMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'migrations', '019_add_type_delivery_to_links_and_tasks.sql'),
+  'utf-8'
+);
+
 const DEFAULT_PASSWORD = 'passpass';
 
 describe('template api', () => {
@@ -98,6 +103,8 @@ describe('template api', () => {
         visibility text,
         visible boolean default true,
         notes text,
+        external_link text,
+        type_delivery text,
         created_by uuid,
         updated_by uuid,
         created_at timestamptz not null default now(),
@@ -117,9 +124,16 @@ describe('template api', () => {
         program_id text,
         role text
       );
+      create table public.orientation_tasks (
+        task_id uuid primary key default gen_random_uuid(),
+        user_id uuid,
+        label text,
+        type_delivery text
+      );
       insert into public.roles(role_key) values ('admin'), ('manager'), ('viewer'), ('trainee'), ('auditor');
     `);
     await pool.query(addExternalLinkMigration);
+    await pool.query(addTypeDeliveryMigration);
   });
 
   afterEach(async () => {
