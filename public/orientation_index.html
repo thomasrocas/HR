@@ -3071,8 +3071,14 @@ useEffect(() => {
         <div className="pt-4 space-y-4">
           {isPrivileged && (
             <div>
-              <label htmlFor="target-user" className="text-sm block mb-1">Viewing tasks for</label>
-              <select id="target-user" className="input w-full" value={targetUserId} onChange={handleUserChange}>
+              <label htmlFor="target-user" className="sr-only">Viewing tasks for</label>
+              <select
+                id="target-user"
+                className="input w-full"
+                aria-label="Viewing tasks for"
+                value={targetUserId}
+                onChange={handleUserChange}
+              >
                 {userList.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name}</option>
                 ))}
@@ -3080,7 +3086,7 @@ useEffect(() => {
             </div>
           )}
           <input
-            className="input w-full"
+            className="input w-full hidden"
             placeholder="Search…"
             onChange={handleSearchChange}
           />
