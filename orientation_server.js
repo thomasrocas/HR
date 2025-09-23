@@ -2322,8 +2322,19 @@ app.post('/programs/:program_id/instantiate', ensureAuth, async (req, res) => {
     
 const sql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, journal_entry, responsible_person)
-  select $1, $2, t.label, null, null, false, l.program_id, coalesce(l.week_number, t.week_number), coalesce(l.notes, t.notes), null, null
+    (user_id, trainee, label, scheduled_for, scheduled_time, done, program_id, week_number, notes, external_link, journal_entry, responsible_person)
+  select $1,
+         $2,
+         t.label,
+         null,
+         null,
+         false,
+         l.program_id,
+         coalesce(l.week_number, t.week_number),
+         coalesce(l.notes, t.notes),
+         coalesce(l.external_link, t.external_link),
+         null,
+         null
   from public.program_task_templates t
   join public.program_template_links l on l.template_id = t.template_id
   left join public.orientation_tasks ot
@@ -2403,7 +2414,7 @@ app.post('/rbac/users/:id/programs/:program_id/instantiate', ensureAuth, async (
 
 const copySql = `
   insert into public.orientation_tasks
-    (user_id, trainee, label, scheduled_for, scheduled_time, due_date, done, program_id, week_number, notes, journal_entry, responsible_person)
+    (user_id, trainee, label, scheduled_for, scheduled_time, due_date, done, program_id, week_number, notes, external_link, journal_entry, responsible_person)
   select $1,
          $2,
          t.label,
@@ -2421,6 +2432,7 @@ const copySql = `
            when $6::text is not null and $6::text <> '' then $6::text
            else coalesce(l.notes, t.notes)
          end,
+         coalesce(l.external_link, t.external_link),
          null,
          null
   from public.program_task_templates t
