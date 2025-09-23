@@ -137,12 +137,12 @@ describe('rbac admin routes', () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query(
-      'insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)',
-      [mgrId, 'mgr', 'Mgr', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
+      [mgrId, 'mgr', 'Mgr', 'Org One', hash, 'local']
     );
     await pool.query(
-      'insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)',
-      [userId, 'user', 'User', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
+      [userId, 'user', 'User', 'Org One', hash, 'local']
     );
     await pool.query(
       "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'",
@@ -190,6 +190,43 @@ describe('rbac admin routes', () => {
       [userId]
     ));
     expect(rows.map(r => r.role_key).sort()).toEqual(['trainee', 'viewer']);
+  });
+
+  test('manager only receives users from their organization', async () => {
+    const mgrId = crypto.randomUUID();
+    const sameOrgId = crypto.randomUUID();
+    const otherOrgId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+
+    await pool.query(
+      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
+      [mgrId, 'mgr-org', 'Mgr Org', 'Org Shared', hash, 'local']
+    );
+    await pool.query(
+      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
+      [sameOrgId, 'user-shared', 'User Shared', 'Org Shared', hash, 'local']
+    );
+    await pool.query(
+      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
+      [otherOrgId, 'user-other', 'User Other', 'Org Other', hash, 'local']
+    );
+
+    await pool.query(
+      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'",
+      [mgrId]
+    );
+
+    const mgrAgent = request.agent(app);
+    await mgrAgent
+      .post('/auth/local/login')
+      .send({ username: 'mgr-org', password: 'passpass' })
+      .expect(200);
+
+    const listRes = await mgrAgent.get('/rbac/users').expect(200);
+    const receivedIds = listRes.body.map(entry => entry.id).sort();
+    expect(receivedIds).toHaveLength(2);
+    expect(receivedIds).toEqual([mgrId, sameOrgId].sort());
+    expect(receivedIds).not.toContain(otherOrgId);
   });
 
   test('admin can update user profile, trims organization, and prevents duplicate emails', async () => {
