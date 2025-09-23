@@ -472,6 +472,27 @@
     </div>
   </div>
 
+  <div id="drawerRemovePrograms" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Remove programs</h2>
+          <p class="text-sm text-slate-500 mt-1">Select the programs you want to remove from <span id="removeProgramsUserName" class="font-medium text-slate-700">this user</span>.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <form id="formRemovePrograms" class="mt-4 space-y-4">
+        <div id="drawerRemoveProgramList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"></div>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
+          <button id="btnConfirmRemovePrograms" type="submit" class="px-3 py-2 rounded-xl border text-sm bg-rose-500 text-white">Remove selected programs</button>
+        </div>
+        <div id="removeProgramsDrawerMsg" class="text-xs text-slate-500"></div>
+      </form>
+    </div>
+  </div>
+
   <div id="drawerLifecycle" data-drawer class="hidden fixed inset-0 z-40">
     <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
     <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
@@ -522,6 +543,25 @@ function populateSelectOptions(selectElement, options) {
     selectElement.appendChild(option);
     existingValues.add(optionValue);
   });
+}
+
+function setStatusText(element, message, tone = 'neutral') {
+  if (!element) return;
+  element.textContent = message;
+  element.classList.remove('text-slate-500', 'text-emerald-600', 'text-rose-600');
+  if (tone === 'success') {
+    element.classList.add('text-emerald-600');
+  } else if (tone === 'error') {
+    element.classList.add('text-rose-600');
+  } else {
+    element.classList.add('text-slate-500');
+  }
+}
+
+function extractProgramId(program) {
+  if (!program) return '';
+  const id = program.program_id ?? program.id ?? program.programId ?? program.programID ?? program.slug ?? '';
+  return id != null ? String(id) : '';
 }
 
 function ensureSelectValue(selectElement, value) {
@@ -669,12 +709,14 @@ const formCreate = document.getElementById('formCreate');
 const formEdit = document.getElementById('formEdit');
 const formRoles = document.getElementById('formRoles');
 const formPrograms = document.getElementById('formPrograms');
+const formRemovePrograms = document.getElementById('formRemovePrograms');
 const formDeactivate = document.getElementById('formDeactivate');
 
 const createMsg = document.getElementById('createMsg');
 const editMsg = document.getElementById('editMsg');
 const rolesDrawerMsg = document.getElementById('rolesDrawerMsg');
 const programsMsg = document.getElementById('programsMsg');
+const removeProgramsDrawerMsg = document.getElementById('removeProgramsDrawerMsg');
 const lifecycleMsg = document.getElementById('lifecycleMsg');
 const btnLoadCalendar = document.getElementById('btnLoadCalendar');
 const btnRemovePrograms = document.getElementById('btnRemovePrograms');
@@ -684,10 +726,12 @@ const removeProgramsStatus = document.getElementById('removeProgramsStatus');
 const rolesInfo = document.getElementById('rolesInfo');
 const rolesUserName = document.getElementById('rolesUserName');
 const programsUserName = document.getElementById('programsUserName');
+const removeProgramsUserName = document.getElementById('removeProgramsUserName');
 const lifecycleUserName = document.getElementById('lifecycleUserName');
 
 const drawerRolesBox = document.getElementById('drawerRolesBox');
 const drawerProgramList = document.getElementById('drawerProgramList');
+const drawerRemoveProgramList = document.getElementById('drawerRemoveProgramList');
 
 const inputEditFullName = document.getElementById('editFullName');
 const inputEditOrganization = document.getElementById('editOrganization');
@@ -789,6 +833,13 @@ function renderSelectedUser(user) {
       removeProgramsStatus.classList.remove('text-emerald-600', 'text-rose-600');
       removeProgramsStatus.classList.add('text-slate-500');
     }
+    if (removeProgramsDrawerMsg) {
+      setStatusText(removeProgramsDrawerMsg, '', 'neutral');
+    }
+    if (removeProgramsUserName) {
+      removeProgramsUserName.textContent = 'this user';
+    }
+    renderRemoveProgramsDrawer(null);
     setUserActionState(false);
     setLifecycleButtons('');
     if (inputEditFullName) inputEditFullName.value = '';
@@ -818,6 +869,9 @@ function renderSelectedUser(user) {
   actionHint.textContent = `Managing ${displayName}.`;
   rolesUserName.textContent = displayName;
   programsUserName.textContent = displayName;
+  if (removeProgramsUserName) {
+    removeProgramsUserName.textContent = displayName;
+  }
   lifecycleUserName.textContent = displayName;
   if (inputEditFullName) inputEditFullName.value = user.full_name || '';
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization || '');
@@ -832,6 +886,10 @@ function renderSelectedUser(user) {
     removeProgramsStatus.classList.remove('text-emerald-600', 'text-rose-600');
     removeProgramsStatus.classList.add('text-slate-500');
   }
+  if (removeProgramsDrawerMsg && previousUserId !== user.id) {
+    setStatusText(removeProgramsDrawerMsg, '', 'neutral');
+  }
+  renderRemoveProgramsDrawer(user);
   setUserActionState(true);
   setLifecycleButtons(status);
 }
@@ -910,6 +968,18 @@ btnOpenPrograms.addEventListener('click', () => {
   openDrawer('drawerPrograms');
 });
 
+btnRemovePrograms.addEventListener('click', () => {
+  if (!selectedUser) return;
+  if (removeProgramsDrawerMsg) {
+    setStatusText(removeProgramsDrawerMsg, '', 'neutral');
+  }
+  if (removeProgramsStatus) {
+    setStatusText(removeProgramsStatus, '', 'neutral');
+  }
+  renderRemoveProgramsDrawer(selectedUser);
+  openDrawer('drawerRemovePrograms');
+});
+
 btnOpenLifecycle.addEventListener('click', () => {
   if (!selectedUser) return;
   lifecycleMsg.textContent = '';
@@ -953,70 +1023,6 @@ if (btnLoadCalendar) {
     }
   });
 }
-if (btnRemovePrograms) {
-  btnRemovePrograms.addEventListener('click', async () => {
-    if (!selectedUser) return;
-    const assignedPrograms = Array.isArray(selectedUser.assigned_programs)
-      ? selectedUser.assigned_programs
-      : [];
-    if (!assignedPrograms.length) {
-      if (removeProgramsStatus) {
-        removeProgramsStatus.textContent = 'No programs to remove.';
-        removeProgramsStatus.classList.remove('text-emerald-600', 'text-rose-600');
-        removeProgramsStatus.classList.add('text-slate-500');
-      }
-      return;
-    }
-    if (removeProgramsStatus) {
-      removeProgramsStatus.textContent = 'Loading…';
-      removeProgramsStatus.classList.remove('text-emerald-600', 'text-rose-600');
-      removeProgramsStatus.classList.add('text-slate-500');
-    }
-    let ok = 0;
-    let fail = 0;
-    for (const program of assignedPrograms) {
-      const programId = program && (program.program_id || program.id || program.programId);
-      if (!programId) {
-        fail++;
-        continue;
-      }
-      try {
-        const res = await deleteProgramForUser(selectedUser.id, programId);
-        if (res.ok) {
-          ok++;
-        } else {
-          fail++;
-        }
-      } catch (err) {
-        console.error(err);
-        fail++;
-      }
-    }
-    if (selectedUser) {
-      selectedUser.assigned_programs = [];
-    }
-    if (removeProgramsStatus) {
-      removeProgramsStatus.textContent = `Removed ${ok} programs (${fail} failed).`;
-      removeProgramsStatus.classList.remove('text-slate-500', 'text-emerald-600', 'text-rose-600');
-      if (fail === 0) {
-        removeProgramsStatus.classList.add('text-emerald-600');
-      } else {
-        removeProgramsStatus.classList.add('text-rose-600');
-      }
-    }
-    try {
-      await reloadUsers(true);
-    } catch (err) {
-      console.error(err);
-      if (removeProgramsStatus) {
-        removeProgramsStatus.textContent += ' Unable to refresh users.';
-        removeProgramsStatus.classList.remove('text-emerald-600');
-        removeProgramsStatus.classList.add('text-rose-600');
-      }
-    }
-  });
-}
-
 formCreate.addEventListener('submit', async e => {
   e.preventDefault();
   createMsg.textContent = '';
@@ -1162,6 +1168,40 @@ function renderProgramDrawer() {
   `).join('');
 }
 
+function renderRemoveProgramsDrawer(user) {
+  if (!drawerRemoveProgramList) return;
+  const assignedPrograms = Array.isArray(user && user.assigned_programs)
+    ? user.assigned_programs
+    : [];
+  const items = assignedPrograms
+    .map(program => {
+      const programId = extractProgramId(program);
+      if (!programId) return null;
+      const title = program?.title
+        ?? program?.program_title
+        ?? program?.name
+        ?? program?.program_name
+        ?? program?.programTitle
+        ?? '';
+      const displayTitle = title ? String(title) : `Program ${programId}`;
+      return {
+        id: String(programId),
+        title: String(displayTitle)
+      };
+    })
+    .filter(Boolean);
+  if (!items.length) {
+    drawerRemoveProgramList.innerHTML = '<div class="text-sm text-slate-500">No programs assigned.</div>';
+    return;
+  }
+  drawerRemoveProgramList.innerHTML = items.map(item => `
+    <label class="inline-flex items-center gap-2 border rounded-xl px-3 py-2 bg-slate-50">
+      <input type="checkbox" name="programs" value="${escapeHtml(item.id)}">
+      <span class="truncate" title="${escapeHtml(item.title)}">🗑️ ${escapeHtml(item.title)}</span>
+    </label>
+  `).join('');
+}
+
 formPrograms.addEventListener('submit', async e => {
   e.preventDefault();
   programsMsg.textContent = '';
@@ -1186,6 +1226,89 @@ formPrograms.addEventListener('submit', async e => {
   }
   programsMsg.textContent = `Programs assigned — ${ok} succeeded, ${fail} failed.`;
 });
+
+if (formRemovePrograms) {
+  formRemovePrograms.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!selectedUser) return;
+    const formData = new FormData(formRemovePrograms);
+    const chosen = formData.getAll('programs').map(String).filter(Boolean);
+    if (!chosen.length) {
+      if (removeProgramsDrawerMsg) {
+        setStatusText(removeProgramsDrawerMsg, 'Select at least one program to remove.', 'error');
+      }
+      return;
+    }
+
+    const submitBtn = document.getElementById('btnConfirmRemovePrograms')
+      || formRemovePrograms.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Removing…';
+    }
+
+    setStatusText(removeProgramsDrawerMsg, 'Removing programs…', 'neutral');
+    if (removeProgramsStatus) {
+      setStatusText(removeProgramsStatus, 'Removing programs…', 'neutral');
+    }
+
+    let ok = 0;
+    let fail = 0;
+    const removedIds = new Set();
+
+    for (const pid of chosen) {
+      const programId = String(pid);
+      try {
+        const res = await deleteProgramForUser(selectedUser.id, programId);
+        if (res.ok) {
+          ok++;
+          removedIds.add(programId);
+        } else {
+          fail++;
+        }
+      } catch (err) {
+        console.error(err);
+        fail++;
+      }
+    }
+
+    if (selectedUser && removedIds.size) {
+      const remaining = Array.isArray(selectedUser.assigned_programs)
+        ? selectedUser.assigned_programs.filter(program => {
+            const pid = extractProgramId(program);
+            return !removedIds.has(pid);
+          })
+        : [];
+      selectedUser.assigned_programs = remaining;
+    }
+
+    renderRemoveProgramsDrawer(selectedUser);
+
+    const summary = `Programs removed — ${ok} succeeded, ${fail} failed.`;
+    const tone = fail === 0 ? 'success' : 'error';
+    setStatusText(removeProgramsDrawerMsg, summary, tone);
+    if (removeProgramsStatus) {
+      setStatusText(removeProgramsStatus, summary, tone);
+    }
+
+    try {
+      await reloadUsers(true);
+    } catch (err) {
+      console.error(err);
+      const errorMsg = summary + ' Unable to refresh users.';
+      setStatusText(removeProgramsDrawerMsg, errorMsg, 'error');
+      if (removeProgramsStatus) {
+        setStatusText(removeProgramsStatus, errorMsg, 'error');
+      }
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+      }
+    }
+  });
+}
 
 formDeactivate.addEventListener('submit', async e => {
   e.preventDefault();
