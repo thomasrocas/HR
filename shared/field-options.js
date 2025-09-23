@@ -41,6 +41,7 @@ export const DELIVERY_TYPE_OPTIONS = Object.freeze([
 ]);
 
 export const DEPARTMENT_OPTIONS = Object.freeze([
+  'All'
   'Intake',
   'Rehab',
   'Nursing',
