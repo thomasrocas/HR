@@ -42,6 +42,7 @@ describe('program routes', () => {
         username text unique,
         email text,
         full_name text,
+        status text default 'active' not null,
         password_hash text,
         provider text,
         last_login_at timestamptz

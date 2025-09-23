@@ -1577,6 +1577,7 @@ app.get('/rbac/users', async (req, res) => {
         u.full_name,
         u.username,
         u.organization,
+        u.status,
         coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
         coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
       from public.users u
@@ -1598,13 +1599,14 @@ app.get('/rbac/users', async (req, res) => {
         ) dedup
         group by dedup.user_id
       ) assigned on assigned.user_id = u.id
-      group by u.id, u.full_name, u.username, u.organization, assigned.program_pairs
+      group by u.id, u.full_name, u.username, u.organization, u.status, assigned.program_pairs
       order by u.full_name`;
     const sqlWithoutOrganization = `
       select
         u.id,
         u.full_name,
         u.username,
+        u.status,
         coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
         coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
       from public.users u
@@ -1626,13 +1628,13 @@ app.get('/rbac/users', async (req, res) => {
         ) dedup
         group by dedup.user_id
       ) assigned on assigned.user_id = u.id
-      group by u.id, u.full_name, u.username, assigned.program_pairs
+      group by u.id, u.full_name, u.username, u.status, assigned.program_pairs
       order by u.full_name`;
     let resultRows;
     try {
       const { rows } = await pool.query(sqlWithOrganization);
       resultRows = rows.map(r => {
-        const { assigned_program_pairs: rawPairs, ...rest } = r;
+        const { assigned_program_pairs: rawPairs, status, ...rest } = r;
         const assignments = Array.isArray(rawPairs) ? rawPairs : [];
         const assignedPrograms = assignments
           .map(value => {
@@ -1655,6 +1657,7 @@ app.get('/rbac/users', async (req, res) => {
           .filter(Boolean);
         return {
           ...rest,
+          status,
           roles: rest.roles || [],
           assigned_programs: assignedPrograms,
         };
@@ -1667,7 +1670,7 @@ app.get('/rbac/users', async (req, res) => {
       ) {
         const { rows } = await pool.query(sqlWithoutOrganization);
         resultRows = rows.map(r => {
-          const { assigned_program_pairs: rawPairs, ...rest } = r;
+          const { assigned_program_pairs: rawPairs, status, ...rest } = r;
           const assignments = Array.isArray(rawPairs) ? rawPairs : [];
           const assignedPrograms = assignments
             .map(value => {
@@ -1690,6 +1693,7 @@ app.get('/rbac/users', async (req, res) => {
             .filter(Boolean);
           return {
             ...rest,
+            status,
             roles: rest.roles || [],
             organization: null,
             assigned_programs: assignedPrograms,

@@ -24,6 +24,7 @@ beforeAll(async () => {
       username text unique,
       email text,
       full_name text,
+      status text default 'active' not null,
       password_hash text,
       provider text,
       password_reset_token text,
