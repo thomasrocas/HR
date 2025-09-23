@@ -1616,7 +1616,39 @@ app.post('/api/users/:id/archive', ensureAuth, async (req, res) => {
 
 app.get('/rbac/users', async (req, res) => {
   try {
-    if (!(req.roles.includes('admin') || req.roles.includes('manager'))) return res.status(403).json({ error: 'forbidden' });
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin');
+    const isManager = roles.includes('manager');
+    if (!(isAdmin || isManager)) return res.status(403).json({ error: 'forbidden' });
+
+    const restrictToOrganization = isManager && !isAdmin;
+    let organizationFilter = null;
+
+    if (restrictToOrganization) {
+      const rawOrganization = req.user?.organization_id
+        ?? req.user?.organizationId
+        ?? req.user?.organizationID
+        ?? req.user?.organization
+        ?? null;
+      organizationFilter = toNullableString(rawOrganization);
+
+      if (!organizationFilter && req.user?.id) {
+        const { rows: orgRows } = await pool.query(
+          'select organization from public.users where id = $1',
+          [req.user.id]
+        );
+        organizationFilter = toNullableString(orgRows?.[0]?.organization ?? null);
+      }
+    }
+
+    const params = [];
+    let whereClause = '';
+    const organizationSentinel = '__NULL_ORG__';
+    if (restrictToOrganization) {
+      params.push(organizationFilter);
+      whereClause = `where coalesce(u.organization, '${organizationSentinel}') = coalesce($${params.length}, '${organizationSentinel}')`;
+    }
+
     const sqlWithOrganization = `
       select
         u.id,
@@ -1645,6 +1677,7 @@ app.get('/rbac/users', async (req, res) => {
         ) dedup
         group by dedup.user_id
       ) assigned on assigned.user_id = u.id
+      ${whereClause}
       group by u.id, u.full_name, u.username, u.organization, u.status, assigned.program_pairs
       order by u.full_name`;
     const sqlWithoutOrganization = `
@@ -1674,11 +1707,12 @@ app.get('/rbac/users', async (req, res) => {
         ) dedup
         group by dedup.user_id
       ) assigned on assigned.user_id = u.id
+      ${whereClause}
       group by u.id, u.full_name, u.username, u.status, assigned.program_pairs
       order by u.full_name`;
     let resultRows;
     try {
-      const { rows } = await pool.query(sqlWithOrganization);
+      const { rows } = await pool.query(sqlWithOrganization, params);
       resultRows = rows.map(r => {
         const { assigned_program_pairs: rawPairs, status, ...rest } = r;
         const assignments = Array.isArray(rawPairs) ? rawPairs : [];
@@ -1714,7 +1748,7 @@ app.get('/rbac/users', async (req, res) => {
         typeof queryError.message === 'string' &&
         queryError.message.toLowerCase().includes('u.organization')
       ) {
-        const { rows } = await pool.query(sqlWithoutOrganization);
+        const { rows } = await pool.query(sqlWithoutOrganization, params);
         resultRows = rows.map(r => {
           const { assigned_program_pairs: rawPairs, status, ...rest } = r;
           const assignments = Array.isArray(rawPairs) ? rawPairs : [];
@@ -1741,13 +1775,25 @@ app.get('/rbac/users', async (req, res) => {
             ...rest,
             status,
             roles: rest.roles || [],
-            organization: null,
+            organization: restrictToOrganization ? organizationFilter : null,
             assigned_programs: assignedPrograms,
           };
         });
+        if (restrictToOrganization) {
+          const { rows: allowed } = await pool.query(
+            `select id from public.users where coalesce(organization, '${organizationSentinel}') = coalesce($1, '${organizationSentinel}')`,
+            [organizationFilter]
+          );
+          const allowedIds = new Set(allowed.map(entry => entry.id));
+          resultRows = resultRows.filter(entry => allowedIds.has(entry.id));
+        }
       } else {
         throw queryError;
       }
+    }
+    if (restrictToOrganization) {
+      const normalizedFilter = toNullableString(organizationFilter);
+      resultRows = resultRows.filter(entry => toNullableString(entry?.organization) === normalizedFilter);
     }
     res.json(resultRows);
   } catch (err) {
