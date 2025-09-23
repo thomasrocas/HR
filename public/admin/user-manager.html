@@ -583,6 +583,39 @@ function ensureSelectValue(selectElement, value) {
   selectElement.value = stringValue;
 }
 
+function createSearchParams(params) {
+  if (!params) {
+    return new URLSearchParams();
+  }
+  if (params instanceof URLSearchParams) {
+    return new URLSearchParams(params);
+  }
+  if (typeof params === 'string') {
+    return params.trim() ? new URLSearchParams(params) : new URLSearchParams();
+  }
+  const searchParams = new URLSearchParams();
+  if (typeof params === 'object') {
+    Object.entries(params).forEach(([key, rawValue]) => {
+      if (rawValue === null || rawValue === undefined) return;
+      if (Array.isArray(rawValue)) {
+        rawValue.forEach(item => {
+          if (item === null || item === undefined || item === '') return;
+          searchParams.append(key, String(item));
+        });
+      } else if (rawValue !== '') {
+        searchParams.append(key, String(rawValue));
+      }
+    });
+  }
+  return searchParams;
+}
+
+function isOrganizationFilterKey(key) {
+  if (!key) return false;
+  const normalized = String(key).trim().toLowerCase();
+  return normalized === 'organization' || normalized === 'organization_id' || normalized === 'organizationid' || normalized === 'organization-id';
+}
+
 const meRes = await fetch(`${API}/me`, { credentials: 'include' });
 if (!meRes.ok) {
   location.href = '/';
@@ -590,9 +623,23 @@ if (!meRes.ok) {
 const me = await meRes.json();
 const IS_ADMIN = (me.roles || []).includes('admin');
 const IS_MANAGER = (me.roles || []).includes('manager');
+const managerOrganizationId = me?.organization_id ?? me?.organizationId ?? me?.organization ?? null;
+const HAS_MANAGER_ORG_SCOPE = Boolean(IS_MANAGER && !IS_ADMIN && managerOrganizationId);
+const managerOrganizationQueryValue = HAS_MANAGER_ORG_SCOPE ? String(managerOrganizationId) : '';
 
-async function listUsers() {
-  const r = await fetch(`${API}/rbac/users`, { credentials: 'include' });
+function buildUserListUrl(params) {
+  const searchParams = createSearchParams(params);
+  const hasOrganizationFilter = Array.from(searchParams.keys()).some(isOrganizationFilterKey);
+  if (HAS_MANAGER_ORG_SCOPE && managerOrganizationQueryValue && !hasOrganizationFilter) {
+    searchParams.set('organization_id', managerOrganizationQueryValue);
+  }
+  const queryString = searchParams.toString();
+  return `${API}/rbac/users${queryString ? `?${queryString}` : ''}`;
+}
+
+async function listUsers(params) {
+  const url = buildUserListUrl(params);
+  const r = await fetch(url, { credentials: 'include' });
   if (!r.ok) throw new Error('GET /rbac/users failed');
   return r.json();
 }
@@ -740,6 +787,28 @@ const inputCreateRoles = document.getElementById('createRoles');
 const textareaDeactivateReason = document.getElementById('deactivateReason');
 
 populateSelectOptions(inputEditOrganization, ORGANIZATION_OPTIONS);
+
+const organizationFilterSelect = (() => {
+  const selectors = [
+    '[data-organization-filter]',
+    '#organizationFilter',
+    '#filterOrganization',
+    'select[name="organizationFilter"]',
+  ];
+  for (const selector of selectors) {
+    const candidate = document.querySelector(selector);
+    if (candidate instanceof HTMLSelectElement && candidate !== inputEditOrganization) {
+      return candidate;
+    }
+  }
+  return null;
+})();
+
+if (organizationFilterSelect && HAS_MANAGER_ORG_SCOPE && managerOrganizationQueryValue) {
+  ensureSelectValue(organizationFilterSelect, managerOrganizationQueryValue);
+  organizationFilterSelect.disabled = true;
+  organizationFilterSelect.classList.add('opacity-60', 'cursor-not-allowed');
+}
 
 const btnDeactivate = document.getElementById('btnDeactivate');
 const btnReactivate = document.getElementById('btnReactivate');
@@ -1375,10 +1444,10 @@ btnArchive.addEventListener('click', async () => {
   }
 });
 
-async function reloadUsers(preserveSelection = true) {
+async function reloadUsers(preserveSelection = true, params) {
   try {
     const currentId = preserveSelection && selectedUser ? selectedUser.id : null;
-    USERS = await listUsers();
+    USERS = await listUsers(params);
     if (currentId) {
       const refreshed = USERS.find(u => u.id === currentId);
       renderSelectedUser(refreshed || null);
