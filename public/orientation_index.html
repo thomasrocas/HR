@@ -1084,6 +1084,9 @@ function App({ me, onSignOut }){
               external_link: typeof externalLink !== 'undefined'
                 ? ensureDisplayValue(externalLink)
                 : task.external_link,
+              type_delivery: typeof detail.type_delivery !== 'undefined'
+                ? ensureDisplayValue(detail.type_delivery)
+                : task.type_delivery,
               scheduled_time: typeof scheduledTime !== 'undefined'
                 ? normalizeTimeValue(scheduledTime)
                 : task.scheduled_time,
@@ -1112,6 +1115,9 @@ function App({ me, onSignOut }){
             external_link: typeof externalLink !== 'undefined'
               ? ensureDisplayValue(externalLink)
               : event.external_link,
+            type_delivery: typeof detail.type_delivery !== 'undefined'
+              ? ensureDisplayValue(detail.type_delivery)
+              : event.type_delivery,
             scheduled_time: typeof scheduledTime !== 'undefined'
               ? normalizeTimeValue(scheduledTime)
               : event.scheduled_time,
@@ -1231,6 +1237,7 @@ function App({ me, onSignOut }){
         journal_entry: ensureDisplayValue(r.journal_entry),
         external_link: ensureDisplayValue(r.external_link),
         responsible_person: ensureDisplayValue(r.responsible_person),
+        type_delivery: ensureDisplayValue(r.type_delivery),
         done: typeof r.done === 'boolean' ? r.done : ensureDisplayValue(r.done),
         program_id: programId ? String(programId) : '',
         program_name: programName,
@@ -1402,6 +1409,7 @@ useEffect(() => {
           journal_entry: ensureDisplayValue(task.journal_entry),
           external_link: ensureDisplayValue(task.external_link),
           responsible_person: ensureDisplayValue(task.responsible_person),
+          type_delivery: ensureDisplayValue(task.type_delivery),
           scheduled_for: ensureDisplayValue(task.scheduled_for),
           scheduled_time: scheduledTime,
           programId: programId ? String(programId) : '',
@@ -1564,7 +1572,13 @@ useEffect(() => {
     const cacheKey = `all|${calendarRange.key}|${userKey}`;
     const applyData = (payload = { events: [], programs: [] }) => {
       if (cancelled) return;
-      setAllCalendarEvents(payload.events || []);
+      const normalizedEvents = Array.isArray(payload.events)
+        ? payload.events.map((event) => ({
+          ...event,
+          type_delivery: ensureDisplayValue(event?.type_delivery),
+        }))
+        : [];
+      setAllCalendarEvents(normalizedEvents);
       setAllCalendarPrograms(payload.programs || []);
     };
     const cached = calendarCacheRef.current.get(cacheKey);
@@ -1646,6 +1660,7 @@ useEffect(() => {
             journal_entry: ensureDisplayValue(row.journal_entry),
             external_link: ensureDisplayValue(row.external_link),
             responsible_person: ensureDisplayValue(row.responsible_person),
+            type_delivery: ensureDisplayValue(row.type_delivery),
             scheduled_for: ensureDisplayValue(row.scheduled_for),
             scheduled_time: scheduledTime,
             programId,
@@ -1803,6 +1818,7 @@ useEffect(() => {
               journal_entry: ensureDisplayValue(updatedTask.journal_entry),
               external_link: ensureDisplayValue(updatedTask.external_link),
               responsible_person: ensureDisplayValue(updatedTask.responsible_person),
+              type_delivery: ensureDisplayValue(updatedTask.type_delivery),
               scheduled_for: updatedTask.scheduled_for || '',
               scheduled_time: scheduledTime,
               programId: programId ? String(programId) : '',
@@ -1823,6 +1839,7 @@ useEffect(() => {
           journal_entry: ensureDisplayValue(updatedTask.journal_entry),
           external_link: ensureDisplayValue(updatedTask.external_link),
           responsible_person: ensureDisplayValue(updatedTask.responsible_person),
+          type_delivery: ensureDisplayValue(updatedTask.type_delivery),
           scheduled_for: updatedTask.scheduled_for || '',
           scheduled_time: scheduledTime,
           programId: programId ? String(programId) : '',
@@ -1954,6 +1971,7 @@ useEffect(() => {
           journal_entry: ensureDisplayValue(created.journal_entry),
           external_link: ensureDisplayValue(created.external_link),
           responsible_person: ensureDisplayValue(created.responsible_person),
+          type_delivery: ensureDisplayValue(created.type_delivery),
           done: typeof created.done === 'boolean' ? created.done : ensureDisplayValue(created.done),
           program_id: programId ? String(programId) : '',
           program_name: programName,
@@ -2017,6 +2035,7 @@ useEffect(() => {
           journal_entry: ensureDisplayValue(res.journal_entry),
           external_link: ensureDisplayValue(res.external_link),
           responsible_person: ensureDisplayValue(res.responsible_person),
+          type_delivery: ensureDisplayValue(res.type_delivery),
           done: typeof res.done === 'boolean' ? res.done : ensureDisplayValue(res.done),
           program_id: programId ? String(programId) : '',
           program_name: programName,
@@ -2059,6 +2078,7 @@ useEffect(() => {
               journal_entry: ensureDisplayValue(res.journal_entry),
               external_link: ensureDisplayValue(res.external_link),
               responsible_person: ensureDisplayValue(res.responsible_person),
+              type_delivery: ensureDisplayValue(res.type_delivery),
               scheduled_for: res.scheduled_for || '',
               scheduled_time: scheduledTime,
               programId: programId ? String(programId) : '',
@@ -2713,6 +2733,7 @@ useEffect(() => {
                            data-responsible_person={toDisplayString(it.responsible_person)}
                            data-scheduled_for={toDisplayString(it.scheduled_for)}
                            data-scheduled_time={it.scheduled_time || ''}
+                           data-type_delivery={toDisplayString(it.type_delivery)}
                            data-done={doneAttr}
                            data-program-id={it.programId || ''}
                            data-program_name={it.programName || ''}
@@ -2853,6 +2874,7 @@ useEffect(() => {
                               data-responsible_person={hasResponsible ? responsible : ''}
                               data-scheduled_for={toDisplayString(task.scheduled_for)}
                               data-scheduled_time={timeDisplay}
+                              data-type_delivery={toDisplayString(task.type_delivery)}
                               data-done={doneAttr}
                               data-program-id={programId}
                               data-program_name={task.programName || info.name || 'Program'}
@@ -2970,6 +2992,7 @@ useEffect(() => {
                               data-responsible_person={tooltipResponsible}
                               data-scheduled_for={toDisplayString(t.scheduled_for)}
                               data-scheduled_time={t.scheduled_time || ''}
+                              data-type_delivery={toDisplayString(t.type_delivery)}
                               data-done={doneAttr}
                               data-wi={wi}
                               data-ti={ti}
@@ -3531,6 +3554,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           <span class="orientation-modal__label">Status</span>
           <span class="orientation-modal__value muted" data-modal-field="done">—</span>
         </div>
+        <div class="orientation-modal__field">
+          <span class="orientation-modal__label">Delivery</span>
+          <span class="orientation-modal__value muted" data-modal-field="type_delivery">—</span>
+        </div>
         <div class="orientation-modal__field full-span">
           <span class="orientation-modal__label">External Link</span>
           <div class="orientation-modal__external-group">
@@ -3766,7 +3793,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         title: modal.querySelector('[data-modal-field="title"]'),
         week: modal.querySelector('[data-modal-field="week"]'),
         scheduled: modal.querySelector('[data-modal-field="scheduled"]'),
-        done: modal.querySelector('[data-modal-field="done"]')
+        done: modal.querySelector('[data-modal-field="done"]'),
+        type_delivery: modal.querySelector('[data-modal-field="type_delivery"]')
       };
 
       const dayjsGlobal = window.dayjs || null;
@@ -4052,6 +4080,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         const datasetTime = dataset.scheduled_time && dataset.scheduled_time !== '—' ? dataset.scheduled_time : null;
         fieldMap.scheduled.textContent = formatScheduledForDisplay(dataset.scheduled_for, datasetTime);
       }
+      if (fieldMap.type_delivery) fieldMap.type_delivery.textContent = toDisplay(dataset.type_delivery);
       if (responsibleField) {
         const responsibleValue = dataset.responsible_person && dataset.responsible_person !== '—'
           ? dataset.responsible_person
