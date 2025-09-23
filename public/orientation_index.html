@@ -3411,6 +3411,40 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
     font-size: 0.95rem;
     color: #1f2937;
   }
+  #orientationTaskModal .orientation-modal__external-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  #orientationTaskModal .orientation-modal__external-group .orientation-modal__input {
+    flex: 1 1 220px;
+  }
+  #orientationTaskModal .orientation-modal__external-preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid #cbd5f5;
+    background-color: #ffffff;
+    color: #1f2937;
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  #orientationTaskModal .orientation-modal__external-preview:hover:not([disabled]) {
+    background-color: #f1f5f9;
+  }
+  #orientationTaskModal .orientation-modal__external-preview[disabled],
+  #orientationTaskModal .orientation-modal__external-preview[aria-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
   #orientationTaskModal .orientation-modal__input::placeholder {
     color: #94a3b8;
   }
@@ -3433,6 +3467,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
   }
   #orientationTaskModal button.btn-ghost {
     color: #475569;
+  }
+  @media (max-width: 640px) {
+    #orientationTaskModal .orientation-modal__external-group {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    #orientationTaskModal .orientation-modal__external-preview {
+      width: 100%;
+    }
   }
   @media (max-width: 640px) {
     #orientationTaskModal .orientation-modal__grid {
@@ -3489,13 +3532,24 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
         </div>
         <div class="orientation-modal__field full-span">
           <span class="orientation-modal__label">External Link</span>
-          <input
-            type="url"
-            id="orientationTaskExternalLink"
-            class="orientation-modal__input"
-            name="external_link"
-            placeholder="Add an external link…"
-          />
+          <div class="orientation-modal__external-group">
+            <input
+              type="url"
+              id="orientationTaskExternalLink"
+              class="orientation-modal__input"
+              name="external_link"
+              placeholder="Add an external link…"
+            />
+            <button
+              type="button"
+              id="orientationTaskExternalLinkPreview"
+              class="orientation-modal__external-preview"
+              aria-disabled="true"
+              disabled
+            >
+              Preview link
+            </button>
+          </div>
         </div>
         <div class="orientation-modal__field full-span">
           <span class="orientation-modal__label">Journal Entry</span>
@@ -3704,6 +3758,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       const form = document.getElementById('orientationTaskForm');
       const journalField = document.getElementById('orientationTaskJournal');
       const externalLinkField = document.getElementById('orientationTaskExternalLink');
+      const externalLinkPreviewButton = document.getElementById('orientationTaskExternalLinkPreview');
       const responsibleField = document.getElementById('orientationTaskResponsible');
       const timeField = document.getElementById('orientationTaskTime');
       const fieldMap = {
@@ -3752,6 +3807,24 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 
       let permissionState = readPermissionState();
 
+      const syncExternalLinkPreview = () => {
+        if (!externalLinkField || !externalLinkPreviewButton) return null;
+        const rawValue = externalLinkField.value || '';
+        const trimmed = rawValue.trim();
+        if (!trimmed) {
+          externalLinkPreviewButton.disabled = true;
+          externalLinkPreviewButton.setAttribute('aria-disabled', 'true');
+          delete externalLinkPreviewButton.dataset.previewUrl;
+          return null;
+        }
+        const protocolPattern = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
+        const safeUrl = protocolPattern.test(trimmed) ? trimmed : `https://${trimmed}`;
+        externalLinkPreviewButton.disabled = false;
+        externalLinkPreviewButton.setAttribute('aria-disabled', 'false');
+        externalLinkPreviewButton.dataset.previewUrl = safeUrl;
+        return safeUrl;
+      };
+
       const applyFieldPermissions = () => {
         const scheduleAllowed = permissionState.schedule;
         const responsibleAllowed = permissionState.responsible;
@@ -3775,6 +3848,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           externalLinkField.readOnly = !journalAllowed;
           externalLinkField.setAttribute('aria-disabled', journalAllowed ? 'false' : 'true');
         }
+        syncExternalLinkPreview();
       };
 
       const handlePermissionUpdate = (event) => {
@@ -3783,6 +3857,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       };
 
       applyFieldPermissions();
+      if (externalLinkField) {
+        externalLinkField.addEventListener('input', syncExternalLinkPreview);
+        externalLinkField.addEventListener('change', syncExternalLinkPreview);
+      }
+      if (externalLinkPreviewButton) {
+        externalLinkPreviewButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          if (externalLinkPreviewButton.disabled) return;
+          const safeUrl = syncExternalLinkPreview();
+          if (safeUrl) {
+            window.open(safeUrl, '_blank', 'noopener,noreferrer');
+          }
+        });
+      }
       if (typeof window !== 'undefined' && modal && modal.dataset.permissionsListenerReady !== 'true') {
         window.addEventListener('orientation:permissions', handlePermissionUpdate);
         modal.dataset.permissionsListenerReady = 'true';
@@ -3974,6 +4062,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
           ? dataset.external_link
           : '';
         externalLinkField.value = externalValue;
+        syncExternalLinkPreview();
       }
       ensureTimeOptions();
       if (timeField) {
@@ -4113,6 +4202,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
       }
       if (externalLinkField) {
         externalLinkField.value = externalLinkDisplay === '—' ? '' : externalLinkDisplay;
+        syncExternalLinkPreview();
       }
 
       const datasetTimeValue = activeTrigger.dataset.scheduled_time && activeTrigger.dataset.scheduled_time !== '—'
