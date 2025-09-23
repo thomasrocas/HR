@@ -899,6 +899,7 @@ const PROGRAM_SORT_ACCESSORS = {
 const TEMPLATE_SORT_ACCESSORS = {
   week: getTemplateWeekNumber,
   name: getTemplateName,
+  deliveryType: getTemplateDeliveryType,
   auditInserted: getTemplateAuditSortValue,
   status: template => normalizeTemplateStatusValue(getTemplateStatus(template)),
   updatedAt: getTemplateUpdatedAt,
@@ -5226,13 +5227,14 @@ function renderTemplates() {
   };
   const displayed = currentTemplatePageItems;
   if (!displayed.length) {
-    templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No templates found.</td></tr>';
+    templateTableBody.innerHTML = '<tr class="empty-row"><td colspan="8">No templates found.</td></tr>';
   } else {
     templateTableBody.innerHTML = displayed.map(template => {
       const templateId = getTemplateId(template);
       const disabledAttr = CAN_MANAGE_TEMPLATES ? '' : 'disabled';
       const checkedAttr = templateId && selectedTemplateIds.has(templateId) ? 'checked' : '';
       const name = getTemplateName(template) || '—';
+      const deliveryType = getTemplateDeliveryType(template) || '—';
       const status = getTemplateStatus(template);
       const isArchived = normalizeTemplateStatusValue(status) === 'archived';
       const updatedAt = getTemplateUpdatedAt(template);
@@ -5259,6 +5261,7 @@ function renderTemplates() {
           <td><input type="checkbox" data-template-id="${templateId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
           <td>${weekNumber ?? '—'}</td>
           <td class="font-medium">${name}</td>
+          <td>${escapeHtml(deliveryType)}</td>
           <td${auditSortAttr}>${escapeHtml(auditDisplay)}</td>
           <td>${createStatusBadge(status)}</td>
           <td>${formatDate(updatedAt)}</td>
