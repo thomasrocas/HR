@@ -869,11 +869,108 @@ function getProgramTotalWeeks(program) {
 }
 
 function getProgramDescription(program) {
-  return program?.description ?? '';
+  return program?.description
+    ?? program?.program_description
+    ?? program?.programDescription
+    ?? '';
+}
+
+function getProgramResults(program) {
+  return program?.results
+    ?? program?.program_results
+    ?? program?.programResults
+    ?? '';
+}
+
+function getProgramPurpose(program) {
+  return program?.purpose
+    ?? program?.program_purpose
+    ?? program?.programPurpose
+    ?? '';
+}
+
+function getProgramOrganization(program) {
+  return program?.organization
+    ?? program?.org
+    ?? program?.organization_name
+    ?? program?.organizationName
+    ?? '';
+}
+
+function getProgramSubUnit(program) {
+  return program?.sub_unit
+    ?? program?.subUnit
+    ?? program?.subunit
+    ?? '';
+}
+
+function getProgramDepartment(program) {
+  return program?.department
+    ?? program?.dept
+    ?? program?.department_name
+    ?? program?.departmentName
+    ?? '';
+}
+
+function getProgramDiscipline(program) {
+  return program?.discipline
+    ?? program?.discipline_type
+    ?? program?.disciplineType
+    ?? '';
 }
 
 function getProgramArchivedAt(program) {
   return program?.deleted_at ?? program?.deletedAt ?? null;
+}
+
+function normalizeProgramRecord(program) {
+  if (!program || typeof program !== 'object') return program;
+  const normalized = { ...program };
+  if (Object.prototype.hasOwnProperty.call(program, 'results')
+    || Object.prototype.hasOwnProperty.call(program, 'program_results')
+    || Object.prototype.hasOwnProperty.call(program, 'programResults')) {
+    const value = program.results ?? program.program_results ?? program.programResults;
+    normalized.results = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(program, 'purpose')
+    || Object.prototype.hasOwnProperty.call(program, 'program_purpose')
+    || Object.prototype.hasOwnProperty.call(program, 'programPurpose')) {
+    const value = program.purpose ?? program.program_purpose ?? program.programPurpose;
+    normalized.purpose = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(program, 'organization')
+    || Object.prototype.hasOwnProperty.call(program, 'org')
+    || Object.prototype.hasOwnProperty.call(program, 'organization_name')
+    || Object.prototype.hasOwnProperty.call(program, 'organizationName')) {
+    const value = program.organization ?? program.org ?? program.organization_name ?? program.organizationName;
+    normalized.organization = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(program, 'sub_unit')
+    || Object.prototype.hasOwnProperty.call(program, 'subUnit')
+    || Object.prototype.hasOwnProperty.call(program, 'subunit')) {
+    const value = program.sub_unit ?? program.subUnit ?? program.subunit;
+    normalized.sub_unit = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(program, 'department')
+    || Object.prototype.hasOwnProperty.call(program, 'dept')
+    || Object.prototype.hasOwnProperty.call(program, 'department_name')
+    || Object.prototype.hasOwnProperty.call(program, 'departmentName')) {
+    const value = program.department ?? program.dept ?? program.department_name ?? program.departmentName;
+    normalized.department = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(program, 'discipline')
+    || Object.prototype.hasOwnProperty.call(program, 'discipline_type')
+    || Object.prototype.hasOwnProperty.call(program, 'disciplineType')) {
+    const value = program.discipline ?? program.discipline_type ?? program.disciplineType;
+    normalized.discipline = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(program, 'description')
+    || Object.prototype.hasOwnProperty.call(program, 'program_description')
+    || Object.prototype.hasOwnProperty.call(program, 'programDescription')) {
+    const value = program.description ?? program.program_description ?? program.programDescription;
+    normalized.description = value;
+  }
+  return normalized;
 }
 
 function isProgramArchived(program) {
@@ -1679,6 +1776,12 @@ const programForm = document.getElementById('programForm');
 const programFormTitleInput = document.getElementById('programFormTitle');
 const programFormWeeksInput = document.getElementById('programFormWeeks');
 const programFormDescriptionInput = document.getElementById('programFormDescription');
+const programFormResultsInput = document.getElementById('programFormResults');
+const programFormPurposeInput = document.getElementById('programFormPurpose');
+const programFormOrganizationInput = document.getElementById('programFormOrganization');
+const programFormSubUnitInput = document.getElementById('programFormSubUnit');
+const programFormDepartmentInput = document.getElementById('programFormDepartment');
+const programFormDisciplineInput = document.getElementById('programFormDiscipline');
 const programFormMessage = document.getElementById('programFormMessage');
 const programFormSubmit = document.getElementById('programFormSubmit');
 const programModalArchiveTrigger = document.getElementById('programModalArchiveTrigger');
@@ -1738,6 +1841,10 @@ populateSelectOptions(templateFormSubUnitInput, SUB_UNIT_OPTIONS);
 populateSelectOptions(templateFormDisciplineTypeInput, DISCIPLINE_TYPE_OPTIONS);
 populateSelectOptions(templateFormDeliveryTypeInput, DELIVERY_TYPE_OPTIONS);
 populateSelectOptions(templateFormDepartmentInput, DEPARTMENT_OPTIONS);
+populateSelectOptions(programFormOrganizationInput, ORGANIZATION_OPTIONS);
+populateSelectOptions(programFormSubUnitInput, SUB_UNIT_OPTIONS);
+populateSelectOptions(programFormDepartmentInput, DEPARTMENT_OPTIONS);
+populateSelectOptions(programFormDisciplineInput, DISCIPLINE_TYPE_OPTIONS);
 if (tmplFilterOrg) populateSelectOptions(tmplFilterOrg, ORGANIZATION_OPTIONS);
 if (tmplFilterSub) populateSelectOptions(tmplFilterSub, SUB_UNIT_OPTIONS);
 if (tmplFilterDiscipline) populateSelectOptions(tmplFilterDiscipline, DISCIPLINE_TYPE_OPTIONS);
@@ -2784,13 +2891,14 @@ function setModalMessage(element, text, isError = false) {
 
 function upsertProgram(program, { makeActive = false } = {}) {
   if (!program) return;
-  const id = getProgramId(program);
+  const normalizedProgram = normalizeProgramRecord(program);
+  const id = getProgramId(normalizedProgram);
   if (!id) return;
   const index = programs.findIndex(existing => getProgramId(existing) === id);
   if (index >= 0) {
-    programs[index] = { ...programs[index], ...program };
+    programs[index] = { ...programs[index], ...normalizedProgram };
   } else {
-    programs = [program, ...programs];
+    programs = [normalizedProgram, ...programs];
   }
   if (makeActive) {
     selectedProgramIds.clear();
@@ -2819,6 +2927,24 @@ function setProgramFormMessage(text, isError = false) {
 function resetProgramForm() {
   if (programForm) {
     programForm.reset();
+  }
+  if (programFormResultsInput) {
+    programFormResultsInput.value = '';
+  }
+  if (programFormPurposeInput) {
+    programFormPurposeInput.value = '';
+  }
+  if (programFormOrganizationInput) {
+    programFormOrganizationInput.value = '';
+  }
+  if (programFormSubUnitInput) {
+    programFormSubUnitInput.value = '';
+  }
+  if (programFormDepartmentInput) {
+    programFormDepartmentInput.value = '';
+  }
+  if (programFormDisciplineInput) {
+    programFormDisciplineInput.value = '';
   }
   setProgramFormMessage('');
 }
@@ -4363,6 +4489,24 @@ function openProgramModal(mode = 'create', programId = null) {
     if (programFormDescriptionInput) {
       programFormDescriptionInput.value = getProgramDescription(program) || '';
     }
+    if (programFormResultsInput) {
+      programFormResultsInput.value = getProgramResults(program) || '';
+    }
+    if (programFormPurposeInput) {
+      programFormPurposeInput.value = getProgramPurpose(program) || '';
+    }
+    if (programFormOrganizationInput) {
+      ensureSelectValue(programFormOrganizationInput, getProgramOrganization(program));
+    }
+    if (programFormSubUnitInput) {
+      ensureSelectValue(programFormSubUnitInput, getProgramSubUnit(program));
+    }
+    if (programFormDepartmentInput) {
+      ensureSelectValue(programFormDepartmentInput, getProgramDepartment(program));
+    }
+    if (programFormDisciplineInput) {
+      ensureSelectValue(programFormDisciplineInput, getProgramDiscipline(program));
+    }
     if (programModalArchiveTrigger) {
       const archivedAt = getProgramArchivedAt(program);
       programModalArchiveTrigger.disabled = Boolean(archivedAt);
@@ -4560,10 +4704,22 @@ async function submitProgramForm(event) {
     totalWeeks = parsed;
   }
   const descriptionValue = (programFormDescriptionInput?.value || '').trim();
+  const resultsValue = (programFormResultsInput?.value || '').trim();
+  const purposeValue = (programFormPurposeInput?.value || '').trim();
+  const organizationValue = programFormOrganizationInput?.value ?? '';
+  const subUnitValue = programFormSubUnitInput?.value ?? '';
+  const departmentValue = programFormDepartmentInput?.value ?? '';
+  const disciplineValue = programFormDisciplineInput?.value ?? '';
   const payload = {
     title,
     total_weeks: totalWeeks === null ? null : totalWeeks,
     description: descriptionValue ? descriptionValue : null,
+    results: resultsValue ? resultsValue : null,
+    purpose: purposeValue ? purposeValue : null,
+    organization: organizationValue ? organizationValue : null,
+    sub_unit: subUnitValue ? subUnitValue : null,
+    department: departmentValue ? departmentValue : null,
+    discipline: disciplineValue ? disciplineValue : null,
   };
   const encodedId = targetId ? encodeURIComponent(targetId) : null;
   const url = isEdit && encodedId ? `${API}/programs/${encodedId}` : `${API}/programs`;

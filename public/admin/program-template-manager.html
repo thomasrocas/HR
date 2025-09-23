@@ -692,6 +692,42 @@
             <label for="programFormDescription" class="label-text mb-1">Description</label>
             <textarea id="programFormDescription" name="description" class="textarea" placeholder="Add an overview for collaborators..."></textarea>
           </div>
+          <div>
+            <label for="programFormResults" class="label-text mb-1">Results</label>
+            <textarea id="programFormResults" name="results" class="textarea" placeholder="Outline the expected outcomes..."></textarea>
+          </div>
+          <div>
+            <label for="programFormPurpose" class="label-text mb-1">Purpose</label>
+            <textarea id="programFormPurpose" name="purpose" class="textarea" placeholder="Describe the purpose of this program..."></textarea>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="label-text">Organization</span>
+              <select id="programFormOrganization" name="organization" class="input">
+                <option value="">Select organization</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Sub-unit</span>
+              <select id="programFormSubUnit" name="sub_unit" class="input">
+                <option value="">Select sub-unit</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1">
+              <span class="label-text">Department</span>
+              <select id="programFormDepartment" name="department" class="input">
+                <option value="">Select department</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Discipline</span>
+              <select id="programFormDiscipline" name="discipline" class="input">
+                <option value="">Select discipline</option>
+              </select>
+            </label>
+          </div>
           <p id="programFormMessage" class="text-sm text-slate-500 hidden"></p>
         </div>
         <div class="modal-footer">
