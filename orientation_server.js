@@ -508,6 +508,15 @@ const sanitizeLinkMetadata = (raw = {}) => {
       sanitized.notes = trimmed === '' ? null : rawNotes;
     }
   }
+  if (Object.prototype.hasOwnProperty.call(raw, 'external_link')) {
+    const linkValue = toNullableString(raw.external_link);
+    const trimmed = typeof linkValue === 'string' ? linkValue.trim() : '';
+    sanitized.external_link = linkValue === null ? null : trimmed === '' ? null : linkValue;
+  } else if (Object.prototype.hasOwnProperty.call(raw, 'hyperlink')) {
+    const linkValue = toNullableString(raw.hyperlink);
+    const trimmed = typeof linkValue === 'string' ? linkValue.trim() : '';
+    sanitized.external_link = linkValue === null ? null : trimmed === '' ? null : linkValue;
+  }
   return sanitized;
 };
 
@@ -534,6 +543,11 @@ const buildLinkPayloadFromTemplate = (template = {}, overrides = {}, userId = nu
   }
   if (!Object.prototype.hasOwnProperty.call(payload, 'notes')) {
     payload.notes = template.notes ?? null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, 'external_link')) {
+    const linkValue = toNullableString(template.external_link ?? template.hyperlink ?? null);
+    const trimmed = typeof linkValue === 'string' ? linkValue.trim() : '';
+    payload.external_link = linkValue === null ? null : trimmed === '' ? null : linkValue;
   }
   if (userId) {
     if (!Object.prototype.hasOwnProperty.call(payload, 'created_by')) {
@@ -667,10 +681,16 @@ async function attachTemplateToProgram(req, programId, templateId) {
     if (!foundTemplate) {
       throw createHttpError(404, 'template_not_found');
     }
+    const defaultLink = foundTemplate?.external_link ?? foundTemplate?.hyperlink ?? null;
+    const linkPayload = {};
+    if (defaultLink !== undefined) {
+      linkPayload.external_link = defaultLink;
+    }
     const attachResult = await programTemplateLinksDao.attach({
       programId,
       templateId,
       db: client,
+      link: linkPayload,
     });
     return { template: foundTemplate, attachResult };
   });
@@ -1791,8 +1811,9 @@ app.get('/programs/:program_id/templates', ensurePerm('template.read'), async (r
                         coalesce(l.sort_order, t.sort_order) as sort_order,
                         t.status,
                         t.deleted_at,
-                        t.external_link as external_link,
-                        t.external_link as hyperlink,
+                        coalesce(l.external_link, t.external_link) as external_link,
+                        coalesce(l.external_link, t.external_link) as hyperlink,
+                        l.external_link as link_external_link,
                         l.id as link_id,
                         l.created_at,
                         l.updated_at,
@@ -1900,21 +1921,23 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
           visibility,
           visible,
           notes,
+          external_link,
           created_by,
           updated_by
         )
-        select template_id,
+        select i.template_id,
                $15,
-               week_number,
-               sort_order,
-               due_offset_days,
-               required,
-               visibility,
-               coalesce($11, true),
-               notes,
-               $12,
-               $12
-          from inserted
+               i.week_number,
+               i.sort_order,
+               i.due_offset_days,
+               i.required,
+               i.visibility,
+               coalesce($16, true),
+               i.notes,
+               i.external_link,
+               $17,
+               $17
+          from inserted i
         returning id as link_id,
                   template_id,
                   program_id,
@@ -1925,6 +1948,7 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
                   visibility,
                   visible,
                   notes,
+                  external_link,
                   created_by,
                   updated_by,
                   created_at,
@@ -1947,8 +1971,9 @@ app.post('/programs/:program_id/templates', ensurePerm('template.create'), async
              l.sort_order,
              i.status,
              i.deleted_at,
-             i.external_link as external_link,
-             i.external_link as hyperlink,
+             coalesce(l.external_link, i.external_link) as external_link,
+             coalesce(l.external_link, i.external_link) as hyperlink,
+             l.external_link as link_external_link,
              l.link_id,
              l.created_at,
              l.updated_at,

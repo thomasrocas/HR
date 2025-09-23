@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const request = require('supertest');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
@@ -26,6 +28,11 @@ jest.mock('pg', () => ({ Pool: MockPool }));
 
 // Require app after mocks
 const { app, pool } = require('../orientation_server.js');
+
+const addExternalLinkMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'migrations', '017_add_external_link_to_program_template_links.sql'),
+  'utf-8'
+);
 
 describe('program routes', () => {
   beforeAll(async () => {
@@ -138,6 +145,7 @@ describe('program routes', () => {
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
+    await pool.query(addExternalLinkMigration);
   });
 
   afterEach(async () => {
@@ -734,6 +742,57 @@ test('api program template listing includes external link', async () => {
   expect(res.body.data).toHaveLength(1);
   expect(res.body.data[0].external_link).toBe(hyperlink);
   expect(res.body.data[0].hyperlink).toBe(hyperlink);
+});
+
+test('attaching template copies external link onto link row', async () => {
+  const userId = crypto.randomUUID();
+  const hash = await bcrypt.hash('passpass', 1);
+  const username = 'user4b-attach-link';
+  await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
+    userId,
+    username,
+    hash,
+    'local',
+  ]);
+  await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
+    userId,
+    'admin',
+  ]);
+
+  const agent = request.agent(app);
+  await agent.post('/auth/local/login').send({ username, password: 'passpass' }).expect(200);
+
+  const progId = 'prog4b-attach-link';
+  await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [
+    progId,
+    'Program with link',
+    userId,
+  ]);
+  const tmplId = nextTemplateId();
+  const hyperlink = 'https://templates.example.com/attach';
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
+    tmplId,
+    1,
+    'template',
+    hyperlink,
+  ]);
+
+  await agent
+    .post(`/api/programs/${progId}/templates`)
+    .send({ template_id: tmplId })
+    .expect(201);
+
+  const { rows } = await pool.query(
+    'select external_link from public.program_template_links where template_id=$1 and program_id=$2',
+    [tmplId, progId]
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].external_link).toBe(hyperlink);
+
+  const res = await agent.get(`/api/programs/${progId}/templates`).expect(200);
+  expect(Array.isArray(res.body?.data)).toBe(true);
+  expect(res.body.data).toHaveLength(1);
+  expect(res.body.data[0].external_link).toBe(hyperlink);
 });
 
 test('legacy program template listing includes hyperlink', async () => {

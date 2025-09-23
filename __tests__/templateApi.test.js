@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const request = require('supertest');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
@@ -25,6 +27,11 @@ db.public.registerFunction({
 jest.mock('pg', () => ({ Pool: MockPool }));
 
 const { app, pool } = require('../orientation_server.js');
+
+const addExternalLinkMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'migrations', '017_add_external_link_to_program_template_links.sql'),
+  'utf-8'
+);
 
 const DEFAULT_PASSWORD = 'passpass';
 
@@ -111,6 +118,7 @@ describe('template api', () => {
       );
       insert into public.roles(role_key) values ('admin'), ('manager'), ('viewer'), ('trainee'), ('auditor');
     `);
+    await pool.query(addExternalLinkMigration);
   });
 
   afterEach(async () => {
