@@ -1,5 +1,6 @@
 const request = require('supertest');
 const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const { newDb } = require('pg-mem');
 
 // Setup pg-mem and mock pg
@@ -108,5 +109,28 @@ describe('local auth flow', () => {
       .post('/auth/local/login')
       .send({ username: 'newuser', password: 'betterpass' })
       .expect(200);
+  });
+
+  test.each(['suspended', 'archived'])('login blocked for %s accounts', async status => {
+    const hash = await bcrypt.hash('passpass', 1);
+    const { rows } = await pool.query(
+      `insert into public.users (username, password_hash, status)
+       values ($1, $2, $3)
+       returning id`,
+      ['disabled_user', hash, status]
+    );
+
+    const res = await request(app)
+      .post('/auth/local/login')
+      .send({ username: 'disabled_user', password: 'passpass' })
+      .expect(403);
+
+    expect(res.body).toEqual({ error: 'account_disabled' });
+
+    const { rows: userRows } = await pool.query(
+      'select last_login_at from public.users where id=$1',
+      [rows[0].id]
+    );
+    expect(userRows[0].last_login_at).toBeNull();
   });
 });
