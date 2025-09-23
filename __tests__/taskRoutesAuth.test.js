@@ -56,7 +56,8 @@ describe('task routes authorization', () => {
         notes text,
         journal_entry text,
         responsible_person text,
-        deleted boolean default false
+        deleted boolean default false,
+        external_link text
       );
       create table public.user_roles (
         user_id uuid,

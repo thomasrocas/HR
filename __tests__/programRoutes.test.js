@@ -132,7 +132,8 @@ describe('program routes', () => {
         notes text,
         journal_entry text,
         responsible_person text,
-        deleted boolean default false
+        deleted boolean default false,
+        external_link text
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
