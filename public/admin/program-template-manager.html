@@ -497,6 +497,40 @@
             <div id="templateSelectionSummary" class="text-xs text-slate-500 md:text-right">No templates selected.</div>
           </div>
 
+          <!-- Templates facet filters -->
+          <div class="grid gap-3 md:grid-cols-5">
+            <label class="space-y-1">
+              <span class="label-text">Organization</span>
+              <select id="tmplFilterOrg" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Sub-unit</span>
+              <select id="tmplFilterSub" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Discipline</span>
+              <select id="tmplFilterDiscipline" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Delivery Type</span>
+              <select id="tmplFilterDelivery" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Department</span>
+              <select id="tmplFilterDept" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+          </div>
+
           <div class="flex items-center justify-between gap-3 flex-wrap text-xs text-slate-500">
             <label class="flex items-center gap-2 text-sm">
               <input type="checkbox" id="tmplHideArchived" class="rounded border-slate-300">
