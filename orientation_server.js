@@ -762,6 +762,9 @@ async function ensureProgramManagementAccess(req, programId) {
   if (req.roles?.includes('admin')) {
     return true;
   }
+  if (req.roles?.includes('manager')) {
+    return true;
+  }
   const manages = await userManagesProgram(req.user?.id, programId);
   if (!manages) {
     throw createHttpError(403, 'forbidden');
