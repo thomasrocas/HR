@@ -265,6 +265,33 @@ function getTemplateId(template) {
   return normalizeId(template?.id ?? template?.templateId ?? template?.template_id ?? template?.template?.id);
 }
 
+function getTemplateProgramId(template) {
+  const candidates = [
+    template?.program_id,
+    template?.programId,
+    template?.program?.id,
+    template?.program?.programId,
+    template?.program?.program_id,
+    template?.template?.program_id,
+    template?.template?.programId,
+    template?.template?.program?.id,
+    template?.template?.program?.programId,
+    template?.template?.program?.program_id,
+    template?.link?.program_id,
+    template?.link?.programId,
+    template?.link?.program?.id,
+    template?.link?.program?.programId,
+    template?.link?.program?.program_id,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeId(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return '';
+}
+
 function getTemplateLinkId(template) {
   const candidates = [
     template?.link_id,
@@ -339,6 +366,42 @@ function getTemplateDepartment(template) {
   return value || '';
 }
 
+function getTemplateOrganization(template) {
+  const value = [
+    template?.organization,
+    template?.org,
+    template?.program?.organization,
+    template?.program?.org,
+    template?.template?.organization,
+    template?.template?.org,
+    template?.template?.program?.organization,
+    template?.template?.program?.org,
+    template?.link?.organization,
+    template?.link?.org,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  return value ? String(value) : '';
+}
+
+function getTemplateSubUnit(template) {
+  const value = [
+    template?.sub_unit,
+    template?.subUnit,
+    template?.subunit,
+    template?.program?.sub_unit,
+    template?.program?.subUnit,
+    template?.program?.subunit,
+    template?.template?.sub_unit,
+    template?.template?.subUnit,
+    template?.template?.subunit,
+    template?.template?.program?.sub_unit,
+    template?.template?.program?.subUnit,
+    template?.link?.sub_unit,
+    template?.link?.subUnit,
+    template?.link?.subunit,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  return value ? String(value) : '';
+}
+
 function getTemplateStatus(template) {
   if (!template) return '';
   const archivedAt = template?.deleted_at ?? template?.deletedAt ?? null;
@@ -384,6 +447,19 @@ function getTemplateDescription(template) {
   return value || '';
 }
 
+function getTemplateNotes(template) {
+  const value = [
+    template?.notes,
+    template?.description,
+    template?.summary,
+    template?.template?.notes,
+    template?.template?.description,
+    template?.template?.summary,
+    template?.link?.notes,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  return value ? String(value) : '';
+}
+
 function getTemplateUpdatedAt(template) {
   return template?.updated_at
     ?? template?.updatedAt
@@ -412,6 +488,32 @@ function getTemplateWeekNumber(template) {
     return String(candidate);
   }
   return null;
+}
+
+function getTemplateExternalLink(template) {
+  const value = [
+    template?.external_link,
+    template?.externalLink,
+    template?.hyperlink,
+    template?.link?.external_link,
+    template?.link?.externalLink,
+    template?.link?.hyperlink,
+    template?.url,
+    template?.link_url,
+    template?.linkUrl,
+    template?.link?.url,
+    template?.link?.link_url,
+    template?.link?.linkUrl,
+    template?.template?.external_link,
+    template?.template?.externalLink,
+    template?.template?.hyperlink,
+  ].find(entry => entry !== null && entry !== undefined && entry !== '');
+  if (!value) return '';
+  const stringValue = String(value);
+  if (isValidHttpUrl(stringValue)) {
+    return stringValue;
+  }
+  return stringValue;
 }
 
 function getTemplateSortValue(template, fallback = 0) {
@@ -791,25 +893,38 @@ const PROGRAM_CSV_ACCESSORS = {
   archivedAt: program => formatDate(getProgramArchivedAt(program)),
 };
 
+const TEMPLATE_EXPORT_FIELDS = [
+  'template_id',
+  'program_id',
+  'week_number',
+  'label',
+  'status',
+  'organization',
+  'sub_unit',
+  'department',
+  'discipline_type',
+  'type_delivery',
+  'external_link',
+  'notes',
+];
+
 const TEMPLATE_CSV_ACCESSORS = {
-  week: template => {
+  template_id: template => getTemplateId(template) || '',
+  program_id: (template, fallbackProgramId) => getTemplateProgramId(template) || (normalizeId(fallbackProgramId) || ''),
+  week_number: template => {
     const weekNumber = getTemplateWeekNumber(template);
-    if (weekNumber === null || weekNumber === undefined || weekNumber === '') return '—';
+    if (weekNumber === null || weekNumber === undefined || weekNumber === '') return '';
     return String(weekNumber);
   },
-  name: template => getTemplateName(template) || '—',
-  discipline_type: template => getTemplateDisciplineType(template) || '—',
-  disciplineType: template => getTemplateDisciplineType(template) || '—',
-  type_delivery: template => getTemplateDeliveryType(template) || '—',
-  typeDelivery: template => getTemplateDeliveryType(template) || '—',
-  delivery_type: template => getTemplateDeliveryType(template) || '—',
-  department: template => getTemplateDepartment(template) || '—',
-  auditInserted: template => {
-    const display = getTemplateAuditDisplay(template);
-    return display && display !== '—' ? display : '—';
-  },
-  status: template => getTemplateStatusLabel(template),
-  updatedAt: template => formatDate(getTemplateUpdatedAt(template)),
+  label: template => getTemplateName(template) || '',
+  status: template => normalizeTemplateStatusValue(getTemplateStatus(template)) || '',
+  organization: template => getTemplateOrganization(template),
+  sub_unit: template => getTemplateSubUnit(template),
+  department: template => getTemplateDepartment(template) || '',
+  discipline_type: template => getTemplateDisciplineType(template) || '',
+  type_delivery: template => getTemplateDeliveryType(template) || '',
+  external_link: template => getTemplateExternalLink(template),
+  notes: template => getTemplateNotes(template),
 };
 
 function toCSV() {
@@ -841,26 +956,15 @@ function toCSV() {
 
 function templatesToCSV() {
   if (!templateTable) return '';
-  const headerCells = Array.from(templateTable.querySelectorAll('thead th')).filter(isElementVisible);
-  if (!headerCells.length) return '';
-  const headerLabels = headerCells.map(cell => {
-    const clone = cell.cloneNode(true);
-    const redundantElements = clone.querySelectorAll('input, [data-sort-indicator]');
-    redundantElements.forEach(el => el.remove());
-    const label = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-    return label;
-  });
-  const headerKeys = headerCells.map(cell => cell.dataset.key || null);
-  const rows = [headerLabels.map(escapeCsvCell).join(',')];
+  const rows = [TEMPLATE_EXPORT_FIELDS.map(escapeCsvCell).join(',')];
   const templatesToExport = getFilteredSortedTemplates();
   templatesToExport.forEach(template => {
     ensureTemplateAudit(template);
-    const cells = headerKeys.map(key => {
-      if (!key) return '';
+    const cells = TEMPLATE_EXPORT_FIELDS.map(key => {
       const accessor = TEMPLATE_CSV_ACCESSORS[key];
-      const rawValue = typeof accessor === 'function' ? accessor(template) : template?.[key];
+      const rawValue = typeof accessor === 'function' ? accessor(template, selectedProgramId) : template?.[key];
       if (rawValue === null || rawValue === undefined) return '';
-      return rawValue;
+      return String(rawValue);
     });
     rows.push(cells.map(escapeCsvCell).join(','));
   });
