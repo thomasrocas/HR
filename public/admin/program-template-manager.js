@@ -1647,6 +1647,11 @@ const templateTableBody = document.getElementById('templateTableBody');
 const hideArchivedCheckbox = document.getElementById('hideArchived');
 const programSearchInput = document.getElementById('programSearch');
 const templateSearchInput = document.getElementById('templateSearch');
+const tmplFilterOrg = document.getElementById('tmplFilterOrg');
+const tmplFilterSub = document.getElementById('tmplFilterSub');
+const tmplFilterDiscipline = document.getElementById('tmplFilterDiscipline');
+const tmplFilterDelivery = document.getElementById('tmplFilterDelivery');
+const tmplFilterDept = document.getElementById('tmplFilterDept');
 const programMessage = document.getElementById('programMessage');
 const templateMessage = document.getElementById('templateMessage');
 const programSelectionSummary = document.getElementById('programSelectionSummary');
@@ -1733,6 +1738,18 @@ populateSelectOptions(templateFormSubUnitInput, SUB_UNIT_OPTIONS);
 populateSelectOptions(templateFormDisciplineTypeInput, DISCIPLINE_TYPE_OPTIONS);
 populateSelectOptions(templateFormDeliveryTypeInput, DELIVERY_TYPE_OPTIONS);
 populateSelectOptions(templateFormDepartmentInput, DEPARTMENT_OPTIONS);
+if (tmplFilterOrg) populateSelectOptions(tmplFilterOrg, ORGANIZATION_OPTIONS);
+if (tmplFilterSub) populateSelectOptions(tmplFilterSub, SUB_UNIT_OPTIONS);
+if (tmplFilterDiscipline) populateSelectOptions(tmplFilterDiscipline, DISCIPLINE_TYPE_OPTIONS);
+if (tmplFilterDelivery) populateSelectOptions(tmplFilterDelivery, DELIVERY_TYPE_OPTIONS);
+if (tmplFilterDept) populateSelectOptions(tmplFilterDept, DEPARTMENT_OPTIONS);
+
+[tmplFilterOrg, tmplFilterSub, tmplFilterDiscipline, tmplFilterDelivery, tmplFilterDept]
+  .filter(Boolean)
+  .forEach(el => el.addEventListener('change', () => {
+    templateCurrentPage = 1;
+    renderTemplates();
+  }));
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -2466,11 +2483,36 @@ function getVisibleTemplates() {
   return Array.isArray(currentTemplatePageItems) ? currentTemplatePageItems.slice() : [];
 }
 
+function templateMatchesFacetFilters(t) {
+  const want = select => (select && select.value ? select.value.trim() : '');
+  const wOrg = want(tmplFilterOrg);
+  const wSub = want(tmplFilterSub);
+  const wDisc = want(tmplFilterDiscipline);
+  const wDeliv = want(tmplFilterDelivery);
+  const wDept = want(tmplFilterDept);
+
+  const haveOrg = (getTemplateOrganization(t) || '').trim();
+  const haveSub = (getTemplateSubUnit(t) || '').trim();
+  const haveDisc = (getTemplateDisciplineType(t) || '').trim();
+  const haveDeliv = (getTemplateDeliveryType(t) || '').trim();
+  const haveDept = (getTemplateDepartment(t) || '').trim();
+
+  if (wOrg && haveOrg !== wOrg) return false;
+  if (wSub && haveSub !== wSub) return false;
+  if (wDisc && haveDisc !== wDisc) return false;
+  if (wDeliv && haveDeliv !== wDeliv) return false;
+  if (wDept && haveDept !== wDept) return false;
+  return true;
+}
+
 function getFilteredTemplates(source = globalTemplates) {
   let list = Array.isArray(source) ? source.slice() : [];
   if (hideArchivedTemplates) {
     list = list.filter(template => !isTemplateArchived(template));
   }
+
+  list = list.filter(templateMatchesFacetFilters);
+
   const term = (templateSearchInput?.value || '').trim().toLowerCase();
   if (!term) return list;
   return list.filter(t => {
