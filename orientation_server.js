@@ -111,6 +111,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 const SRC_DIR = path.join(__dirname, 'src');
 app.use('/src', express.static(SRC_DIR));
+const SHARED_DIR = path.join(__dirname, 'shared');
+app.use('/shared', express.static(SHARED_DIR));
 app.get('/', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'orientation_index.html'));
 });
