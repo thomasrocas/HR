@@ -28,6 +28,7 @@ export interface Template {
   subUnit: string | null;
   disciplineType: string | null;
   typeDelivery: string | null;
+  linkTypeDelivery?: string | null;
   department: string | null;
 }
 
@@ -400,6 +401,8 @@ const normalizeTemplate = (raw: any): Template => {
   }
 
   const deliverySource =
+    raw.linkTypeDelivery ??
+    raw.link_type_delivery ??
     raw.typeDelivery ??
     raw.type_delivery ??
     raw.deliveryType ??
@@ -412,6 +415,15 @@ const normalizeTemplate = (raw: any): Template => {
     typeDelivery = trimmed ? trimmed : null;
   } else if (deliverySource === null) {
     typeDelivery = null;
+  }
+
+  const linkDeliverySource = raw.linkTypeDelivery ?? raw.link_type_delivery ?? null;
+  let linkTypeDelivery: string | null | undefined;
+  if (typeof linkDeliverySource === 'string') {
+    const trimmed = linkDeliverySource.trim();
+    linkTypeDelivery = trimmed ? trimmed : null;
+  } else if (linkDeliverySource === null) {
+    linkTypeDelivery = null;
   }
 
   const departmentSource = raw.department ?? raw.dept ?? raw.departmentName ?? null;
@@ -437,6 +449,9 @@ const normalizeTemplate = (raw: any): Template => {
     typeDelivery,
     department,
   };
+  if (typeof linkTypeDelivery !== 'undefined') {
+    template.linkTypeDelivery = linkTypeDelivery;
+  }
   const parsedDate = toDateString(updatedCandidate);
   if (parsedDate) {
     template.updatedAt = parsedDate;

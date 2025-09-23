@@ -72,7 +72,8 @@ describe('rbac admin routes', () => {
         journal_entry text,
         responsible_person text,
         deleted boolean default false,
-        external_link text
+        external_link text,
+        type_delivery text
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);

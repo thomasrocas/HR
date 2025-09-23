@@ -98,6 +98,7 @@ describe('program routes', () => {
         visible boolean default true,
         notes text,
         external_link text,
+        type_delivery text,
         created_by uuid,
         updated_by uuid,
         created_at timestamptz not null default now(),
@@ -142,11 +143,17 @@ describe('program routes', () => {
         journal_entry text,
         responsible_person text,
         deleted boolean default false,
-        external_link text
+        external_link text,
+        type_delivery text
       );
       insert into public.roles(role_key) values ('admin'),('manager'),('viewer'),('trainee'),('auditor');
     `);
     await pool.query(addExternalLinkMigration);
+    const addTypeDeliveryMigration = fs.readFileSync(
+      path.join(__dirname, '..', 'migrations', '019_add_type_delivery_to_links_and_tasks.sql'),
+      'utf-8'
+    );
+    await pool.query(addTypeDeliveryMigration);
   });
 
   afterEach(async () => {
@@ -726,11 +733,12 @@ test('api program template listing includes external link', async () => {
   await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
   const tmplId = nextTemplateId();
   const hyperlink = 'https://example.com/resource';
-  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link, type_delivery) values ($1,$2,$3,$4,$5)', [
     tmplId,
     1,
     'tmp',
     hyperlink,
+    'in-person',
   ]);
   await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
     crypto.randomUUID(),
@@ -817,11 +825,12 @@ test('legacy program template listing includes hyperlink', async () => {
   await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
   const tmplId = nextTemplateId();
   const hyperlink = 'https://legacy.example.com/resource';
-  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link, type_delivery) values ($1,$2,$3,$4,$5)', [
     tmplId,
     1,
     'tmp',
     hyperlink,
+    'in-person',
   ]);
   await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
     crypto.randomUUID(),
@@ -834,6 +843,8 @@ test('legacy program template listing includes hyperlink', async () => {
   expect(res.body).toHaveLength(1);
   expect(res.body[0].external_link).toBe(hyperlink);
   expect(res.body[0].hyperlink).toBe(hyperlink);
+  expect(res.body[0].type_delivery).toBe('in-person');
+  expect(res.body[0].link_type_delivery).toBeNull();
 });
 
 test('api program template patch updates hyperlink', async () => {
@@ -858,11 +869,12 @@ test('api program template patch updates hyperlink', async () => {
   const tmplId = nextTemplateId();
   const initialLink = 'https://initial.example.com/resource';
   const newLink = 'https://updated.example.com/resource';
-  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link, type_delivery) values ($1,$2,$3,$4,$5)', [
     tmplId,
     1,
     'tmp',
     initialLink,
+    'remote',
   ]);
   await pool.query('insert into public.program_template_links(id, template_id, program_id) values ($1,$2,$3)', [
     crypto.randomUUID(),
@@ -886,6 +898,8 @@ test('api program template patch updates hyperlink', async () => {
   expect(String(linked.template_id)).toBe(String(tmplId));
   expect(linked.external_link).toBe(newLink);
   expect(linked.hyperlink).toBe(newLink);
+  expect(linked.type_delivery).toBe('remote');
+  expect(linked.link_type_delivery).toBeNull();
 });
 
 test('instantiate skips soft deleted templates', async () => {
@@ -901,11 +915,12 @@ test('instantiate skips soft deleted templates', async () => {
   await pool.query('insert into public.programs(program_id, title, created_by) values ($1,$2,$3)', [progId, 'title', userId]);
   const activeId = nextTemplateId();
   const deletedId = nextTemplateId();
-  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link) values ($1,$2,$3,$4)', [
+  await pool.query('insert into public.program_task_templates(template_id, week_number, label, external_link, type_delivery) values ($1,$2,$3,$4,$5)', [
     activeId,
     1,
     'active',
     'https://templates.example.com/active',
+    'virtual',
   ]);
   await pool.query('insert into public.program_task_templates(template_id, week_number, label) values ($1,$2,$3)', [
     deletedId,
@@ -929,10 +944,11 @@ test('instantiate skips soft deleted templates', async () => {
   const res = await agent.post(`/programs/${progId}/instantiate`).expect(200);
   expect(res.body.created).toBe(1);
 
-  const { rows } = await pool.query('select label, external_link from public.orientation_tasks where user_id=$1', [userId]);
+  const { rows } = await pool.query('select label, external_link, type_delivery from public.orientation_tasks where user_id=$1', [userId]);
   expect(rows).toHaveLength(1);
   expect(rows[0].label).toBe('active');
   expect(rows[0].external_link).toBe('https://links.example.com/active');
+  expect(rows[0].type_delivery).toBe('virtual');
 });
 
 test('rbac instantiate applies scheduling metadata', async () => {
@@ -965,12 +981,12 @@ test('rbac instantiate applies scheduling metadata', async () => {
 
   const tmplId = nextTemplateId();
   await pool.query(
-    'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days) values ($1,$2,$3,$4,$5)',
-    [tmplId, 1, 'Orientation call', 'Template note', 3],
+    'insert into public.program_task_templates(template_id, week_number, label, notes, due_offset_days, type_delivery) values ($1,$2,$3,$4,$5,$6)',
+    [tmplId, 1, 'Orientation call', 'Template note', 3, 'onsite'],
   );
   await pool.query(
-    'insert into public.program_template_links(id, template_id, program_id, due_offset_days) values ($1,$2,$3,$4)',
-    [crypto.randomUUID(), tmplId, progId, 2],
+    'insert into public.program_template_links(id, template_id, program_id, due_offset_days, type_delivery) values ($1,$2,$3,$4,$5)',
+    [crypto.randomUUID(), tmplId, progId, 2, 'virtual'],
   );
 
   const startDate = '2024-02-01';
@@ -985,7 +1001,7 @@ test('rbac instantiate applies scheduling metadata', async () => {
   expect(res.body).toMatchObject({ ok: true, created: 1 });
 
   const taskRows = await pool.query(
-    'select program_id, scheduled_for, due_date, notes from public.orientation_tasks where user_id=$1',
+    'select program_id, scheduled_for, due_date, notes, type_delivery from public.orientation_tasks where user_id=$1',
     [assigneeId],
   );
   expect(taskRows.rows).toHaveLength(1);
@@ -995,6 +1011,7 @@ test('rbac instantiate applies scheduling metadata', async () => {
   expect(toDateString(task.scheduled_for)).toBe(startDate);
   expect(toDateString(task.due_date)).toBe(dueDate);
   expect(task.notes).toBe('Template note\n\nCheck in weekly');
+  expect(task.type_delivery).toBe('virtual');
 
   const prefs = await pool.query(
     'select program_id, start_date, due_date, num_weeks, notes from public.user_preferences where user_id=$1',
