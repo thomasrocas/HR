@@ -271,20 +271,26 @@ describe('task routes authorization', () => {
     await traineeAgent.patch(`/tasks/${taskId}`).send({ done:true }).expect(200);
     const journalRes = await traineeAgent.patch(`/tasks/${taskId}`).send({ journal_entry: 'my notes' }).expect(200);
     expect(journalRes.body.journal_entry).toBe('my notes');
+    const linkRes = await traineeAgent
+      .patch(`/tasks/${taskId}`)
+      .send({ external_link: 'https://links.example.com/trainee' })
+      .expect(200);
+    expect(linkRes.body.external_link).toBe('https://links.example.com/trainee');
 
     const mgrAgent = request.agent(app);
     await mgrAgent.post('/auth/local/login').send({ username:'mgr', password:'passpass'}).expect(200);
     const res = await mgrAgent
       .patch(`/tasks/${taskId}`)
-      .send({ label:'mgr edit', journal_entry: 'updated journal', responsible_person: 'Alex', time: '11:15:00' })
+      .send({ label:'mgr edit', journal_entry: 'updated journal', responsible_person: 'Alex', time: '11:15:00', external_link: 'https://links.example.com/manager' })
       .expect(200);
     expect(res.body.label).toBe('mgr edit');
     expect(res.body.journal_entry).toBe('updated journal');
     expect(res.body.responsible_person).toBe('Alex');
     expect(res.body.scheduled_time).toBe('11:15:00');
+    expect(res.body.external_link).toBe('https://links.example.com/manager');
   });
 
-  test('task owner trainee without update permission can edit journal entry only', async () => {
+  test('task owner trainee without update permission can edit journal entry and link only', async () => {
     const traineeId = crypto.randomUUID();
     const otherId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
@@ -318,10 +324,11 @@ describe('task routes authorization', () => {
 
     const journalRes = await ownerAgent
       .patch(`/tasks/${taskId}`)
-      .send({ journal_entry: 'owner update', done: true })
+      .send({ journal_entry: 'owner update', done: true, external_link: 'https://links.example.com/owner' })
       .expect(200);
     expect(journalRes.body.journal_entry).toBe('owner update');
     expect(journalRes.body.done).toBe(true);
+    expect(journalRes.body.external_link).toBe('https://links.example.com/owner');
 
     await ownerAgent.patch(`/tasks/${taskId}`).send({ label: 'new label' }).expect(403);
 

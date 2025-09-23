@@ -2840,7 +2840,7 @@ app.patch('/tasks/:id', ensureAuth, async (req, res) => {
     const task = existing[0];
     if (!task) return res.status(404).json({ error: 'Not found' });
 
-    const allFields = ['label','scheduled_for','time','done','program_id','week_number','notes','journal_entry','responsible_person'];
+    const allFields = ['label','scheduled_for','time','done','program_id','week_number','notes','journal_entry','responsible_person','external_link'];
     const roles = Array.isArray(req.roles) ? req.roles : [];
     const isAdmin = roles.includes('admin');
     const hasManagerRole = roles.includes('manager');
@@ -2868,7 +2868,7 @@ app.patch('/tasks/:id', ensureAuth, async (req, res) => {
         allowed = allFields;
       }
     } else if (isTrainee && owns) {
-      allowed = ['done', 'journal_entry'];
+      allowed = ['done', 'journal_entry', 'external_link'];
     } else {
       return res.status(403).json({ error: 'forbidden' });
     }
