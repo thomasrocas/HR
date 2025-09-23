@@ -408,7 +408,9 @@
         </div>
         <div>
           <label class="block text-sm mb-1" for="editOrganization">Organization</label>
-          <input id="editOrganization" name="organization" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Organization">
+          <select id="editOrganization" name="organization" class="w-full border rounded-xl px-3 py-2 text-sm">
+            <option value="">None</option>
+          </select>
         </div>
         <div>
           <label class="block text-sm mb-1" for="editEmail">Email</label>
@@ -492,11 +494,49 @@
   </div>
 
   <script type="module">
+import { ORGANIZATION_OPTIONS } from '../../shared/field-options.js';
+
 const API = window.location.origin;
 
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch] || ch);
+}
+
+function populateSelectOptions(selectElement, options) {
+  if (!(selectElement instanceof HTMLSelectElement) || !Array.isArray(options)) {
+    return;
+  }
+  const existingValues = new Set(Array.from(selectElement.options, option => option.value));
+  options.forEach(optionValue => {
+    if (!optionValue || existingValues.has(optionValue)) {
+      return;
+    }
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    selectElement.appendChild(option);
+    existingValues.add(optionValue);
+  });
+}
+
+function ensureSelectValue(selectElement, value) {
+  if (!(selectElement instanceof HTMLSelectElement)) {
+    return;
+  }
+  if (value === null || value === undefined || value === '') {
+    selectElement.value = '';
+    return;
+  }
+  const stringValue = String(value);
+  const hasOption = Array.from(selectElement.options).some(option => option.value === stringValue);
+  if (!hasOption) {
+    const option = document.createElement('option');
+    option.value = stringValue;
+    option.textContent = stringValue;
+    selectElement.appendChild(option);
+  }
+  selectElement.value = stringValue;
 }
 
 const meRes = await fetch(`${API}/me`, { credentials: 'include' });
@@ -616,6 +656,8 @@ const inputEditEmail = document.getElementById('editEmail');
 const inputCreateRoles = document.getElementById('createRoles');
 const textareaDeactivateReason = document.getElementById('deactivateReason');
 
+populateSelectOptions(inputEditOrganization, ORGANIZATION_OPTIONS);
+
 const btnDeactivate = document.getElementById('btnDeactivate');
 const btnReactivate = document.getElementById('btnReactivate');
 const btnArchive = document.getElementById('btnArchive');
@@ -728,7 +770,7 @@ function renderSelectedUser(user) {
   programsUserName.textContent = displayName;
   lifecycleUserName.textContent = displayName;
   if (inputEditFullName) inputEditFullName.value = user.full_name || '';
-  if (inputEditOrganization) inputEditOrganization.value = user.organization || '';
+  if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization || '');
   if (inputEditEmail) inputEditEmail.value = user.username || '';
   setUserActionState(true);
   setLifecycleButtons(status);
@@ -857,7 +899,7 @@ formEdit.addEventListener('submit', async e => {
     full_name: (formData.get('fullName') || '').toString().trim(),
     email: (formData.get('email') || '').toString().trim(),
     organization: (() => {
-      const value = (formData.get('organization') || '').toString().trim();
+      const value = (formData.get('organization') || '').toString();
       return value ? value : null;
     })()
   };

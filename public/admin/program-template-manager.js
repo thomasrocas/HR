@@ -1,3 +1,11 @@
+import {
+  DISCIPLINE_TYPE_OPTIONS,
+  DELIVERY_TYPE_OPTIONS,
+  DEPARTMENT_OPTIONS,
+  ORGANIZATION_OPTIONS,
+  SUB_UNIT_OPTIONS,
+} from '../../shared/field-options.js';
+
 const API = window.location.origin;
 const TEMPLATE_API = `${API}/api/templates`;
 
@@ -64,6 +72,42 @@ const HTML_ESCAPE_REGEXP = /[&<>"']/g;
 function escapeHtml(value) {
   if (value === null || value === undefined) return '';
   return String(value).replace(HTML_ESCAPE_REGEXP, match => HTML_ESCAPE_LOOKUP[match] || match);
+}
+
+function populateSelectOptions(selectElement, options) {
+  if (!(selectElement instanceof HTMLSelectElement) || !Array.isArray(options)) {
+    return;
+  }
+  const existingValues = new Set(Array.from(selectElement.options, option => option.value));
+  options.forEach(optionValue => {
+    if (!optionValue || existingValues.has(optionValue)) {
+      return;
+    }
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    selectElement.appendChild(option);
+    existingValues.add(optionValue);
+  });
+}
+
+function ensureSelectValue(selectElement, value) {
+  if (!(selectElement instanceof HTMLSelectElement)) {
+    return;
+  }
+  if (value === null || value === undefined || value === '') {
+    selectElement.value = '';
+    return;
+  }
+  const stringValue = String(value);
+  const hasOption = Array.from(selectElement.options).some(option => option.value === stringValue);
+  if (!hasOption) {
+    const option = document.createElement('option');
+    option.value = stringValue;
+    option.textContent = stringValue;
+    selectElement.appendChild(option);
+  }
+  selectElement.value = stringValue;
 }
 
 let toastContainerElement = null;
@@ -1376,6 +1420,12 @@ const templatePager = document.getElementById('tmplPager');
 const templatePagerLabel = document.getElementById('tmplPagerLabel');
 const templatePagerPrev = document.getElementById('tmplPagerPrev');
 const templatePagerNext = document.getElementById('tmplPagerNext');
+
+populateSelectOptions(templateFormOrganizationInput, ORGANIZATION_OPTIONS);
+populateSelectOptions(templateFormSubUnitInput, SUB_UNIT_OPTIONS);
+populateSelectOptions(templateFormDisciplineTypeInput, DISCIPLINE_TYPE_OPTIONS);
+populateSelectOptions(templateFormDeliveryTypeInput, DELIVERY_TYPE_OPTIONS);
+populateSelectOptions(templateFormDepartmentInput, DEPARTMENT_OPTIONS);
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
   throw new Error('Program & Template Manager: required DOM nodes are missing.');
@@ -4044,11 +4094,11 @@ function openTemplateModal(mode = 'create', templateId = null) {
     }
     if (templateFormOrganizationInput) {
       const organization = template?.organization ?? template?.org ?? '';
-      templateFormOrganizationInput.value = organization || '';
+      ensureSelectValue(templateFormOrganizationInput, organization);
     }
     if (templateFormSubUnitInput) {
       const subUnit = template?.sub_unit ?? template?.subUnit ?? '';
-      templateFormSubUnitInput.value = subUnit || '';
+      ensureSelectValue(templateFormSubUnitInput, subUnit);
     }
     if (templateFormDisciplineTypeInput) {
       const disciplineType = template?.discipline_type
@@ -4058,7 +4108,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
         ?? template?.template?.disciplineType
         ?? template?.template?.discipline
         ?? '';
-      templateFormDisciplineTypeInput.value = disciplineType || '';
+      ensureSelectValue(templateFormDisciplineTypeInput, disciplineType);
     }
     if (templateFormDeliveryTypeInput) {
       const deliveryType = template?.type_delivery
@@ -4070,7 +4120,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
         ?? template?.template?.delivery_type
         ?? template?.template?.deliveryType
         ?? '';
-      templateFormDeliveryTypeInput.value = deliveryType || '';
+      ensureSelectValue(templateFormDeliveryTypeInput, deliveryType);
     }
     if (templateFormDepartmentInput) {
       const department = template?.department
@@ -4078,7 +4128,7 @@ function openTemplateModal(mode = 'create', templateId = null) {
         ?? template?.template?.department
         ?? template?.template?.dept
         ?? '';
-      templateFormDepartmentInput.value = department || '';
+      ensureSelectValue(templateFormDepartmentInput, department);
     }
     if (templateFormNotesInput) {
       const notes = template?.notes ?? '';
@@ -4250,31 +4300,11 @@ async function submitTemplateForm(event) {
     templateFormLabelInput?.focus();
     return;
   }
-  const organizationRawValue = templateFormOrganizationInput?.value ?? '';
-  const organizationValue = organizationRawValue.trim();
-  if (templateFormOrganizationInput) {
-    templateFormOrganizationInput.value = organizationValue;
-  }
-  const subUnitRawValue = templateFormSubUnitInput?.value ?? '';
-  const subUnitValue = subUnitRawValue.trim();
-  if (templateFormSubUnitInput) {
-    templateFormSubUnitInput.value = subUnitValue;
-  }
-  const disciplineTypeRawValue = templateFormDisciplineTypeInput?.value ?? '';
-  const disciplineTypeValue = disciplineTypeRawValue.trim();
-  if (templateFormDisciplineTypeInput) {
-    templateFormDisciplineTypeInput.value = disciplineTypeValue;
-  }
-  const deliveryTypeRawValue = templateFormDeliveryTypeInput?.value ?? '';
-  const deliveryTypeValue = deliveryTypeRawValue.trim();
-  if (templateFormDeliveryTypeInput) {
-    templateFormDeliveryTypeInput.value = deliveryTypeValue;
-  }
-  const departmentRawValue = templateFormDepartmentInput?.value ?? '';
-  const departmentValue = departmentRawValue.trim();
-  if (templateFormDepartmentInput) {
-    templateFormDepartmentInput.value = departmentValue;
-  }
+  const organizationValue = templateFormOrganizationInput?.value ?? '';
+  const subUnitValue = templateFormSubUnitInput?.value ?? '';
+  const disciplineTypeValue = templateFormDisciplineTypeInput?.value ?? '';
+  const deliveryTypeValue = templateFormDeliveryTypeInput?.value ?? '';
+  const departmentValue = templateFormDepartmentInput?.value ?? '';
   const sortRawValue = templateFormSortInput?.value ?? '';
   let sortNumber = null;
   if (sortRawValue !== '') {
