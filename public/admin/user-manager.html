@@ -1575,12 +1575,35 @@ async function deleteProgramForUser(userId, programId) {
   });
 }
 async function createUser(payload) {
-  return fetch(`${API}/api/users`, {
+  const body = JSON.stringify(payload);
+  const requestInit = {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+    body
+  };
+  const candidateEndpoints = [`${API}/api/users`, `${API}/rbac/users`];
+  let lastResponse = null;
+  let lastError = null;
+  for (const endpoint of candidateEndpoints) {
+    try {
+      const response = await fetch(endpoint, { ...requestInit });
+      if (response.status === 404 || response.status === 405) {
+        lastResponse = response;
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastResponse) {
+    return lastResponse;
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error('Unable to reach user creation endpoint.');
 }
 async function updateUserProfile(userId, payload) {
   return fetch(`${API}/api/users/${userId}`, {
