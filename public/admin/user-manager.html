@@ -966,7 +966,7 @@ function renderSelectedUser(user) {
   if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
   if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
-  if (inputEditEmail) inputEditEmail.value = user.username || '';
+  if (inputEditEmail) inputEditEmail.value = user.email || user.username || '';
   if (loadCalendarStatus) {
     loadCalendarStatus.textContent = '';
     loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
