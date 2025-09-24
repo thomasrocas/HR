@@ -762,9 +762,6 @@ async function ensureProgramManagementAccess(req, programId) {
   if (req.roles?.includes('admin')) {
     return true;
   }
-  if (req.roles?.includes('manager')) {
-    return true;
-  }
   const manages = await userManagesProgram(req.user?.id, programId);
   if (!manages) {
     throw createHttpError(403, 'forbidden');
@@ -861,13 +858,31 @@ apiRouter.get('/templates', ensurePerm('template.read'), async (req, res) => {
       }
       status = normalizedStatus;
     }
-    const result = await templatesDao.list({
+    const queryOrganization = typeof req.query?.organization === 'string' ? req.query.organization : undefined;
+    let enforcedOrganization;
+    if (req.user?.role === 'manager') {
+      const rawOrganization = req.user?.organization_id
+        ?? req.user?.organizationId
+        ?? req.user?.organizationID
+        ?? req.user?.organization;
+      const normalizedOrganization = toNullableString(rawOrganization);
+      if (normalizedOrganization !== null) {
+        enforcedOrganization = normalizedOrganization;
+      }
+    }
+    const listOptions = {
       includeDeleted,
       limit: req.query?.limit,
       offset: req.query?.offset,
       status,
       search: typeof req.query?.search === 'string' ? req.query.search : undefined,
-    });
+    };
+    if (enforcedOrganization !== undefined) {
+      listOptions.organization = enforcedOrganization;
+    } else if (queryOrganization !== undefined) {
+      listOptions.organization = toNullableString(queryOrganization);
+    }
+    const result = await templatesDao.list(listOptions);
     res.json(result);
   } catch (err) {
     console.error('GET /api/templates error', err);
