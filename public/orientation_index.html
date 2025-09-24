@@ -1106,6 +1106,9 @@ function App({ me, onSignOut }){
   const canEditSchedule = hasPerm('task.assign') && isPrivileged && !isTrainee;
   const canEditResponsible = hasPerm('task.update') && isPrivileged && !isTrainee;
   const canEditJournal = isTrainee || (isPrivileged && hasPerm('task.update'));
+  const hasAssignedPrograms = useMemo(() => userPrograms.length > 0, [userPrograms]);
+  const hasAssignedTasks = useMemo(() => weeks.some((week) => (week.tasks || []).length > 0), [weeks]);
+  const hideScheduleForPrivileged = isPrivileged && !hasAssignedPrograms && !hasAssignedTasks;
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -2832,6 +2835,11 @@ useEffect(() => {
       <button className="btn btn-ghost" title="Jump to today" onClick={()=> handleStartDateInput(dayjs().format('YYYY-MM-DD'))}>Today</button>
     </div>
   );
+  const emptyScheduleNotice = (
+    <div className="card p-6 text-center text-sm text-slate-500">
+      No assigned programs or orientation tasks yet. Assign a program to view the schedule.
+    </div>
+  );
 
   return (
     <div className="flex">
@@ -2875,7 +2883,11 @@ useEffect(() => {
         title={`${numWeeks}-Week Visual Calendar`}
         subtitle="Assign tasks by date; click Assign on a day."
       >
-        {calendarMode !== 'all' && programSummary && (
+        {hideScheduleForPrivileged ? (
+          emptyScheduleNotice
+        ) : (
+          <>
+            {calendarMode !== 'all' && programSummary && (
           <div className="mb-4">
             <ProgramOverviewCard programSummary={programSummary} />
           </div>
@@ -3092,15 +3104,20 @@ useEffect(() => {
             );
           })}
         </div>
-        {assignPicker && hasPerm('task.assign') && isPrivileged && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
-        {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
+            {assignPicker && hasPerm('task.assign') && isPrivileged && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+            {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
+          </>
+        )}
       </Section>
       )}
 
       {/* Weeks & Tasks */}
       <Section title="Weeks & Tasks">
-        <div id="weeksTasks" data-weeks-root className="space-y-6">
-          {calendarMode === 'all' ? (
+        {hideScheduleForPrivileged ? (
+          emptyScheduleNotice
+        ) : (
+          <div id="weeksTasks" data-weeks-root className="space-y-6">
+            {calendarMode === 'all' ? (
             visibleProgramSet && visibleProgramSet.size === 0 ? (
               <div className="text-sm text-slate-500">
                 No programs selected. Use the filters above to choose which programs to display.
@@ -3389,7 +3406,8 @@ useEffect(() => {
               );
             })
           )}
-        </div>
+          </div>
+        )}
       </Section>
       {hasPerm('task.delete') && isPrivileged && !isTrainee && (
       <Section title="Deleted Tasks">
