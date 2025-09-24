@@ -305,10 +305,14 @@
           <div id="selectedUserSummary" class="text-sm font-medium">—</div>
         </div>
         <div class="flex items-center gap-2">
+          <input id="inputImportUsers" type="file" accept=".csv,application/json,.json,text/csv" class="hidden" />
+          <button id="btnImportUsers" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm">Import</button>
           <button id="btnExportUsers" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm">Export CSV</button>
           <button id="btnReloadUsers" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm">Refresh</button>
         </div>
       </div>
+
+      <p id="importUsersStatus" class="text-sm text-slate-500"></p>
 
       <div class="mt-4 grid md:grid-cols-2 gap-4">
         <div>
@@ -645,6 +649,7 @@ const USER_FIELD_ALIASES = {
   first_name: ['firstName'],
   department: ['department_name', 'departmentName'],
   sub_unit: ['subUnit'],
+  program_id: ['programId', 'program', 'programID', 'program_slug', 'programSlug'],
 };
 
 const USER_EXPORT_FIELDS = [
@@ -730,6 +735,583 @@ function downloadUsersCsv(users) {
     }
   } catch (error) {
     console.error('Failed to export users', error);
+  }
+}
+
+const USER_FIELD_LOOKUP = (() => {
+  const normalizeKey = key => (key || '').toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const entries = new Map();
+  Object.entries(USER_FIELD_ALIASES).forEach(([canonical, aliases = []]) => {
+    const normalizedCanonical = normalizeKey(canonical);
+    if (normalizedCanonical) {
+      entries.set(normalizedCanonical, canonical);
+    }
+    aliases.forEach(alias => {
+      const normalizedAlias = normalizeKey(alias);
+      if (normalizedAlias) {
+        entries.set(normalizedAlias, canonical);
+      }
+    });
+  });
+  entries.set('id', 'id');
+  entries.set('email', 'email');
+  entries.set('username', 'username');
+  entries.set('google_id', 'google_id');
+  entries.set('assigned_programs', 'assigned_programs');
+  entries.set('program', 'program_id');
+  entries.set('programid', 'program_id');
+  entries.set('program_id', 'program_id');
+  entries.set('programs', 'program_id');
+  return entries;
+})();
+
+function normalizeUserImportKey(key) {
+  if (!key) return '';
+  const normalized = key.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  return USER_FIELD_LOOKUP.get(normalized) || normalized;
+}
+
+function normalizeUserImportRecord(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  const normalized = {};
+  Object.entries(record).forEach(([key, value]) => {
+    if (!key) return;
+    const canonicalKey = normalizeUserImportKey(key);
+    if (!canonicalKey) return;
+    if (value === null || value === undefined) return;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed === '') return;
+      normalized[canonicalKey] = trimmed;
+      return;
+    }
+    if (Array.isArray(value)) {
+      if (!value.length) return;
+      normalized[canonicalKey] = value;
+      return;
+    }
+    if (typeof value === 'object') {
+      normalized[canonicalKey] = value;
+      return;
+    }
+    normalized[canonicalKey] = value;
+  });
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function readFileAsText(file) {
+  if (!(file instanceof File)) {
+    return Promise.reject(new Error('A valid file must be selected.'));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(typeof reader.result === 'string' ? reader.result : '');
+    };
+    reader.onerror = () => {
+      reject(reader.error || new Error('Unable to read the selected file.'));
+    };
+    reader.readAsText(file);
+  });
+}
+
+function stripBom(text) {
+  if (typeof text !== 'string') {
+    return '';
+  }
+  return text.replace(/^\uFEFF/, '');
+}
+
+function parseImportCsv(text) {
+  const input = stripBom(text);
+  if (!input) return [];
+  const rows = [];
+  let current = '';
+  let insideQuotes = false;
+  const pushCell = () => {
+    rows[rows.length - 1].push(current);
+    current = '';
+  };
+  const ensureRow = () => {
+    if (!rows.length) {
+      rows.push([]);
+    }
+  };
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (char === '"') {
+      if (insideQuotes && input[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+      continue;
+    }
+    if (!insideQuotes && (char === '\n' || char === '\r')) {
+      ensureRow();
+      pushCell();
+      if (char === '\r' && input[index + 1] === '\n') {
+        index += 1;
+      }
+      rows.push([]);
+      continue;
+    }
+    if (!insideQuotes && char === ',') {
+      ensureRow();
+      pushCell();
+      continue;
+    }
+    current += char;
+  }
+  if (!rows.length) {
+    rows.push([]);
+  }
+  pushCell();
+  if (!rows.length) return [];
+  const [headerRow, ...dataRows] = rows;
+  const headers = headerRow.map(header => header && header.trim()).map(header => header || null);
+  if (!headers.some(Boolean)) return [];
+  const records = [];
+  dataRows.forEach(cells => {
+    const isEmptyRow = cells.every(cell => (cell || '').trim() === '');
+    if (isEmptyRow) return;
+    const record = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      record[header] = cells[index] ?? '';
+    });
+    if (Object.keys(record).length) {
+      records.push(record);
+    }
+  });
+  return records;
+}
+
+function extractImportRecords(payload, keys = []) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+  const fallbackKeys = ['users', 'data', 'items', 'results', 'records'];
+  const searchKeys = Array.from(new Set([...(Array.isArray(keys) ? keys : []), ...fallbackKeys]));
+  for (const key of searchKeys) {
+    if (!key) continue;
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      const nested = extractImportRecords(value, keys);
+      if (nested.length) {
+        return nested;
+      }
+    }
+  }
+  return [];
+}
+
+function parseImportJson(text, keys = []) {
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(stripBom(text));
+    const extracted = extractImportRecords(parsed, keys);
+    if (extracted.length) {
+      return extracted;
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return [parsed];
+    }
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Failed to parse import JSON.', error);
+    return [];
+  }
+}
+
+const USER_PROFILE_MUTABLE_FIELDS = new Set([
+  'full_name',
+  'email',
+  'organization',
+  'last_name',
+  'first_name',
+  'surname',
+  'sub_unit',
+  'discipline_type',
+  'department',
+  'status',
+  'username',
+  'picture_url',
+  'provider',
+  'google_id',
+  'password_hash',
+  'last_login_at',
+]);
+
+const USER_IMPORT_RECORD_KEYS = ['users', 'data', 'items', 'records'];
+
+function buildUserProfilePayload(record) {
+  const payload = {};
+  if (!record || typeof record !== 'object') {
+    return payload;
+  }
+  USER_PROFILE_MUTABLE_FIELDS.forEach(field => {
+    if (!(field in record)) return;
+    const value = record[field];
+    if (value === null || value === undefined) return;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      payload[field] = trimmed;
+      return;
+    }
+    payload[field] = value;
+  });
+  return payload;
+}
+
+function parseRolesFromRecord(record) {
+  if (!record || typeof record !== 'object') return [];
+  const value = record.roles;
+  if (!value && value !== 0) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map(role => (role === null || role === undefined ? '' : String(role).trim()))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map(role => (role === null || role === undefined ? '' : String(role).trim()))
+            .filter(Boolean);
+        }
+      }
+    } catch (error) {
+      // ignore JSON parse errors and fall back to splitting
+    }
+    return trimmed
+      .split(/[;,]/)
+      .map(part => part.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function buildUserCreatePayload(record) {
+  const payload = buildUserProfilePayload(record);
+  if (record && typeof record.email === 'string' && record.email.trim() && !payload.email) {
+    payload.email = record.email.trim();
+  }
+  if (payload.email && !payload.username) {
+    payload.username = payload.email;
+  }
+  const roles = parseRolesFromRecord(record);
+  if (roles.length) {
+    payload.roles = roles;
+  }
+  if (!('sendInvite' in payload)) {
+    payload.sendInvite = false;
+  }
+  return payload;
+}
+
+function parseProgramIdentifiers(value, results) {
+  if (!results) {
+    results = [];
+  }
+  if (value === null || value === undefined) {
+    return results;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => parseProgramIdentifiers(item, results));
+    return results;
+  }
+  if (typeof value === 'object') {
+    const programId = extractProgramId(value);
+    if (programId) {
+      results.push(programId);
+    }
+    return results;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return results;
+    }
+    try {
+      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+        const parsed = JSON.parse(trimmed);
+        return parseProgramIdentifiers(parsed, results);
+      }
+    } catch (error) {
+      // ignore JSON parse errors and fall back to delimiter parsing
+    }
+    trimmed
+      .split(/[;,\n]/)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .forEach(part => results.push(part));
+    return results;
+  }
+  const stringValue = String(value).trim();
+  if (stringValue) {
+    results.push(stringValue);
+  }
+  return results;
+}
+
+function collectProgramIds(record) {
+  if (!record || typeof record !== 'object') {
+    return [];
+  }
+  const values = [];
+  if ('program_id' in record) {
+    parseProgramIdentifiers(record.program_id, values);
+  }
+  if ('assigned_programs' in record) {
+    parseProgramIdentifiers(record.assigned_programs, values);
+  }
+  const unique = Array.from(new Set(values.map(id => (id === null || id === undefined ? '' : String(id).trim()))));
+  return unique.filter(Boolean);
+}
+
+function isKnownProgram(programId) {
+  if (!programId) return false;
+  const id = String(programId);
+  return PROGRAMS.some(program => extractProgramId(program) === id);
+}
+
+function findUserMatchForRecord(record, programId) {
+  if (programId) {
+    const byProgram = USERS.find(user => {
+      if (!user || !Array.isArray(user.assigned_programs)) return false;
+      return user.assigned_programs.some(assignment => extractProgramId(assignment) === programId);
+    });
+    if (byProgram) {
+      return byProgram;
+    }
+  }
+  const candidateKeys = ['id', 'email', 'username', 'google_id'];
+  const candidates = candidateKeys
+    .map(key => {
+      if (!record || !(key in record)) return null;
+      const value = record[key];
+      if (value === null || value === undefined) return null;
+      const stringValue = typeof value === 'string' ? value.trim() : String(value).trim();
+      if (!stringValue) return null;
+      return { key, value: stringValue.toLowerCase() };
+    })
+    .filter(Boolean);
+  if (!candidates.length) {
+    return null;
+  }
+  for (const user of USERS) {
+    if (!user) continue;
+    for (const candidate of candidates) {
+      const userValue = getUserCsvRawValue(user, candidate.key);
+      if (!userValue && userValue !== 0) continue;
+      const stringValue = typeof userValue === 'string' ? userValue.trim() : String(userValue).trim();
+      if (!stringValue) continue;
+      if (stringValue.toLowerCase() === candidate.value) {
+        return user;
+      }
+    }
+  }
+  return null;
+}
+
+async function assignProgramsForImport(userId, programIds, baseUser) {
+  const unique = Array.from(new Set((Array.isArray(programIds) ? programIds : []).map(id => String(id)))).filter(Boolean);
+  if (!unique.length) {
+    return { assigned: 0, failed: 0 };
+  }
+  let assigned = 0;
+  let failed = 0;
+  const knownIds = unique.filter(isKnownProgram);
+  const unknownIds = unique.filter(programId => !isKnownProgram(programId));
+  failed += unknownIds.length;
+  for (const programId of knownIds) {
+    const alreadyAssigned = baseUser && Array.isArray(baseUser.assigned_programs)
+      ? baseUser.assigned_programs.some(program => extractProgramId(program) === programId)
+      : false;
+    if (alreadyAssigned) {
+      continue;
+    }
+    try {
+      const res = await preloadForUser(userId, programId);
+      if (res.ok) {
+        assigned += 1;
+        if (baseUser) {
+          if (!Array.isArray(baseUser.assigned_programs)) {
+            baseUser.assigned_programs = [];
+          }
+          const exists = baseUser.assigned_programs.some(program => extractProgramId(program) === programId);
+          if (!exists) {
+            baseUser.assigned_programs.push({ program_id: programId });
+          }
+        }
+      } else {
+        failed += 1;
+      }
+    } catch (error) {
+      console.error('Failed to assign program to user.', error);
+      failed += 1;
+    }
+  }
+  return { assigned, failed };
+}
+
+async function handleUserImportSelection(event) {
+  const inputElement = event && event.target instanceof HTMLInputElement ? event.target : elInputImportUsers;
+  const file = inputElement && inputElement.files ? inputElement.files[0] : null;
+  if (!file) {
+    return;
+  }
+  try {
+    const fileName = file.name || 'selected file';
+    setStatusText(elImportUsersStatus, `Reading ${fileName}…`, 'neutral');
+    const fileText = await readFileAsText(file);
+    const fileType = (file.type || '').toLowerCase();
+    const isJson = fileName.toLowerCase().endsWith('.json') || fileType.includes('json');
+    const rawRecords = isJson ? parseImportJson(fileText, USER_IMPORT_RECORD_KEYS) : parseImportCsv(fileText);
+    if (!Array.isArray(rawRecords) || !rawRecords.length) {
+      setStatusText(elImportUsersStatus, 'No users were imported. Please verify the file contents and try again.', 'error');
+      return;
+    }
+    const normalizedEntries = rawRecords
+      .map((record, index) => ({ index, record: normalizeUserImportRecord(record) }))
+      .filter(entry => entry.record);
+    if (!normalizedEntries.length) {
+      setStatusText(elImportUsersStatus, 'No users were imported. Please verify the file contents and try again.', 'error');
+      return;
+    }
+    const total = normalizedEntries.length;
+    let success = 0;
+    let failure = 0;
+    for (let i = 0; i < total; i += 1) {
+      const { record, index: originalIndex } = normalizedEntries[i];
+      const recordNumber = originalIndex + 1;
+      setStatusText(elImportUsersStatus, `Importing users (${i + 1}/${total})…`, 'neutral');
+      const programIds = collectProgramIds(record);
+      const primaryProgramId = programIds[0] || '';
+      const roles = parseRolesFromRecord(record);
+      const targetUser = findUserMatchForRecord(record, primaryProgramId);
+      try {
+        if (targetUser && targetUser.id) {
+          const payload = buildUserProfilePayload(record);
+          let resolvedUser = targetUser;
+          if (payload && Object.keys(payload).length) {
+            const res = await updateUserProfile(targetUser.id, payload);
+            if (!res.ok) {
+              const message = await res.text().catch(() => '');
+              throw new Error(message || `Failed to update user ${targetUser.id}.`);
+            }
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              try {
+                const data = await res.json();
+                if (data && typeof data === 'object') {
+                  resolvedUser = { ...targetUser, ...data };
+                }
+              } catch (parseError) {
+                console.warn('Failed to parse update response', parseError);
+                resolvedUser = mergeUserProfilePayload(targetUser, payload) || targetUser;
+              }
+            } else {
+              resolvedUser = mergeUserProfilePayload(targetUser, payload) || targetUser;
+            }
+          }
+          if (roles.length) {
+            const resRoles = await saveUserRoles(targetUser.id, roles);
+            if (!resRoles.ok) {
+              throw new Error('Failed to update user roles.');
+            }
+            resolvedUser = { ...resolvedUser, roles };
+          }
+          const assignmentResult = await assignProgramsForImport(targetUser.id, programIds, resolvedUser);
+          if (assignmentResult.failed > 0 && programIds.length) {
+            throw new Error('Failed to assign one or more programs.');
+          }
+          const userIndex = USERS.findIndex(user => user && user.id === targetUser.id);
+          if (userIndex !== -1) {
+            USERS[userIndex] = { ...USERS[userIndex], ...resolvedUser };
+          }
+          success += 1;
+        } else {
+          const createPayload = buildUserCreatePayload(record);
+          if (!createPayload.email) {
+            throw new Error('Email is required to create a user.');
+          }
+          const res = await createUser(createPayload);
+          if (!res.ok) {
+            const message = await res.text().catch(() => '');
+            throw new Error(message || 'Failed to create user.');
+          }
+          const contentType = res.headers.get('content-type') || '';
+          let createdUser = null;
+          if (contentType.includes('application/json')) {
+            try {
+              createdUser = await res.json();
+            } catch (parseError) {
+              console.warn('Failed to parse create response', parseError);
+            }
+          }
+          const createdUserId = createdUser?.id || createPayload.id || null;
+          if (!createdUserId) {
+            throw new Error('User ID missing from create response.');
+          }
+          const trackingUser = createdUser
+            ? { ...createdUser }
+            : {
+                id: createdUserId,
+                email: createPayload.email,
+                username: createPayload.username || createPayload.email,
+                full_name: createPayload.full_name || record.full_name || '',
+                assigned_programs: [],
+              };
+          if (!Array.isArray(trackingUser.assigned_programs)) {
+            trackingUser.assigned_programs = [];
+          }
+          if (!trackingUser.roles && createPayload.roles) {
+            trackingUser.roles = createPayload.roles;
+          }
+          const assignmentResult = await assignProgramsForImport(createdUserId, programIds, trackingUser);
+          if (assignmentResult.failed > 0 && programIds.length) {
+            throw new Error('Failed to assign one or more programs.');
+          }
+          USERS.push(trackingUser);
+          success += 1;
+        }
+      } catch (recordError) {
+        failure += 1;
+        console.error(`Failed to import user record ${recordNumber}`, recordError);
+      }
+    }
+    const summary = `Import complete — ${success} succeeded, ${failure} failed.`;
+    const tone = failure === 0 ? 'success' : success === 0 ? 'error' : 'neutral';
+    setStatusText(elImportUsersStatus, summary, tone);
+    try {
+      await reloadUsers(true);
+    } catch (refreshError) {
+      console.error('Failed to reload users after import.', refreshError);
+      setStatusText(elImportUsersStatus, `${summary} Unable to refresh users automatically.`, 'error');
+    }
+  } catch (error) {
+    console.error('User import failed.', error);
+    setStatusText(elImportUsersStatus, 'User import failed. Please review the file and try again.', 'error');
+  } finally {
+    if (inputElement) {
+      inputElement.value = '';
+    }
   }
 }
 
@@ -949,6 +1531,9 @@ const elSelectedStatus = document.getElementById('selectedStatus');
 const elSelectedRoles = document.getElementById('selectedRoles');
 const elBtnReloadUsers = document.getElementById('btnReloadUsers');
 const elBtnExportUsers = document.getElementById('btnExportUsers');
+const elBtnImportUsers = document.getElementById('btnImportUsers');
+const elInputImportUsers = document.getElementById('inputImportUsers');
+const elImportUsersStatus = document.getElementById('importUsersStatus');
 const actionHint = document.getElementById('actionHint');
 
 const btnOpenCreate = document.getElementById('btnOpenCreate');
@@ -1300,6 +1885,16 @@ if (elBtnExportUsers) {
     const usersToExport = Array.isArray(USERS) ? USERS : [];
     downloadUsersCsv(usersToExport);
   });
+}
+
+if (elBtnImportUsers && elInputImportUsers) {
+  elBtnImportUsers.addEventListener('click', () => {
+    elInputImportUsers.click();
+  });
+}
+
+if (elInputImportUsers) {
+  elInputImportUsers.addEventListener('change', handleUserImportSelection);
 }
 
 btnOpenCreate.addEventListener('click', () => {
