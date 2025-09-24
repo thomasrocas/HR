@@ -38,20 +38,43 @@ function getEffectiveCurrentUser() {
 
 function getUserRoles(user) {
   if (!user || typeof user !== 'object') return [];
-  const roleCandidates = [];
-  if (Array.isArray(user.roles)) {
-    roleCandidates.push(...user.roles);
-  } else if (typeof user.roles === 'string') {
-    roleCandidates.push(user.roles);
-  }
-  if (Array.isArray(user.role)) {
-    roleCandidates.push(...user.role);
-  } else if (typeof user.role === 'string') {
-    roleCandidates.push(user.role);
-  }
-  return roleCandidates
-    .map(role => (role === null || role === undefined ? '' : String(role).toLowerCase()))
-    .filter(Boolean);
+  const roles = new Set();
+  const appendRole = value => {
+    if (value === null || value === undefined) return;
+    if (typeof value === 'object') {
+      const nestedCandidates = [
+        value.role,
+        value.name,
+        value.slug,
+        value.key,
+        value.id,
+        value.title,
+        value.type,
+        value.value,
+      ];
+      nestedCandidates.forEach(candidate => {
+        if (candidate !== value) {
+          appendRole(candidate);
+        }
+      });
+      return;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return;
+    roles.add(normalized);
+    const segments = normalized.split(/[^a-z0-9]+/i).filter(Boolean);
+    segments.forEach(segment => roles.add(segment.toLowerCase()));
+  };
+  const collectRoles = source => {
+    if (Array.isArray(source)) {
+      source.forEach(appendRole);
+    } else {
+      appendRole(source);
+    }
+  };
+  collectRoles(user.roles);
+  collectRoles(user.role);
+  return Array.from(roles);
 }
 
 function hasRole(user, role) {
