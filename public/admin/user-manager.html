@@ -408,17 +408,47 @@
       <form id="formEdit" class="mt-4 space-y-4">
         <div>
           <label class="block text-sm mb-1" for="editFullName">Full name</label>
-          <input id="editFullName" name="fullName" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Full name">
+          <input id="editFullName" name="fullName" class="input" placeholder="Full name">
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="block text-sm mb-1" for="editLastName">Last name</label>
+            <input id="editLastName" name="lastName" class="input" placeholder="Last name">
+          </div>
+          <div>
+            <label class="block text-sm mb-1" for="editFirstName">First name</label>
+            <input id="editFirstName" name="firstName" class="input" placeholder="First name">
+          </div>
+          <div>
+            <label class="block text-sm mb-1" for="editSurname">Surname</label>
+            <input id="editSurname" name="surname" class="input" placeholder="Surname">
+          </div>
+          <div>
+            <label class="block text-sm mb-1" for="editSubUnit">Sub-unit</label>
+            <input id="editSubUnit" name="subUnit" class="input" placeholder="Sub-unit">
+          </div>
+          <div>
+            <label class="block text-sm mb-1" for="editDiscipline">Discipline</label>
+            <input id="editDiscipline" name="discipline" class="input" placeholder="Discipline">
+          </div>
+          <div>
+            <label class="block text-sm mb-1" for="editDepartment">Department</label>
+            <input id="editDepartment" name="department" class="input" placeholder="Department">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm mb-1" for="editDisciplineType">Discipline type</label>
+            <input id="editDisciplineType" name="disciplineType" class="input" placeholder="Discipline type">
+          </div>
         </div>
         <div>
           <label class="block text-sm mb-1" for="editOrganization">Organization</label>
-          <select id="editOrganization" name="organization" class="w-full border rounded-xl px-3 py-2 text-sm">
+          <select id="editOrganization" name="organization" class="input">
             <option value="">None</option>
           </select>
         </div>
         <div>
           <label class="block text-sm mb-1" for="editEmail">Email</label>
-          <input id="editEmail" name="email" type="email" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="name@example.com" required>
+          <input id="editEmail" name="email" type="email" class="input" placeholder="name@example.com" required>
         </div>
         <div class="flex justify-end gap-2">
           <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
@@ -781,6 +811,13 @@ const drawerProgramList = document.getElementById('drawerProgramList');
 const drawerRemoveProgramList = document.getElementById('drawerRemoveProgramList');
 
 const inputEditFullName = document.getElementById('editFullName');
+const inputEditLastName = document.getElementById('editLastName');
+const inputEditFirstName = document.getElementById('editFirstName');
+const inputEditSurname = document.getElementById('editSurname');
+const inputEditSubUnit = document.getElementById('editSubUnit');
+const inputEditDiscipline = document.getElementById('editDiscipline');
+const inputEditDepartment = document.getElementById('editDepartment');
+const inputEditDisciplineType = document.getElementById('editDisciplineType');
 const inputEditOrganization = document.getElementById('editOrganization');
 const inputEditEmail = document.getElementById('editEmail');
 const inputCreateRoles = document.getElementById('createRoles');
@@ -912,6 +949,13 @@ function renderSelectedUser(user) {
     setUserActionState(false);
     setLifecycleButtons('');
     if (inputEditFullName) inputEditFullName.value = '';
+    if (inputEditLastName) inputEditLastName.value = '';
+    if (inputEditFirstName) inputEditFirstName.value = '';
+    if (inputEditSurname) inputEditSurname.value = '';
+    if (inputEditSubUnit) inputEditSubUnit.value = '';
+    if (inputEditDiscipline) inputEditDiscipline.value = '';
+    if (inputEditDepartment) inputEditDepartment.value = '';
+    if (inputEditDisciplineType) inputEditDisciplineType.value = '';
     if (inputEditOrganization) inputEditOrganization.value = '';
     if (inputEditEmail) inputEditEmail.value = '';
     return;
@@ -943,6 +987,13 @@ function renderSelectedUser(user) {
   }
   lifecycleUserName.textContent = displayName;
   if (inputEditFullName) inputEditFullName.value = user.full_name || '';
+  if (inputEditLastName) inputEditLastName.value = user.last_name || '';
+  if (inputEditFirstName) inputEditFirstName.value = user.first_name || '';
+  if (inputEditSurname) inputEditSurname.value = user.surname || '';
+  if (inputEditSubUnit) inputEditSubUnit.value = user.sub_unit || '';
+  if (inputEditDiscipline) inputEditDiscipline.value = user.discipline || '';
+  if (inputEditDepartment) inputEditDepartment.value = user.department || '';
+  if (inputEditDisciplineType) inputEditDisciplineType.value = user.discipline_type || '';
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization || '');
   if (inputEditEmail) inputEditEmail.value = user.username || '';
   if (loadCalendarStatus) {
@@ -1131,13 +1182,21 @@ formEdit.addEventListener('submit', async e => {
   if (!selectedUser) return;
   editMsg.textContent = '';
   const formData = new FormData(formEdit);
+  const getNullableField = name => {
+    const value = (formData.get(name) || '').toString().trim();
+    return value ? value : null;
+  };
   const payload = {
     full_name: (formData.get('fullName') || '').toString().trim(),
     email: (formData.get('email') || '').toString().trim(),
-    organization: (() => {
-      const value = (formData.get('organization') || '').toString();
-      return value ? value : null;
-    })()
+    organization: getNullableField('organization'),
+    last_name: getNullableField('lastName'),
+    first_name: getNullableField('firstName'),
+    surname: getNullableField('surname'),
+    sub_unit: getNullableField('subUnit'),
+    discipline: getNullableField('discipline'),
+    department: getNullableField('department'),
+    discipline_type: getNullableField('disciplineType')
   };
   if (!payload.email) {
     editMsg.textContent = 'Email is required.';
@@ -1147,6 +1206,18 @@ formEdit.addEventListener('submit', async e => {
   try {
     const res = await updateUserProfile(selectedUser.id, payload);
     if (res.ok) {
+      let updatedUser = null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          updatedUser = await res.json();
+        } catch (parseError) {
+          console.warn('Failed to parse update response', parseError);
+        }
+      }
+      if (updatedUser && updatedUser.id) {
+        renderSelectedUser(updatedUser);
+      }
       editMsg.textContent = 'Profile updated.';
       await reloadUsers(true);
     } else if (res.status === 403) {
