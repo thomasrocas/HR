@@ -2657,7 +2657,7 @@ useEffect(() => {
     );
   }
 
-  const controlBar = !isTrainee && (
+  const controlBar = (
     <div className="flex items-center gap-3">
       <label className="text-sm text-slate-600">Start</label>
       <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> handleStartDateInput(e.target.value)} />
