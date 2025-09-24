@@ -1549,9 +1549,8 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
     { column: 'first_name', keys: ['first_name', 'firstName'] },
     { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
     { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
-    { column: 'discipline', keys: ['discipline'] },
     { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
-    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType'] },
+    { column: 'discipline_type', keys: ['discipline', 'discipline_type', 'disciplineType'] },
   ];
   const additionalFieldUpdates = [];
   for (const config of additionalFieldConfigs) {
@@ -1631,7 +1630,6 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
          first_name,
          surname,
          sub_unit,
-         discipline,
          department,
          discipline_type
        from public.users
@@ -1654,9 +1652,9 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       first_name: user.first_name ?? null,
       surname: user.surname ?? null,
       sub_unit: user.sub_unit ?? null,
-      discipline: user.discipline ?? null,
       department: user.department ?? null,
       discipline_type: user.discipline_type ?? null,
+      discipline: user.discipline_type ?? null,
       roles: roleRows.map(r => r.role_key),
     });
   } catch (err) {
