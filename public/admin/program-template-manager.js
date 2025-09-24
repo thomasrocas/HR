@@ -2970,9 +2970,11 @@ function hydrateTemplateLibraryIndex() {
 }
 
 let templateAuditApiAvailable = true;
+
 let templateAuditApiAvailabilityState = 'unknown';
 let templateAuditApiAvailabilityPromise = null;
 let templateAuditUnavailableLogged = false;
+
 
 const TEMPLATE_AUDIT_AVAILABILITY_STORAGE_KEY = 'anx:template-audit:availability';
 let templateAuditFeatureEnabledPreference = null;
@@ -3179,15 +3181,18 @@ function shouldAttemptTemplateAuditFetch() {
   return evaluateTemplateAuditFeaturePreference();
 }
 
+
 async function fetchTemplateAuditRecords(templateId) {
   if (!templateId) {
     return { records: [], info: null };
   }
+
   if (!shouldAttemptTemplateAuditFetch()) {
     templateAuditApiAvailable = false;
     templateAuditApiAvailabilityState = 'unavailable';
     return { records: [], info: null };
   }
+
   if (!templateAuditApiAvailable || templateAuditApiAvailabilityState === 'unavailable') {
     return { records: [], info: null };
   }
@@ -3201,6 +3206,7 @@ async function fetchTemplateAuditRecords(templateId) {
       return { records: [], info: null };
     }
   }
+
   const params = new URLSearchParams();
   params.set('table', TEMPLATE_AUDIT_TABLE_NAME);
   params.set('table_name', TEMPLATE_AUDIT_TABLE_NAME);
@@ -3216,12 +3222,15 @@ async function fetchTemplateAuditRecords(templateId) {
   params.set('operation', 'INSERT');
   const url = `${API}/api/audit?${params.toString()}`;
   let payload = null;
+
   const performFetch = async () => {
     try {
       const responsePayload = await fetchJson(url);
       templateAuditApiAvailable = true;
       templateAuditApiAvailabilityState = 'available';
+
       setTemplateAuditFeaturePreference(true, { persist: true });
+
       return responsePayload;
     } catch (error) {
       if (error && error.status === 404) {
@@ -3231,7 +3240,9 @@ async function fetchTemplateAuditRecords(templateId) {
           console.info('Template audit endpoint unavailable, continuing without audit records.');
           templateAuditUnavailableLogged = true;
         }
+
         setTemplateAuditFeaturePreference(false, { persist: true });
+
         return null;
       }
       templateAuditApiAvailabilityState = 'unknown';
@@ -3258,6 +3269,7 @@ async function fetchTemplateAuditRecords(templateId) {
   }
   if (payload === null) {
     return { records: [], info: null };
+
   }
   const records = extractAuditEntriesFromPayload(payload, templateId);
   const candidate = findInsertAuditCandidate(records);
@@ -3406,7 +3418,9 @@ function ensureTemplateAudit(template) {
         templateAuditState.set(templateId, readyState);
         applyTemplateAuditData(templateId, null, null);
         templateAuditApiAvailable = false;
+
         setTemplateAuditFeaturePreference(false, { persist: true });
+
         return;
       }
       console.error('Failed to load template audit', error);
