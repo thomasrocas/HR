@@ -1853,8 +1853,32 @@ app.patch('/rbac/users/:id/roles', async (req, res) => {
 app.get('/programs', ensurePerm('program.read'), async (req, res) => {
   try {
     const includeDeleted = String(req.query?.include_deleted || '').toLowerCase() === 'true';
-    const organizationFilter = toNullableString(req.query?.organization);
+    const rawQueryOrganization = req.query?.organization;
     const subUnitFilter = toNullableString(req.query?.sub_unit ?? req.query?.subUnit ?? null);
+
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const fallbackRole = typeof req.user?.role === 'string' ? req.user.role : undefined;
+    const isAdmin = roles.includes('admin') || fallbackRole === 'admin';
+    const isManager = roles.includes('manager') || fallbackRole === 'manager';
+
+    let enforcedOrganization;
+    if (isManager && !isAdmin) {
+      const rawOrganization = req.user?.organization_id
+        ?? req.user?.organizationId
+        ?? req.user?.organizationID
+        ?? req.user?.organization;
+      const normalizedOrganization = toNullableString(rawOrganization);
+      if (normalizedOrganization !== null) {
+        enforcedOrganization = normalizedOrganization;
+      }
+    }
+
+    let organizationFilter;
+    if (isManager && !isAdmin && enforcedOrganization !== undefined) {
+      organizationFilter = enforcedOrganization;
+    } else {
+      organizationFilter = toNullableString(rawQueryOrganization);
+    }
 
     const params = [];
     const conds = [];

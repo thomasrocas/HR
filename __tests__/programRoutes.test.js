@@ -42,6 +42,7 @@ describe('program routes', () => {
         username text unique,
         email text,
         full_name text,
+        organization text,
         status text default 'active' not null,
         password_hash text,
         provider text,
@@ -204,6 +205,61 @@ describe('program routes', () => {
 
     const res = await agent.patch(`/programs/${progId}`).send({ title: 'New' }).expect(200);
     expect(res.body.title).toBe('New');
+  });
+
+  test('manager scoped by organization when listing programs', async () => {
+    await pool.query(
+      "insert into public.role_permissions(role_id, perm_key) select role_id, 'program.read' from public.roles where role_key='manager'"
+    );
+
+    const managerId = crypto.randomUUID();
+    const otherUserId = crypto.randomUUID();
+    const managerOrganization = 'Org-Manager';
+    const otherOrganization = 'Org-Other';
+    const passwordHash = await bcrypt.hash('passpass', 1);
+
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, organization) values ($1,$2,$3,$4,$5)',
+      [managerId, 'mgr-scope', passwordHash, 'local', managerOrganization]
+    );
+    await pool.query(
+      'insert into public.users(id, username, password_hash, provider, organization) values ($1,$2,$3,$4,$5)',
+      [otherUserId, 'other-scope', passwordHash, 'local', otherOrganization]
+    );
+
+    await pool.query("insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'", [
+      managerId,
+    ]);
+
+    await pool.query(
+      'insert into public.programs(program_id, title, total_weeks, organization, created_by) values ($1,$2,$3,$4,$5)',
+      ['prog-a-1', 'Program A1', 6, managerOrganization, managerId]
+    );
+    await pool.query(
+      'insert into public.programs(program_id, title, total_weeks, organization, created_by) values ($1,$2,$3,$4,$5)',
+      ['prog-b-1', 'Program B1', 8, otherOrganization, otherUserId]
+    );
+    await pool.query(
+      'insert into public.programs(program_id, title, total_weeks, organization, created_by) values ($1,$2,$3,$4,$5)',
+      ['prog-a-2', 'Program A2', 10, managerOrganization, managerId]
+    );
+
+    const agent = request.agent(app);
+    await agent.post('/auth/local/login').send({ username: 'mgr-scope', password: 'passpass' }).expect(200);
+
+    const expectOwnPrograms = response => {
+      const sortedIds = response.body.map(program => program.program_id).sort();
+      expect(sortedIds).toEqual(['prog-a-1', 'prog-a-2']);
+      response.body.forEach(program => {
+        expect(program.organization).toBe(managerOrganization);
+      });
+    };
+
+    const defaultRes = await agent.get('/programs').expect(200);
+    expectOwnPrograms(defaultRes);
+
+    const explicitOrgRes = await agent.get('/programs').query({ organization: otherOrganization }).expect(200);
+    expectOwnPrograms(explicitOrgRes);
   });
 
   test('rejects invalid total_weeks when creating a program', async () => {
