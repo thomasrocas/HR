@@ -874,6 +874,48 @@ function setUserActionState(enabled) {
 }
 setUserActionState(false);
 
+function mergeUserProfilePayload(baseUser, payload) {
+  if (!baseUser || !payload) {
+    return null;
+  }
+  const merged = { ...baseUser };
+  if ('full_name' in payload) {
+    merged.full_name = payload.full_name;
+    merged.name = payload.full_name;
+  }
+  if ('email' in payload) {
+    merged.email = payload.email;
+    if (payload.email) {
+      merged.username = payload.email;
+    }
+  }
+  if ('organization' in payload) {
+    merged.organization = payload.organization;
+  }
+  if ('last_name' in payload) {
+    merged.last_name = payload.last_name;
+  }
+  if ('first_name' in payload) {
+    merged.first_name = payload.first_name;
+  }
+  if ('surname' in payload) {
+    merged.surname = payload.surname;
+  }
+  if ('sub_unit' in payload) {
+    merged.sub_unit = payload.sub_unit;
+  }
+  if ('discipline' in payload) {
+    merged.discipline = payload.discipline;
+  }
+  if ('department' in payload) {
+    merged.department = payload.department;
+  }
+  if ('discipline_type' in payload) {
+    merged.discipline_type = payload.discipline_type;
+  }
+  return merged;
+}
+
 function renderUsers(filter = '') {
   const f = filter.trim().toLowerCase();
   const rows = USERS
@@ -932,7 +974,11 @@ function setLifecycleButtons(status) {
 }
 
 function renderSelectedUser(user) {
-  const previousUserId = selectedUser ? selectedUser.id : null;
+  const previousUser = selectedUser;
+  const previousUserId = previousUser ? previousUser.id : null;
+  if (user && previousUser && user.id && previousUser.id === user.id) {
+    user = { ...previousUser, ...user };
+  }
   if (!user) {
     selectedUser = null;
     elSelectedSummary.textContent = '—';
@@ -979,7 +1025,8 @@ function renderSelectedUser(user) {
   const displayName = user.full_name || user.username || '—';
   elSelectedSummary.textContent = user.full_name || user.username || '—';
   elSelectedName.textContent = displayName;
-  elSelectedUsername.textContent = user.username || '—';
+  const emailDisplay = user.email || user.username || '—';
+  elSelectedUsername.textContent = emailDisplay;
   const organization = (user.organization || '').trim();
   if (elSelectedOrganization) {
     elSelectedOrganization.textContent = `Organization: ${organization || '—'}`;
@@ -1009,7 +1056,7 @@ function renderSelectedUser(user) {
   if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
   if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
-  if (inputEditEmail) inputEditEmail.value = user.username || '';
+  if (inputEditEmail) inputEditEmail.value = emailDisplay || '';
   if (loadCalendarStatus) {
     loadCalendarStatus.textContent = '';
     loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
@@ -1229,7 +1276,16 @@ formEdit.addEventListener('submit', async e => {
           console.warn('Failed to parse update response', parseError);
         }
       }
-      if (updatedUser && updatedUser.id) {
+      let baseUser = selectedUser ? { ...selectedUser } : null;
+      if (!baseUser && updatedUser && updatedUser.id) {
+        baseUser = { ...updatedUser };
+      } else if (baseUser && updatedUser && updatedUser.id) {
+        Object.assign(baseUser, updatedUser);
+      }
+      const mergedUser = mergeUserProfilePayload(baseUser, payload);
+      if (mergedUser) {
+        renderSelectedUser(mergedUser);
+      } else if (updatedUser && updatedUser.id) {
         renderSelectedUser(updatedUser);
       }
       editMsg.textContent = 'Profile updated.';
