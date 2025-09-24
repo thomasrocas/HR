@@ -265,6 +265,40 @@ describe('template api', () => {
     expect(resWithQuery.body.data).toEqual(res.body.data);
   });
 
+  test('GET /api/templates restricts managers assigned only via user_roles', async () => {
+    await grantPermission('template.read');
+    const managerUsername = 'manager-templates-user-roles';
+    const organizationId = 'org-manager-roles';
+    await createUserWithRole(managerUsername, 'manager', {
+      organization_id: organizationId,
+    });
+
+    const templateRows = [
+      { id: nextTemplateId(), label: 'Roles Manager Template', organization: organizationId },
+      { id: nextTemplateId(), label: 'Other Org Template', organization: 'other-org' },
+    ];
+
+    for (const row of templateRows) {
+      await pool.query(
+        'insert into public.program_task_templates(template_id, week_number, label, organization, status) values ($1,$2,$3,$4,$5)',
+        [row.id, 1, row.label, row.organization, 'draft']
+      );
+    }
+
+    const agent = await loginAgent(managerUsername);
+
+    const res = await agent.get('/api/templates').expect(200);
+    expect(res.body.meta.total).toBe(1);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].organization).toBe(organizationId);
+
+    const resWithQuery = await agent
+      .get('/api/templates')
+      .query({ organization: 'other-org' })
+      .expect(200);
+    expect(resWithQuery.body.data).toEqual(res.body.data);
+  });
+
   test('GET /api/templates allows admins to filter by organization', async () => {
     const adminUsername = 'admin-templates-org';
     await createUserWithRole(adminUsername, 'admin', { role: 'admin' });
