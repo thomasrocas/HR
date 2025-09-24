@@ -569,10 +569,16 @@
           </div>
 
           <div class="flex items-center justify-between gap-3 flex-wrap text-xs text-slate-500">
-            <label class="flex items-center gap-2 text-sm">
-              <input type="checkbox" id="tmplHideArchived" class="rounded border-slate-300">
-              Hide archived
-            </label>
+            <div class="flex items-center gap-4 flex-wrap">
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" id="tmplHideArchived" class="rounded border-slate-300" checked>
+                Hide archived
+              </label>
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" id="tmplHideDeprecated" class="rounded border-slate-300" checked>
+                Hide deprecated
+              </label>
+            </div>
             <div class="flex items-center gap-2 flex-wrap">
               <label class="flex items-center gap-2 font-semibold uppercase tracking-wide">
                 <span>Rows per page</span>

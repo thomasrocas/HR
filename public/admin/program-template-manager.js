@@ -1027,6 +1027,10 @@ function isTemplateArchived(template) {
   return normalizeTemplateStatusValue(getTemplateStatus(template)) === 'archived';
 }
 
+function isTemplateDeprecated(template) {
+  return normalizeTemplateStatusValue(getTemplateStatus(template)) === 'deprecated';
+}
+
 function getTemplateStatusLabel(template) {
   const normalized = normalizeTemplateStatusValue(getTemplateStatus(template));
   if (!normalized) return '—';
@@ -2506,6 +2510,7 @@ const templateActionHint = document.getElementById('templateActionHint');
 const programActionsContainer = document.getElementById('programActions');
 const templateActionsContainer = document.getElementById('templateActions');
 const templateHideArchivedCheckbox = document.getElementById('tmplHideArchived');
+const templateHideDeprecatedCheckbox = document.getElementById('tmplHideDeprecated');
 const btnRefreshPrograms = document.getElementById('btnRefreshPrograms');
 const btnRefreshTemplates = document.getElementById('btnRefreshTemplates');
 const btnNewProgram = document.getElementById('btnNewProgram');
@@ -2650,6 +2655,7 @@ let templateSortDirection = 'asc';
 let templatePageSize = DEFAULT_TEMPLATE_PAGE_SIZE;
 let templateCurrentPage = 1;
 let hideArchivedTemplates = false;
+let hideDeprecatedTemplates = false;
 let currentTemplatePageItems = [];
 let lastTemplatePagination = {
   totalItems: 0,
@@ -3429,6 +3435,9 @@ function getFilteredTemplates(source = globalTemplates) {
   if (hideArchivedTemplates) {
     list = list.filter(template => !isTemplateArchived(template));
   }
+  if (hideDeprecatedTemplates) {
+    list = list.filter(template => !isTemplateDeprecated(template));
+  }
 
   list = list.filter(templateMatchesFacetFilters);
 
@@ -3511,7 +3520,10 @@ function syncTemplateSelection() {
   for (const id of Array.from(selectedTemplateIds)) {
     const template = getTemplateById(id);
     const isValid = validIds.has(id);
-    const isHidden = hideArchivedTemplates && template && isTemplateArchived(template);
+    const isHidden = (
+      (hideArchivedTemplates && template && isTemplateArchived(template))
+      || (hideDeprecatedTemplates && template && isTemplateDeprecated(template))
+    );
     if (!isValid || isHidden) {
       if (selectedTemplateId === id) {
         shouldResetActive = true;
@@ -3522,7 +3534,10 @@ function syncTemplateSelection() {
   if (selectedTemplateId) {
     const template = getTemplateById(selectedTemplateId);
     const isValid = template ? validIds.has(selectedTemplateId) : false;
-    const isHidden = hideArchivedTemplates && template && isTemplateArchived(template);
+    const isHidden = (
+      (hideArchivedTemplates && template && isTemplateArchived(template))
+      || (hideDeprecatedTemplates && template && isTemplateDeprecated(template))
+    );
     if (!isValid || isHidden) {
       shouldResetActive = true;
     }
@@ -7282,6 +7297,15 @@ if (templateHideArchivedCheckbox) {
   hideArchivedTemplates = templateHideArchivedCheckbox.checked;
   templateHideArchivedCheckbox.addEventListener('change', () => {
     hideArchivedTemplates = templateHideArchivedCheckbox.checked;
+    templateCurrentPage = 1;
+    renderTemplates();
+  });
+}
+
+if (templateHideDeprecatedCheckbox) {
+  hideDeprecatedTemplates = templateHideDeprecatedCheckbox.checked;
+  templateHideDeprecatedCheckbox.addEventListener('change', () => {
+    hideDeprecatedTemplates = templateHideDeprecatedCheckbox.checked;
     templateCurrentPage = 1;
     renderTemplates();
   });
