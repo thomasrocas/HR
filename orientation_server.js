@@ -1665,8 +1665,9 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
   }
 });
 
+app.post('/api/users/local', ensureAuth, async (req, res) => {
+=======
 
-apiRouter.post('/users/local', ensureAuth, async (req, res) => {
 
   if (!req.roles?.includes('admin')) {
     return res.status(403).json({ error: 'forbidden' });
@@ -1731,7 +1732,7 @@ apiRouter.post('/users/local', ensureAuth, async (req, res) => {
 });
 
 
-apiRouter.post('/users/:id/provision', ensureAuth, async (req, res) => {
+app.post('/api/users/:id/provision', ensureAuth, async (req, res) => {
 
   if (!req.roles?.includes('admin')) {
     return res.status(403).json({ error: 'forbidden' });
@@ -1790,9 +1791,7 @@ apiRouter.post('/users/:id/provision', ensureAuth, async (req, res) => {
   }
 });
 
-
-apiRouter.post('/users/:id/reset-password', ensureAuth, async (req, res) => {
-
+app.post('/api/users/:id/reset-password', ensureAuth, async (req, res) => {
 
   if (!req.roles?.includes('admin')) {
     return res.status(403).json({ error: 'forbidden' });
