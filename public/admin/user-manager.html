@@ -425,19 +425,27 @@
           </div>
           <div>
             <label class="block text-sm mb-1" for="editSubUnit">Sub-unit</label>
-            <input id="editSubUnit" name="subUnit" class="input" placeholder="Sub-unit">
+            <select id="editSubUnit" name="subUnit" class="input">
+              <option value="">None</option>
+            </select>
           </div>
           <div>
             <label class="block text-sm mb-1" for="editDiscipline">Discipline</label>
-            <input id="editDiscipline" name="discipline" class="input" placeholder="Discipline">
+            <select id="editDiscipline" name="discipline" class="input">
+              <option value="">None</option>
+            </select>
           </div>
           <div>
             <label class="block text-sm mb-1" for="editDepartment">Department</label>
-            <input id="editDepartment" name="department" class="input" placeholder="Department">
+            <select id="editDepartment" name="department" class="input">
+              <option value="">None</option>
+            </select>
           </div>
           <div class="sm:col-span-2">
             <label class="block text-sm mb-1" for="editDisciplineType">Discipline type</label>
-            <input id="editDisciplineType" name="disciplineType" class="input" placeholder="Discipline type">
+            <select id="editDisciplineType" name="disciplineType" class="input">
+              <option value="">None</option>
+            </select>
           </div>
         </div>
         <div>
@@ -549,7 +557,7 @@
   </div>
 
   <script type="module">
-import { ORGANIZATION_OPTIONS } from '../../shared/field-options.js';
+import { ORGANIZATION_OPTIONS, SUB_UNIT_OPTIONS, DEPARTMENT_OPTIONS, DISCIPLINE_TYPE_OPTIONS } from '../../shared/field-options.js';
 
 const API = window.location.origin;
 
@@ -824,6 +832,10 @@ const inputCreateRoles = document.getElementById('createRoles');
 const textareaDeactivateReason = document.getElementById('deactivateReason');
 
 populateSelectOptions(inputEditOrganization, ORGANIZATION_OPTIONS);
+populateSelectOptions(inputEditSubUnit, SUB_UNIT_OPTIONS);
+populateSelectOptions(inputEditDiscipline, DISCIPLINE_TYPE_OPTIONS);
+populateSelectOptions(inputEditDepartment, DEPARTMENT_OPTIONS);
+populateSelectOptions(inputEditDisciplineType, DISCIPLINE_TYPE_OPTIONS);
 
 const organizationFilterSelect = (() => {
   const selectors = [
@@ -952,11 +964,11 @@ function renderSelectedUser(user) {
     if (inputEditLastName) inputEditLastName.value = '';
     if (inputEditFirstName) inputEditFirstName.value = '';
     if (inputEditSurname) inputEditSurname.value = '';
-    if (inputEditSubUnit) inputEditSubUnit.value = '';
-    if (inputEditDiscipline) inputEditDiscipline.value = '';
-    if (inputEditDepartment) inputEditDepartment.value = '';
-    if (inputEditDisciplineType) inputEditDisciplineType.value = '';
-    if (inputEditOrganization) inputEditOrganization.value = '';
+    if (inputEditSubUnit) ensureSelectValue(inputEditSubUnit, '');
+    if (inputEditDiscipline) ensureSelectValue(inputEditDiscipline, '');
+    if (inputEditDepartment) ensureSelectValue(inputEditDepartment, '');
+    if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, '');
+    if (inputEditOrganization) ensureSelectValue(inputEditOrganization, '');
     if (inputEditEmail) inputEditEmail.value = '';
     return;
   }
@@ -990,11 +1002,11 @@ function renderSelectedUser(user) {
   if (inputEditLastName) inputEditLastName.value = user.last_name || '';
   if (inputEditFirstName) inputEditFirstName.value = user.first_name || '';
   if (inputEditSurname) inputEditSurname.value = user.surname || '';
-  if (inputEditSubUnit) inputEditSubUnit.value = user.sub_unit || '';
-  if (inputEditDiscipline) inputEditDiscipline.value = user.discipline || '';
-  if (inputEditDepartment) inputEditDepartment.value = user.department || '';
-  if (inputEditDisciplineType) inputEditDisciplineType.value = user.discipline_type || '';
-  if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization || '');
+  if (inputEditSubUnit) ensureSelectValue(inputEditSubUnit, user.sub_unit ?? '');
+  if (inputEditDiscipline) ensureSelectValue(inputEditDiscipline, user.discipline ?? '');
+  if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
+  if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
+  if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
   if (inputEditEmail) inputEditEmail.value = user.username || '';
   if (loadCalendarStatus) {
     loadCalendarStatus.textContent = '';
