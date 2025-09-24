@@ -478,6 +478,35 @@ function ensurePerm(...permKeys) {
   };
 }
 
+async function ensureDefaultRole(userId) {
+  const defaultRole = process.env.DEFAULT_ROLE || 'trainee';
+  if (!userId || !defaultRole) return;
+  try {
+    const { rows } = await pool.query('select role_id from public.roles where role_key=$1 limit 1', [defaultRole]);
+    const roleId = rows[0]?.role_id;
+    if (!roleId) return;
+    const existing = await pool.query('select 1 from public.user_roles where user_id=$1 limit 1', [userId]);
+    if (existing.rowCount) return;
+    await pool.query('insert into public.user_roles(user_id, role_id) values ($1, $2)', [userId, roleId]);
+  } catch (_err) {
+    /* ignore seeding errors */
+  }
+}
+
+async function ensurePreferencesRow(userId) {
+  if (!userId) return;
+  try {
+    await pool.query(
+      `insert into public.user_preferences (user_id, trainee)
+       values ($1, $1)
+       on conflict (user_id) do nothing;`,
+      [userId]
+    );
+  } catch (_err) {
+    /* ignore if preferences table is absent */
+  }
+}
+
 const parseBooleanParam = value => {
   if (typeof value === 'boolean') return value;
   if (typeof value !== 'string') return false;
@@ -1632,6 +1661,167 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('PATCH /api/users/:id error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/users/local', ensureAuth, async (req, res) => {
+  if (!req.roles?.includes('admin')) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const payload = req.body || {};
+    const username = toNullableString(payload.username);
+    const password = typeof payload.password === 'string' ? payload.password : null;
+    const fullName = toNullableString(payload.full_name ?? payload.fullName) || '';
+    const email = toNullableString(payload.email);
+
+    if (!username || !validUsername(username)) {
+      return res.status(400).json({ error: 'invalid_username' });
+    }
+    if (!password || !validPassword(password)) {
+      return res.status(400).json({ error: 'invalid_password' });
+    }
+    if (email && !validEmail(email)) {
+      return res.status(400).json({ error: 'invalid_email' });
+    }
+
+    const params = [username];
+    let conflictSql = 'select 1 from public.users where lower(username) = lower($1)';
+    if (email) {
+      params.push(email);
+      conflictSql += ' or lower(email) = lower($2)';
+    }
+    conflictSql += ' limit 1';
+    const exists = await pool.query(conflictSql, params);
+    if (exists.rowCount) {
+      return res.status(409).json({ error: 'already_exists' });
+    }
+
+    const hash = await bcrypt.hash(password, SALT_ROUNDS);
+    const userId = crypto.randomUUID();
+    const { rows } = await pool.query(
+      `insert into public.users (id, username, email, full_name, password_hash, provider)
+       values ($1, $2, $3, $4, $5, 'local')
+       returning id, username, email, full_name, status, last_login_at;`,
+      [userId, username, email || '', fullName, hash]
+    );
+    const user = rows[0];
+    if (!user) {
+      return res.status(500).json({ error: 'failed_to_create' });
+    }
+
+    await ensureDefaultRole(user.id);
+    await ensurePreferencesRow(user.id);
+
+    res.status(201).json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      full_name: user.full_name,
+      status: user.status,
+      last_login_at: user.last_login_at,
+    });
+  } catch (err) {
+    console.error('POST /api/users/local error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/users/:id/provision', ensureAuth, async (req, res) => {
+  if (!req.roles?.includes('admin')) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const { id } = req.params;
+    const payload = req.body || {};
+    const username = toNullableString(payload.username);
+    const password = typeof payload.password === 'string' ? payload.password : null;
+
+    if (!id || !isValidUuid(id)) {
+      return res.status(400).json({ error: 'invalid_user' });
+    }
+    if (!username || !validUsername(username)) {
+      return res.status(400).json({ error: 'invalid_username' });
+    }
+    if (!password || !validPassword(password)) {
+      return res.status(400).json({ error: 'invalid_password' });
+    }
+
+    const { rows: userRows } = await pool.query(
+      'select id from public.users where id=$1 limit 1',
+      [id]
+    );
+    if (!userRows.length) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const conflict = await pool.query(
+      'select 1 from public.users where id <> $1 and lower(username) = lower($2) limit 1',
+      [id, username]
+    );
+    if (conflict.rowCount) {
+      return res.status(409).json({ error: 'already_exists' });
+    }
+
+    const hash = await bcrypt.hash(password, SALT_ROUNDS);
+    await pool.query(
+      `update public.users
+       set username=$1, password_hash=$2, provider='local', updated_at=now()
+       where id=$3`,
+      [username, hash, id]
+    );
+
+    await ensureDefaultRole(id);
+    await ensurePreferencesRow(id);
+
+    const { rows } = await pool.query(
+      'select id, username, email, full_name, status, last_login_at from public.users where id=$1',
+      [id]
+    );
+    res.json(rows[0] || { id, username });
+  } catch (err) {
+    console.error('POST /api/users/:id/provision error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/users/:id/reset-password', ensureAuth, async (req, res) => {
+  if (!req.roles?.includes('admin')) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const { id } = req.params;
+    const password = typeof req.body?.password === 'string' ? req.body.password : null;
+    if (!id || !isValidUuid(id)) {
+      return res.status(400).json({ error: 'invalid_user' });
+    }
+    if (!password || !validPassword(password)) {
+      return res.status(400).json({ error: 'invalid_password' });
+    }
+
+    const { rows: userRows } = await pool.query(
+      'select id from public.users where id=$1 limit 1',
+      [id]
+    );
+    if (!userRows.length) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const hash = await bcrypt.hash(password, SALT_ROUNDS);
+    await pool.query(
+      `update public.users
+       set password_hash=$1, provider='local', updated_at=now()
+       where id=$2`,
+      [hash, id]
+    );
+
+    await ensureDefaultRole(id);
+    await ensurePreferencesRow(id);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/users/:id/reset-password error', err);
     res.status(500).json({ error: 'internal_server_error' });
   }
 });
