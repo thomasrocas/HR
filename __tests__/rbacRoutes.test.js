@@ -151,6 +151,103 @@ describe('rbac admin routes', () => {
     await userAgent.patch(`/rbac/users/${adminId}/roles`).send({ roles: [] }).expect(403);
   });
 
+  test('admin can create local users; manager forbidden', async () => {
+    const adminId = crypto.randomUUID();
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [adminId, 'admin', 'Admin', hash, 'local']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [managerId, 'manager', 'Manager', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
+
+    const adminAgent = request.agent(app);
+    await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+    const createRes = await adminAgent
+      .post('/api/users/local')
+      .send({ full_name: 'Lisa Mungabat', email: 'lisa@example.com', username: 'lisa', password: 'Password1!' })
+      .expect(201);
+    expect(createRes.body).toMatchObject({ username: 'lisa', email: 'lisa@example.com', full_name: 'Lisa Mungabat' });
+    expect(createRes.body.id).toBeTruthy();
+    const createdId = createRes.body.id;
+
+    const { rows } = await pool.query('select username, email, provider, password_hash from public.users where id=$1', [createdId]);
+    expect(rows[0].username).toBe('lisa');
+    expect(rows[0].email).toBe('lisa@example.com');
+    expect(rows[0].provider).toBe('local');
+    expect(await bcrypt.compare('Password1!', rows[0].password_hash)).toBe(true);
+
+    const roleRows = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+      [createdId]
+    );
+    expect(roleRows.rows.map(r => r.role_key)).toContain('trainee');
+
+    const managerAgent = request.agent(app);
+    await managerAgent.post('/auth/local/login').send({ username: 'manager', password: 'passpass' }).expect(200);
+    await managerAgent
+      .post('/api/users/local')
+      .send({ full_name: 'Mark Manager', email: 'mark@example.com', username: 'mark', password: 'Password1!' })
+      .expect(403);
+  });
+
+  test('admin can provision usernames and reset passwords while enforcing uniqueness', async () => {
+    const adminId = crypto.randomUUID();
+    const existingId = crypto.randomUUID();
+    const targetId = crypto.randomUUID();
+    const managerId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [adminId, 'admin', 'Admin', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [existingId, 'existing', 'Existing', hash, 'local']);
+    await pool.query('insert into public.users(id, email, full_name, provider) values ($1,$2,$3,$4)', [targetId, 'target@example.com', 'Target User', 'google']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [managerId, 'manager', 'Manager', hash, 'local']);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
+
+    const adminAgent = request.agent(app);
+    await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+    await adminAgent
+      .post(`/api/users/${targetId}/provision`)
+      .send({ username: 'existing', password: 'Password1!' })
+      .expect(409);
+
+    const provisionRes = await adminAgent
+      .post(`/api/users/${targetId}/provision`)
+      .send({ username: 'targetuser', password: 'Password1!' })
+      .expect(200);
+    expect(provisionRes.body).toMatchObject({ id: targetId, username: 'targetuser' });
+
+    const provisionRows = await pool.query('select username, provider, password_hash from public.users where id=$1', [targetId]);
+    expect(provisionRows.rows[0].username).toBe('targetuser');
+    expect(provisionRows.rows[0].provider).toBe('local');
+    expect(await bcrypt.compare('Password1!', provisionRows.rows[0].password_hash)).toBe(true);
+
+    const managerAgent = request.agent(app);
+    await managerAgent.post('/auth/local/login').send({ username: 'manager', password: 'passpass' }).expect(200);
+    await managerAgent
+      .post(`/api/users/${targetId}/provision`)
+      .send({ username: 'manager2', password: 'Password1!' })
+      .expect(403);
+
+    await adminAgent
+      .post(`/api/users/${targetId}/reset-password`)
+      .send({ password: 'Password2!' })
+      .expect(200)
+      .expect(res => {
+        expect(res.body).toEqual({ ok: true });
+      });
+
+    const resetRows = await pool.query('select password_hash, provider from public.users where id=$1', [targetId]);
+    expect(await bcrypt.compare('Password2!', resetRows.rows[0].password_hash)).toBe(true);
+    expect(resetRows.rows[0].provider).toBe('local');
+
+    await managerAgent
+      .post(`/api/users/${targetId}/reset-password`)
+      .send({ password: 'Password3!' })
+      .expect(403);
+  });
+
   test('manager can list users and only assign viewer or trainee roles', async () => {
     const mgrId = crypto.randomUUID();
     const userId = crypto.randomUUID();
