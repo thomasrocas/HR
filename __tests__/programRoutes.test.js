@@ -63,6 +63,8 @@ describe('program routes', () => {
         title text not null,
         total_weeks int,
         description text,
+        results text,
+        purpose text,
         organization text,
         sub_unit text,
         created_by uuid,
