@@ -1484,7 +1484,9 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 
 // ==== 7) RBAC admin ====
 
+
 async function handleAdminUserCreate(req, res, { endpointLabel }) {
+
   if (!req.roles?.includes('admin')) {
     return res.status(403).json({ error: 'forbidden' });
   }
@@ -1681,6 +1683,7 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       status_reason: includeStatusReason ? user.status_reason ?? null : undefined,
     });
   } catch (err) {
+
     console.error(`POST ${endpointLabel} error`, err);
     res.status(500).json({ error: 'internal_server_error' });
   }
@@ -1688,6 +1691,7 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
 
 app.post('/api/users', ensureAuth, (req, res) => handleAdminUserCreate(req, res, { endpointLabel: '/api/users' }));
 app.post('/rbac/users', ensureAuth, (req, res) => handleAdminUserCreate(req, res, { endpointLabel: '/rbac/users' }));
+
 
 app.patch('/api/users/:id', ensureAuth, async (req, res) => {
   const isAdmin = req.roles.includes('admin');
