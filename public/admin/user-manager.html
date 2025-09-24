@@ -529,9 +529,11 @@
       </div>
       <form id="formRemovePrograms" class="mt-4 space-y-4">
         <div id="drawerRemoveProgramList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"></div>
-        <div class="flex justify-end gap-2">
-          <button type="button" class="px-3 py-2 rounded-xl border text-sm" data-drawer-close>Cancel</button>
-          <button id="btnConfirmRemovePrograms" type="submit" class="px-3 py-2 rounded-xl border text-sm bg-rose-500 text-white">Remove selected programs</button>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button type="button" class="btn btn-outline text-sm" data-drawer-close>Cancel</button>
+          <button type="submit" class="btn text-sm" data-action="deactivate">Deactivate selected</button>
+          <button type="submit" class="btn btn-primary text-sm" data-action="activate">Activate selected</button>
+          <button id="btnConfirmRemovePrograms" type="submit" class="btn btn-danger text-sm" data-action="delete">Remove selected programs</button>
         </div>
         <div id="removeProgramsDrawerMsg" class="text-xs text-slate-500"></div>
       </form>
@@ -1508,6 +1510,98 @@ function persistSelectedTraineeSession(trainee) {
   }
 }
 
+const HIDDEN_PROGRAMS_STORAGE_KEY = 'anx_hidden_programs';
+
+function readHiddenProgramsMap() {
+  try {
+    const raw = sessionStorage.getItem(HIDDEN_PROGRAMS_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
+    }
+    const sanitized = {};
+    for (const [userId, programList] of Object.entries(parsed)) {
+      if (!programList) continue;
+      const values = Array.isArray(programList)
+        ? programList
+        : typeof programList === 'string'
+          ? [programList]
+          : [];
+      const unique = Array.from(new Set(values.map(value => String(value)).filter(Boolean)));
+      if (unique.length) {
+        sanitized[String(userId)] = unique;
+      }
+    }
+    return sanitized;
+  } catch (error) {
+    console.warn('Failed to read hidden program state', error);
+    return {};
+  }
+}
+
+function writeHiddenProgramsMap(map) {
+  try {
+    if (!map || typeof map !== 'object') {
+      sessionStorage.removeItem(HIDDEN_PROGRAMS_STORAGE_KEY);
+      return;
+    }
+    const payload = {};
+    for (const [userId, programList] of Object.entries(map)) {
+      if (!programList) continue;
+      const list = Array.isArray(programList)
+        ? programList.map(value => String(value)).filter(Boolean)
+        : [];
+      if (list.length) {
+        payload[String(userId)] = list;
+      }
+    }
+    if (Object.keys(payload).length) {
+      sessionStorage.setItem(HIDDEN_PROGRAMS_STORAGE_KEY, JSON.stringify(payload));
+    } else {
+      sessionStorage.removeItem(HIDDEN_PROGRAMS_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('Failed to persist hidden program state', error);
+  }
+}
+
+function getHiddenProgramsForUser(userId) {
+  if (!userId) {
+    return new Set();
+  }
+  const map = readHiddenProgramsMap();
+  const list = Array.isArray(map[String(userId)]) ? map[String(userId)] : [];
+  return new Set(list.map(value => String(value)).filter(Boolean));
+}
+
+function updateHiddenProgramsForUser(userId, programIds, hidden) {
+  if (!userId || !programIds || !programIds.length) {
+    return getHiddenProgramsForUser(userId);
+  }
+  const map = readHiddenProgramsMap();
+  const key = String(userId);
+  const current = new Set(Array.isArray(map[key]) ? map[key].map(value => String(value)).filter(Boolean) : []);
+  for (const programId of programIds) {
+    const value = String(programId || '');
+    if (!value) continue;
+    if (hidden) {
+      current.add(value);
+    } else {
+      current.delete(value);
+    }
+  }
+  if (current.size) {
+    map[key] = Array.from(current);
+  } else {
+    delete map[key];
+  }
+  writeHiddenProgramsMap(map);
+  return current;
+}
+
 async function updatePreferredTrainee(userId) {
   return fetch(`${API}/prefs`, {
     method: 'PATCH',
@@ -2159,6 +2253,7 @@ function renderRemoveProgramsDrawer(user) {
   const assignedPrograms = Array.isArray(user && user.assigned_programs)
     ? user.assigned_programs
     : [];
+  const hiddenPrograms = user ? getHiddenProgramsForUser(user.id) : new Set();
   const items = assignedPrograms
     .map(program => {
       const programId = extractProgramId(program);
@@ -2180,12 +2275,27 @@ function renderRemoveProgramsDrawer(user) {
     drawerRemoveProgramList.innerHTML = '<div class="text-sm text-slate-500">No programs assigned.</div>';
     return;
   }
-  drawerRemoveProgramList.innerHTML = items.map(item => `
-    <label class="inline-flex items-center gap-2 border rounded-xl px-3 py-2 bg-slate-50">
-      <input type="checkbox" name="programs" value="${escapeHtml(item.id)}">
-      <span class="truncate" title="${escapeHtml(item.title)}">🗑️ ${escapeHtml(item.title)}</span>
-    </label>
-  `).join('');
+  drawerRemoveProgramList.innerHTML = items.map(item => {
+    const isHidden = hiddenPrograms.has(item.id);
+    const badgeText = isHidden ? 'Inactive' : 'Active';
+    const badgeClass = isHidden
+      ? 'bg-rose-100 text-rose-600'
+      : 'bg-emerald-100 text-emerald-600';
+    const labelClass = isHidden
+      ? 'bg-rose-50 border-rose-200'
+      : 'bg-slate-50 border-slate-200';
+    return `
+      <label class="inline-flex items-center justify-between gap-2 border rounded-xl px-3 py-2 ${labelClass}" data-program-id="${escapeHtml(item.id)}" data-program-state="${isHidden ? 'inactive' : 'active'}">
+        <span class="flex items-center gap-2 truncate">
+          <input type="checkbox" name="programs" value="${escapeHtml(item.id)}" data-program-id="${escapeHtml(item.id)}" data-program-state="${isHidden ? 'inactive' : 'active'}">
+          <span class="truncate" title="${escapeHtml(item.title)}">🗑️ ${escapeHtml(item.title)}</span>
+        </span>
+        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}" data-program-status>
+          ${badgeText}
+        </span>
+      </label>
+    `;
+  }).join('');
 }
 
 formPrograms.addEventListener('submit', async e => {
@@ -2217,17 +2327,53 @@ if (formRemovePrograms) {
   formRemovePrograms.addEventListener('submit', async e => {
     e.preventDefault();
     if (!selectedUser) return;
-    const formData = new FormData(formRemovePrograms);
-    const chosen = formData.getAll('programs').map(String).filter(Boolean);
+
+    const submitter = e.submitter;
+    const action = submitter && submitter.dataset ? submitter.dataset.action : 'delete';
+    const checkedInputs = Array.from(formRemovePrograms.querySelectorAll('input[name="programs"]:checked'));
+    const chosen = checkedInputs.map(input => String(input.value)).filter(Boolean);
     if (!chosen.length) {
-      if (removeProgramsDrawerMsg) {
-        setStatusText(removeProgramsDrawerMsg, 'Select at least one program to remove.', 'error');
+      const message = action === 'delete'
+        ? 'Select at least one program to remove.'
+        : 'Select at least one program to update.';
+      setStatusText(removeProgramsDrawerMsg, message, 'error');
+      if (removeProgramsStatus) {
+        setStatusText(removeProgramsStatus, message, 'error');
       }
       return;
     }
 
-    const submitBtn = document.getElementById('btnConfirmRemovePrograms')
-      || formRemovePrograms.querySelector('button[type="submit"]');
+    if (action === 'deactivate' || action === 'activate') {
+      const shouldHide = action === 'deactivate';
+      const changed = checkedInputs.reduce((count, input) => {
+        const currentState = input.dataset.programState === 'inactive';
+        if (shouldHide && !currentState) {
+          return count + 1;
+        }
+        if (!shouldHide && currentState) {
+          return count + 1;
+        }
+        return count;
+      }, 0);
+
+      updateHiddenProgramsForUser(selectedUser.id, chosen, shouldHide);
+      renderRemoveProgramsDrawer(selectedUser);
+
+      const summary = changed
+        ? `Programs ${shouldHide ? 'deactivated' : 'activated'} — ${changed} updated.`
+        : `All selected programs are already ${shouldHide ? 'inactive' : 'active'}.`;
+      const tone = changed ? 'success' : 'neutral';
+      setStatusText(removeProgramsDrawerMsg, summary, tone);
+      if (removeProgramsStatus) {
+        setStatusText(removeProgramsStatus, summary, tone);
+      }
+      return;
+    }
+
+    const submitBtn = submitter instanceof HTMLButtonElement
+      ? submitter
+      : document.getElementById('btnConfirmRemovePrograms')
+        || formRemovePrograms.querySelector('button[type="submit"]');
     const originalLabel = submitBtn ? submitBtn.textContent : '';
     if (submitBtn) {
       submitBtn.disabled = true;
@@ -2257,6 +2403,10 @@ if (formRemovePrograms) {
         console.error(err);
         fail++;
       }
+    }
+
+    if (removedIds.size) {
+      updateHiddenProgramsForUser(selectedUser.id, Array.from(removedIds), false);
     }
 
     if (selectedUser && removedIds.size) {
