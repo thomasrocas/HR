@@ -24,6 +24,136 @@ async function fetchJson(url, options = {}) {
   return res.text();
 }
 
+let cachedCurrentUser = null;
+let managerOrganizationScopeId = null;
+let hasManagerOrganizationScope = false;
+
+function getEffectiveCurrentUser() {
+  const rbacUser = window?.RBAC?.currentUser;
+  if (rbacUser) return rbacUser;
+  const authUser = window?.AUTH?.currentUser;
+  if (authUser) return authUser;
+  return cachedCurrentUser;
+}
+
+function getUserRoles(user) {
+  if (!user || typeof user !== 'object') return [];
+  const roleCandidates = [];
+  if (Array.isArray(user.roles)) {
+    roleCandidates.push(...user.roles);
+  } else if (typeof user.roles === 'string') {
+    roleCandidates.push(user.roles);
+  }
+  if (Array.isArray(user.role)) {
+    roleCandidates.push(...user.role);
+  } else if (typeof user.role === 'string') {
+    roleCandidates.push(user.role);
+  }
+  return roleCandidates
+    .map(role => (role === null || role === undefined ? '' : String(role).toLowerCase()))
+    .filter(Boolean);
+}
+
+function hasRole(user, role) {
+  if (!role) return false;
+  const normalizedRole = String(role).toLowerCase();
+  return getUserRoles(user).includes(normalizedRole);
+}
+
+function isAdmin(user = getEffectiveCurrentUser()) {
+  if (!user || typeof user !== 'object') return false;
+  if (typeof user.is_admin === 'boolean') return user.is_admin;
+  if (typeof user.isAdmin === 'boolean') return user.isAdmin;
+  return hasRole(user, 'admin');
+}
+
+function isManager(user = getEffectiveCurrentUser()) {
+  if (!user || typeof user !== 'object') return false;
+  if (typeof user.is_manager === 'boolean') return user.is_manager;
+  if (typeof user.isManager === 'boolean') return user.isManager;
+  if (typeof user.manager === 'boolean') return user.manager;
+  return hasRole(user, 'manager');
+}
+
+function getUserOrganizationId(user = getEffectiveCurrentUser()) {
+  if (!user || typeof user !== 'object') return null;
+  const direct = user.organization_id ?? user.organizationId ?? user.organizationID ?? null;
+  if (direct !== null && direct !== undefined && direct !== '') {
+    return direct;
+  }
+  const organization = user.organization ?? null;
+  if (organization === null || organization === undefined) {
+    return null;
+  }
+  if (typeof organization === 'string' || typeof organization === 'number') {
+    return organization;
+  }
+  if (typeof organization === 'object') {
+    const nested = organization.id
+      ?? organization.organization_id
+      ?? organization.organizationId
+      ?? organization.organizationID
+      ?? organization.slug
+      ?? null;
+    if (nested !== null && nested !== undefined && nested !== '') {
+      return nested;
+    }
+  }
+  return null;
+}
+
+function withOrgFilter(params = {}) {
+  const searchParams = new URLSearchParams();
+  const appendParam = (key, value) => {
+    if (!key) return;
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      value.forEach(item => appendParam(key, item));
+      return;
+    }
+    const stringValue = String(value);
+    searchParams.append(String(key), stringValue);
+  };
+
+  if (params instanceof URLSearchParams) {
+    params.forEach((value, key) => {
+      appendParam(key, value);
+    });
+  } else if (typeof params === 'string') {
+    if (params.trim()) {
+      const parsed = new URLSearchParams(params);
+      parsed.forEach((value, key) => {
+        appendParam(key, value);
+      });
+    }
+  } else if (params && typeof params === 'object') {
+    Object.entries(params).forEach(([key, value]) => {
+      appendParam(key, value);
+    });
+  }
+
+  const user = getEffectiveCurrentUser();
+  const shouldForceOrg = (hasManagerOrganizationScope || isManager(user)) && !isAdmin(user);
+  if (shouldForceOrg) {
+    const orgId = managerOrganizationScopeId ?? getUserOrganizationId(user);
+    if (orgId !== null && orgId !== undefined && orgId !== '') {
+      searchParams.set('organization_id', String(orgId));
+    }
+  }
+
+  return searchParams;
+}
+
+async function fetchProgramTemplates(params = {}) {
+  const searchParams = withOrgFilter(params);
+  if (!searchParams.has('include_deleted')) {
+    searchParams.set('include_deleted', 'true');
+  }
+  const queryString = searchParams.toString();
+  const url = queryString ? `${TEMPLATE_API}?${queryString}` : TEMPLATE_API;
+  return fetchJson(url);
+}
+
 function createStatusBadge(status) {
   const normalized = (status || '').toLowerCase();
   const badgeClass = {
@@ -1726,9 +1856,17 @@ if (!meResponse.ok) {
   throw new Error('Unauthorized');
 }
 const me = await meResponse.json();
-const roles = Array.isArray(me?.roles) ? me.roles : [];
-const IS_ADMIN = roles.includes('admin');
-const IS_MANAGER = roles.includes('manager');
+cachedCurrentUser = me;
+const userIsAdmin = isAdmin(me);
+const userIsManager = isManager(me);
+const managerOrgId = getUserOrganizationId(me);
+const normalizedManagerOrgId = managerOrgId !== null && managerOrgId !== undefined && managerOrgId !== ''
+  ? String(managerOrgId)
+  : '';
+hasManagerOrganizationScope = Boolean(userIsManager && !userIsAdmin && normalizedManagerOrgId);
+managerOrganizationScopeId = hasManagerOrganizationScope ? normalizedManagerOrgId : null;
+const IS_ADMIN = userIsAdmin;
+const IS_MANAGER = userIsManager;
 const CAN_MANAGE_PROGRAMS = IS_ADMIN || IS_MANAGER;
 const CAN_MANAGE_TEMPLATES = IS_ADMIN || IS_MANAGER;
 const ADMIN_ONLY_PROGRAM_ACTIONS = new Set(['archive', 'restore']);
@@ -1850,6 +1988,12 @@ if (tmplFilterSub) populateSelectOptions(tmplFilterSub, SUB_UNIT_OPTIONS);
 if (tmplFilterDiscipline) populateSelectOptions(tmplFilterDiscipline, DISCIPLINE_TYPE_OPTIONS);
 if (tmplFilterDelivery) populateSelectOptions(tmplFilterDelivery, DELIVERY_TYPE_OPTIONS);
 if (tmplFilterDept) populateSelectOptions(tmplFilterDept, DEPARTMENT_OPTIONS);
+
+if (tmplFilterOrg instanceof HTMLSelectElement && hasManagerOrganizationScope && managerOrganizationScopeId) {
+  ensureSelectValue(tmplFilterOrg, managerOrganizationScopeId);
+  tmplFilterOrg.value = managerOrganizationScopeId;
+  tmplFilterOrg.disabled = true;
+}
 
 [tmplFilterOrg, tmplFilterSub, tmplFilterDiscipline, tmplFilterDelivery, tmplFilterDept]
   .filter(Boolean)
@@ -5830,17 +5974,15 @@ async function loadTemplates(options = {}) {
 
   try {
     templateMessage.textContent = 'Loading templates…';
-    const params = new URLSearchParams();
+    const params = {};
     if (query) {
-      params.set('q', query);
+      params.q = query;
     }
     if (status) {
-      params.set('status', status);
+      params.status = status;
     }
-    params.set('include_deleted', 'true');
-    const search = params.toString();
-    const url = search ? `${TEMPLATE_API}?${search}` : TEMPLATE_API;
-    const data = await fetchJson(url);
+    params.include_deleted = 'true';
+    const data = await fetchProgramTemplates(params);
     let fetched = [];
     if (Array.isArray(data?.data)) {
       fetched = data.data;
