@@ -1508,14 +1508,6 @@ function App({ me, onSignOut }){
 
 
   const updateUserPrograms = useCallback(async (programList, { signal } = {}) => {
-    const effectiveProgramId = activeProgramId || QS_PROGRAM_ID || null;
-    if (!effectiveProgramId) {
-      if (signal?.aborted) return;
-      setPrograms([]);
-      setUserPrograms([]);
-      return;
-    }
-
     try {
       const tasks = await apiGetTasks({ include_deleted: false });
       const taskList = Array.isArray(tasks) ? tasks : [];
@@ -1553,7 +1545,7 @@ function App({ me, onSignOut }){
       console.error('Failed to load user programs', err);
       setUserPrograms([]);
     }
-  }, [activeProgramId, targetUserId, hiddenProgramIds]);
+  }, [targetUserId, hiddenProgramIds]);
 
 
 /* Load tasks */
