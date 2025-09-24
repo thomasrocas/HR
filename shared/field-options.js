@@ -46,7 +46,7 @@ export const DEPARTMENT_OPTIONS = Object.freeze([
 'Bereavement',
 'Intake',
 'IT',
-'Leadership'
+'Leadership',
 'Medical Record',
 'Nursing',
 'Rehab',
