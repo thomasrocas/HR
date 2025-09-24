@@ -3217,7 +3217,6 @@ useEffect(() => {
           tabIndex={0}
         ></div>
       )}
-      {!isTrainee && (
       <button
         id="side-panel-toggle"
         onClick={togglePanel}
@@ -3237,7 +3236,6 @@ useEffect(() => {
           </svg>
         )}
       </button>
-      )}
       {/* SidePanel: container uses `card`; buttons use `btn`; fields use `input` for consistent styling */}
       {panelOpen && (
         <div
