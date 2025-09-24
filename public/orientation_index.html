@@ -127,7 +127,36 @@ const deriveAllProgramsRangeSafe = (rows, options = {}) => {
 /* Use same origin the page is served from */
 const API = window.location.origin;
 const qs = new URLSearchParams(location.search);
-let QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
+
+const normalizeProgramId = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'null' || lowered === 'undefined' || lowered === 'none') {
+      return null;
+    }
+    return trimmed;
+  }
+  try {
+    return normalizeProgramId(String(value));
+  } catch (err) {
+    return null;
+  }
+};
+
+let QS_PROGRAM_ID = normalizeProgramId(qs.get('program_id'));
+if (!QS_PROGRAM_ID) {
+  try {
+    QS_PROGRAM_ID = normalizeProgramId(localStorage.getItem('anx_program_id'));
+  } catch (err) {
+    QS_PROGRAM_ID = null;
+  }
+}
 let CURRENT_USER_ID = null;
 let TARGET_USER_ID = null;
 let TARGET_USER_NAME = null;
@@ -1168,16 +1197,19 @@ function App({ me, onSignOut }){
     }
     try {
       const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
-      QS_PROGRAM_ID = prefs.program_id || null;
-      setActiveProgramId(QS_PROGRAM_ID);
+      QS_PROGRAM_ID = normalizeProgramId(prefs.program_id);
       if (QS_PROGRAM_ID) {
+        setActiveProgramId(QS_PROGRAM_ID);
+        try { localStorage.setItem('anx_program_id', QS_PROGRAM_ID); } catch (storageErr) {}
         const count = await reloadTasks();
         setNeedsInstantiate(count === 0);
       } else {
+        try { localStorage.removeItem('anx_program_id'); } catch (storageErr) {}
         setWeeks([]);
         setDeletedTasks([]);
         setNeedsInstantiate(false);
         setActiveProgramId(null);
+        calendarCacheRef.current.clear();
       }
     } catch (err) {
       console.error('Failed to load tasks', err);
@@ -1478,6 +1510,10 @@ function App({ me, onSignOut }){
     const { resetRange = false } = options;
     if(!QS_PROGRAM_ID){
       setActiveProgramId(null);
+      setWeeks([]);
+      setDeletedTasks([]);
+      setNeedsInstantiate(false);
+      calendarCacheRef.current.clear();
       return 0;
     }
     if (resetRange) {
@@ -1508,6 +1544,14 @@ function App({ me, onSignOut }){
 
 
   const updateUserPrograms = useCallback(async (programList, { signal } = {}) => {
+    const effectiveProgramId = activeProgramId || QS_PROGRAM_ID || null;
+    if (!effectiveProgramId) {
+      if (signal?.aborted) return;
+      setPrograms([]);
+      setUserPrograms([]);
+      return;
+    }
+
     try {
       const tasks = await apiGetTasks({ include_deleted: false });
       const taskList = Array.isArray(tasks) ? tasks : [];
@@ -1545,45 +1589,80 @@ function App({ me, onSignOut }){
       console.error('Failed to load user programs', err);
       setUserPrograms([]);
     }
-  }, [targetUserId, hiddenProgramIds]);
+  }, [activeProgramId, targetUserId, hiddenProgramIds]);
 
 
 /* Load tasks */
-useEffect(() => {
-  async function load() {
-    try {
-      // 1) Always ask the server first for the current user's preference
-      const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
-      let pid = prefs.program_id || null;
+  useEffect(() => {
+    async function load() {
+      try {
+        // 1) Always ask the server first for the current user's preference
+        const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
+        let pid = normalizeProgramId(prefs.program_id);
+        let usedFallback = false;
 
-      // 2) If the server has no preference yet, fall back to URL/localStorage
-      if (!pid) {
-        pid = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
+        // 2) If the server has no preference yet, fall back to URL/localStorage
+        if (!pid) {
+          const queryProgramId = normalizeProgramId(qs.get('program_id'));
+          if (queryProgramId) {
+            pid = queryProgramId;
+            usedFallback = true;
+          }
+        }
+
+        if (!pid) {
+          try {
+            const storedProgramId = normalizeProgramId(localStorage.getItem('anx_program_id'));
+            if (storedProgramId) {
+              pid = storedProgramId;
+              usedFallback = true;
+            }
+          } catch (storageErr) {
+            pid = pid || null;
+          }
+        }
+
+        if (pid && usedFallback) {
+          try {
+            const list = await apiListPrograms();
+            const hasAccess = Array.isArray(list) && list.some((program) => {
+              if (!program) return false;
+              const candidateId = program.program_id ?? program.id ?? program.uuid ?? null;
+              return candidateId ? sameId(candidateId, pid) : false;
+            });
+            if (!hasAccess) {
+              pid = null;
+            }
+          } catch (err) {
+            console.error('Failed to validate fallback program', err);
+            pid = null;
+          }
+        }
+
+        if (pid) {
+          // 3) Persist + tell server so future logins restore correctly
+          QS_PROGRAM_ID = normalizeProgramId(pid);
+          setActiveProgramId(QS_PROGRAM_ID);
+          try { localStorage.setItem('anx_program_id', QS_PROGRAM_ID); } catch (storageErr) {}
+          try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch (e) {}
+
+          // 4) Load tasks
+          const count = await reloadTasks();
+          setNeedsInstantiate(count === 0);
+        } else {
+          // No program selected yet: clear UI
+          try { localStorage.removeItem('anx_program_id'); } catch (storageErr) {}
+          setWeeks([]);
+          setDeletedTasks([]);
+          setNeedsInstantiate(false);
+          setActiveProgramId(null);
+          calendarCacheRef.current.clear();
+        }
+      } catch (err) {
+        console.error('Failed to load tasks', err);
       }
-
-      if (pid) {
-        // 3) Persist + tell server so future logins restore correctly
-        QS_PROGRAM_ID = pid;
-        setActiveProgramId(QS_PROGRAM_ID);
-        localStorage.setItem('anx_program_id', pid);
-        try { await apiPatchPrefs({ program_id: pid }); } catch (e) {}
-
-        // 4) Load tasks
-        const count = await reloadTasks();
-        setNeedsInstantiate(count === 0);
-      } else {
-        // No program selected yet: clear UI
-        localStorage.removeItem('anx_program_id');
-        setWeeks([]);
-        setDeletedTasks([]);
-        setNeedsInstantiate(false);
-        setActiveProgramId(null);
-      }
-    } catch (err) {
-      console.error('Failed to load tasks', err);
     }
-  }
-  load();
+    load();
 }, []);
 
   useEffect(() => {
@@ -1958,14 +2037,26 @@ useEffect(() => {
       const previousProgramId = QS_PROGRAM_ID;
       const list = await apiListPrograms();
       if(newId !== undefined){
-        QS_PROGRAM_ID = newId;
+        QS_PROGRAM_ID = normalizeProgramId(newId);
       }
-      if(QS_PROGRAM_ID && !list.find(p=> p.program_id === QS_PROGRAM_ID)){
-        QS_PROGRAM_ID = list[0]?.program_id || null;
+      if(QS_PROGRAM_ID){
+        const hasMatch = Array.isArray(list) && list.some((program) => {
+          if (!program) return false;
+          const candidateId = program.program_id ?? program.id ?? program.uuid ?? null;
+          return candidateId ? sameId(candidateId, QS_PROGRAM_ID) : false;
+        });
+        if(!hasMatch){
+          const fallbackProgram = Array.isArray(list) && list.length ? list[0] : null;
+          const fallbackId = fallbackProgram ? normalizeProgramId(fallbackProgram.program_id ?? fallbackProgram.id ?? fallbackProgram.uuid) : null;
+          QS_PROGRAM_ID = fallbackId;
+        }
+      }
+      if(!QS_PROGRAM_ID){
+        QS_PROGRAM_ID = null;
       }
       const changedProgram = !sameId(previousProgramId, QS_PROGRAM_ID);
       if(QS_PROGRAM_ID){
-        localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+        try { localStorage.setItem('anx_program_id', QS_PROGRAM_ID); } catch (storageErr) {}
         setActiveProgramId(QS_PROGRAM_ID);
         try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch(e){}
         if (changedProgram) {
@@ -1975,10 +2066,11 @@ useEffect(() => {
         if(!count){ setNeedsInstantiate(true); }
         else { setNeedsInstantiate(false); }
       } else {
-        localStorage.removeItem('anx_program_id');
+        try { localStorage.removeItem('anx_program_id'); } catch (storageErr) {}
         setWeeks([]); setDeletedTasks([]); setNeedsInstantiate(false);
         setActiveProgramId(null);
         resetRangeOverrideForMode('single');
+        calendarCacheRef.current.clear();
       }
       await updateUserPrograms(list);
     } catch(err){
