@@ -135,6 +135,54 @@ const TRAINEE_PREF_KEY = 'anx_selected_trainee';
 
 const sameId = (a, b) => String(a ?? '') === String(b ?? '');
 
+const HIDDEN_PROGRAMS_PREF_KEY = 'anx_hidden_programs';
+
+function readHiddenProgramsMap(){
+  if (typeof sessionStorage === 'undefined') return {};
+  try {
+    const raw = sessionStorage.getItem(HIDDEN_PROGRAMS_PREF_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const sanitized = {};
+    Object.entries(parsed).forEach(([userId, value]) => {
+      if (!value) return;
+      const list = Array.isArray(value)
+        ? value
+        : typeof value === 'string'
+          ? [value]
+          : [];
+      if (!list.length) return;
+      const normalized = Array.from(new Set(list.map((item) => String(item || '')).filter(Boolean)));
+      if (normalized.length) {
+        sanitized[String(userId)] = normalized;
+      }
+    });
+    return sanitized;
+  } catch (err) {
+    console.warn('Failed to read hidden program map', err);
+    return {};
+  }
+}
+
+function getHiddenProgramSetForUser(userId){
+  if (!userId) return new Set();
+  const map = readHiddenProgramsMap();
+  const key = String(userId);
+  const list = Array.isArray(map[key]) ? map[key] : [];
+  return new Set(list.map((value) => String(value || '')).filter(Boolean));
+}
+
+function getHiddenProgramsForView(currentUserId = CURRENT_USER_ID, targetUserId = TARGET_USER_ID){
+  const normalizedCurrent = currentUserId ? String(currentUserId) : null;
+  const normalizedTarget = targetUserId ? String(targetUserId) : null;
+  const effectiveId = (normalizedTarget && normalizedCurrent && normalizedTarget !== normalizedCurrent)
+    ? normalizedTarget
+    : (normalizedTarget || normalizedCurrent);
+  if (!effectiveId) return new Set();
+  return getHiddenProgramSetForUser(effectiveId);
+}
+
 function readStoredTrainee(){
   if (typeof sessionStorage === 'undefined') return null;
   try {
@@ -930,6 +978,7 @@ function App({ me, onSignOut }){
   const calendarCacheRef = useRef(new Map());
   const programColorCache = useRef(new Map());
   const rangeOverrideRef = useRef(rangeOverride);
+  const hiddenProgramIds = useMemo(() => getHiddenProgramsForView(me?.id, targetUserId), [me?.id, targetUserId]);
   const getWeekKey = useCallback((mode, week) => {
     const raw = week.id || (week.wk === null ? 'unscheduled' : String(week.wk));
     return `${mode}::${raw}`;
@@ -1015,13 +1064,15 @@ function App({ me, onSignOut }){
   const selectedProgramId = useMemo(() => {
     if (calendarMode === 'all') return null;
     if (calendarSelectValue && calendarSelectValue !== '__current__') {
-      return String(calendarSelectValue);
+      const normalized = String(calendarSelectValue);
+      return hiddenProgramIds.has(normalized) ? null : normalized;
     }
     if (activeProgramId) {
-      return String(activeProgramId);
+      const normalizedActiveId = String(activeProgramId);
+      return hiddenProgramIds.has(normalizedActiveId) ? null : normalizedActiveId;
     }
     return null;
-  }, [calendarMode, calendarSelectValue, activeProgramId]);
+  }, [calendarMode, calendarSelectValue, activeProgramId, hiddenProgramIds]);
   const selectedProgramInfo = selectedProgramId
     ? programInfoMap.get(String(selectedProgramId)) || null
     : null;
@@ -1174,12 +1225,13 @@ function App({ me, onSignOut }){
       setCalendarSelectValue('__all__');
       return;
     }
-    if (activeProgramId) {
-      setCalendarSelectValue(String(activeProgramId));
+    const normalizedActiveId = activeProgramId ? String(activeProgramId) : '';
+    if (normalizedActiveId && !hiddenProgramIds.has(normalizedActiveId)) {
+      setCalendarSelectValue(normalizedActiveId);
     } else {
       setCalendarSelectValue('__current__');
     }
-  }, [calendarMode, activeProgramId]);
+  }, [calendarMode, activeProgramId, hiddenProgramIds]);
 
   useEffect(() => {
     if (!allCalendarPrograms.length) {
@@ -1192,6 +1244,13 @@ function App({ me, onSignOut }){
       const next = { ...prev };
       allCalendarPrograms.forEach((program) => {
         const id = String(program.programId);
+        if (hiddenProgramIds.has(id)) {
+          if (next[id] !== false) {
+            next[id] = false;
+            changed = true;
+          }
+          return;
+        }
         if (!Object.prototype.hasOwnProperty.call(next, id)) {
           next[id] = true;
           changed = true;
@@ -1201,18 +1260,23 @@ function App({ me, onSignOut }){
         if (!availableIds.has(id)) {
           delete next[id];
           changed = true;
+          return;
+        }
+        if (hiddenProgramIds.has(id) && next[id] !== false) {
+          next[id] = false;
+          changed = true;
         }
       });
       return changed ? next : prev;
     });
-  }, [allCalendarPrograms]);
+  }, [allCalendarPrograms, hiddenProgramIds]);
 
   useEffect(() => {
     calendarCacheRef.current.clear();
     setAllCalendarEvents([]);
     setAllCalendarPrograms([]);
     setProgramVisibility({});
-  }, [targetUserId]);
+  }, [targetUserId, hiddenProgramIds]);
 
   useEffect(() => {
     const handleJournalUpdate = (event) => {
@@ -1451,9 +1515,23 @@ function App({ me, onSignOut }){
       const list = programList ?? await apiListPrograms();
       if (signal?.aborted) return;
       const safeList = Array.isArray(list) ? list : [];
-      setPrograms(safeList);
+      const hiddenSet = hiddenProgramIds;
+      const visiblePrograms = (!hiddenSet || hiddenSet.size === 0)
+        ? safeList
+        : safeList.filter((program) => {
+            if (!program) return false;
+            const value = program.program_id ?? program.id ?? program.uuid ?? '';
+            if (!value && value !== 0) return true;
+            const normalized = String(value);
+            if (!normalized) return true;
+            return !hiddenSet.has(normalized);
+          });
+      setPrograms(visiblePrograms);
       const mapped = programIds.reduce((acc, id) => {
-        const program = safeList.find(p => sameId(p.program_id, id));
+        const normalizedId = String(id || '');
+        if (!normalizedId) return acc;
+        if (hiddenSet && hiddenSet.has(normalizedId)) return acc;
+        const program = visiblePrograms.find(p => sameId(p.program_id, id));
         if (!program) return acc;
         const icon = program.icon || program.emoji || '📘';
         const title = program.title && program.title.trim() ? program.title : 'Untitled Program';
@@ -1467,7 +1545,7 @@ function App({ me, onSignOut }){
       console.error('Failed to load user programs', err);
       setUserPrograms([]);
     }
-  }, [targetUserId]);
+  }, [targetUserId, hiddenProgramIds]);
 
 
 /* Load tasks */
@@ -1637,9 +1715,15 @@ useEffect(() => {
 
   const legendPrograms = useMemo(() => (
     Array.isArray(allCalendarPrograms)
-      ? [...allCalendarPrograms].sort((a, b) => (a.programName || '').localeCompare(b.programName || ''))
+      ? allCalendarPrograms
+        .filter((program) => {
+          const id = program?.programId ? String(program.programId) : '';
+          if (!id) return true;
+          return !hiddenProgramIds.has(id);
+        })
+        .sort((a, b) => (a.programName || '').localeCompare(b.programName || ''))
       : []
-  ), [allCalendarPrograms]);
+  ), [allCalendarPrograms, hiddenProgramIds]);
 
   const scheduledMap = useMemo(()=>{
     const map = {};
@@ -1735,14 +1819,34 @@ useEffect(() => {
     const cacheKey = `all|${calendarRange.key}|${userKey}`;
     const applyData = (payload = { events: [], programs: [] }) => {
       if (cancelled) return;
+      const hiddenSet = hiddenProgramIds;
       const normalizedEvents = Array.isArray(payload.events)
-        ? payload.events.map((event) => ({
-          ...event,
-          type_delivery: ensureDisplayValue(event?.type_delivery),
-        }))
+        ? payload.events
+          .map((event) => ({
+            ...event,
+            type_delivery: ensureDisplayValue(event?.type_delivery),
+          }))
+          .filter((event) => {
+            if (!hiddenSet || hiddenSet.size === 0) return true;
+            const programId = event?.programId ?? event?.program_id ?? '';
+            if (!programId && programId !== 0) return true;
+            const normalized = String(programId);
+            if (!normalized) return true;
+            return !hiddenSet.has(normalized);
+          })
+        : [];
+      const normalizedPrograms = Array.isArray(payload.programs)
+        ? payload.programs.filter((program) => {
+          if (!hiddenSet || hiddenSet.size === 0) return true;
+          const programId = program?.programId ?? program?.program_id ?? program?.id ?? '';
+          if (!programId && programId !== 0) return true;
+          const normalized = String(programId);
+          if (!normalized) return true;
+          return !hiddenSet.has(normalized);
+        })
         : [];
       setAllCalendarEvents(normalizedEvents);
-      setAllCalendarPrograms(payload.programs || []);
+      setAllCalendarPrograms(normalizedPrograms);
     };
     const cached = calendarCacheRef.current.get(cacheKey);
     if (cached) {
@@ -1847,7 +1951,7 @@ useEffect(() => {
     return () => {
       cancelled = true;
     };
-  }, [calendarMode, calendarRange, targetUserId, programInfoMap, getProgramPalette]);
+  }, [calendarMode, calendarRange, targetUserId, programInfoMap, getProgramPalette, hiddenProgramIds]);
 
   async function refreshPrograms(newId){
     try {
@@ -1959,11 +2063,11 @@ useEffect(() => {
       const scheduledTime = deriveTimeFromTask(updatedTask);
       setAllCalendarEvents((prevEvents) => {
         const index = prevEvents.findIndex((event) => sameId(event.task_id || event.id, taskId));
-        if (!updatedTask.scheduled_for) {
+        const normalizedProgramId = programId ? String(programId) : '';
+        if (!updatedTask.scheduled_for || (normalizedProgramId && hiddenProgramIds.has(normalizedProgramId))) {
           if (index === -1) return prevEvents;
-          const next = [...prevEvents];
-          next.splice(index, 1);
-          return next;
+          const next = prevEvents.filter((event) => !sameId(event.task_id || event.id, taskId));
+          return next.length === prevEvents.length ? prevEvents : next;
         }
         if (index === -1) {
           return [
@@ -1984,7 +2088,7 @@ useEffect(() => {
               type_delivery: ensureDisplayValue(updatedTask.type_delivery),
               scheduled_for: updatedTask.scheduled_for || '',
               scheduled_time: scheduledTime,
-              programId: programId ? String(programId) : '',
+              programId: normalizedProgramId,
               programName,
               palette,
               source: 'all'
@@ -2005,13 +2109,13 @@ useEffect(() => {
           type_delivery: ensureDisplayValue(updatedTask.type_delivery),
           scheduled_for: updatedTask.scheduled_for || '',
           scheduled_time: scheduledTime,
-          programId: programId ? String(programId) : '',
+          programId: normalizedProgramId,
           programName,
           palette
         };
         return next;
       });
-      if (programId) {
+      if (programId && !hiddenProgramIds.has(String(programId))) {
         setAllCalendarPrograms((prevPrograms) => {
           if (prevPrograms.some((program) => String(program.programId) === String(programId))) {
             return prevPrograms;
@@ -2223,6 +2327,12 @@ useEffect(() => {
         const label = weekValue && weekValue !== '—' ? `W${weekValue}: ${title}` : title;
         const scheduledTime = deriveTimeFromRow(res);
         setAllCalendarEvents((prevEvents) => {
+          const normalizedProgramId = programId ? String(programId) : '';
+          if (normalizedProgramId && hiddenProgramIds.has(normalizedProgramId)) {
+            if (!prevEvents.length) return prevEvents;
+            const next = prevEvents.filter((event) => !sameId(event.task_id || event.id, res.task_id));
+            return next.length === prevEvents.length ? prevEvents : next;
+          }
           if (prevEvents.some((event) => sameId(event.task_id || event.id, res.task_id))) {
             return prevEvents;
           }
@@ -2244,14 +2354,14 @@ useEffect(() => {
               type_delivery: ensureDisplayValue(res.type_delivery),
               scheduled_for: res.scheduled_for || '',
               scheduled_time: scheduledTime,
-              programId: programId ? String(programId) : '',
+              programId: normalizedProgramId,
               programName,
               palette,
               source: 'all'
             }
           ];
         });
-        if (programId) {
+        if (programId && !hiddenProgramIds.has(String(programId))) {
           setAllCalendarPrograms((prevPrograms) => {
             if (prevPrograms.some((program) => String(program.programId) === String(programId))) {
               return prevPrograms;
@@ -2299,7 +2409,11 @@ useEffect(() => {
     }
     setCalendarMode('single');
     if (value === '__current__') {
-      setCalendarSelectValue(activeProgramId ? String(activeProgramId) : '__current__');
+      if (activeProgramId && !hiddenProgramIds.has(String(activeProgramId))) {
+        setCalendarSelectValue(String(activeProgramId));
+      } else {
+        setCalendarSelectValue('__current__');
+      }
       return;
     }
     setCalendarSelectValue(value);
