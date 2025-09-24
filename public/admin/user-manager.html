@@ -346,6 +346,7 @@
               <button id="btnRemovePrograms" type="button" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Remove programs</button>
               <button id="btnLoadCalendar" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Load calendar</button>
               <button id="btnOpenLifecycle" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm sm:col-span-2">Deactivate / Reactivate / Archive</button>
+              <button id="btnOpenAccess" class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm sm:col-span-2">Manage Users Access</button>
             </div>
             <p id="loadCalendarStatus" class="mt-3 text-sm text-slate-500"></p>
             <p id="removeProgramsStatus" class="mt-3 text-sm text-slate-500"></p>
@@ -562,6 +563,99 @@
         <button id="btnArchive" class="px-3 py-2 rounded-xl border text-sm">Archive user</button>
       </div>
       <div id="lifecycleMsg" class="text-xs text-slate-500 mt-3"></div>
+    </div>
+  </div>
+
+  <div id="drawerAccess" data-drawer class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" data-drawer-close></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white shadow-xl p-6 overflow-y-auto" data-drawer-panel>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Manage users access</h2>
+          <p class="text-sm text-slate-500 mt-1">Create local accounts and manage credentials for teammates.</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-900" data-drawer-close>&times;</button>
+      </div>
+      <p id="accessDrawerNotice" class="mt-3 text-sm text-rose-600 hidden">Only admins can manage user access.</p>
+      <div class="mt-4 space-y-6">
+        <section class="border rounded-xl p-4 space-y-3">
+          <div>
+            <h3 class="text-sm font-semibold">Provision credentials for <span id="accessProvisionName" class="font-semibold text-slate-900">this user</span></h3>
+            <p class="text-xs text-slate-500">Assign a username and temporary password for the selected user.</p>
+          </div>
+          <form id="formAccessProvision" class="space-y-3">
+            <div>
+              <label class="block text-sm mb-1" for="provisionUsername">Username</label>
+              <input id="provisionUsername" name="username" class="input" placeholder="username" autocomplete="off">
+            </div>
+            <div>
+              <label class="block text-sm mb-1" for="provisionPassword">Temporary password</label>
+              <div class="flex items-center gap-2">
+                <input id="provisionPassword" name="password" type="text" class="input" placeholder="Generate a secure password">
+                <button id="btnGenerateProvisionPassword" type="button" class="btn btn-outline text-xs whitespace-nowrap">Generate</button>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button type="submit" class="btn btn-primary text-sm">Save credentials</button>
+            </div>
+            <p id="accessProvisionMsg" class="text-xs text-slate-500"></p>
+          </form>
+        </section>
+
+        <section class="border rounded-xl p-4 space-y-3">
+          <div>
+            <h3 class="text-sm font-semibold">Reset password for <span id="accessResetName" class="font-semibold text-slate-900">this user</span></h3>
+            <p class="text-xs text-slate-500">Provide a new temporary password and share it securely.</p>
+          </div>
+          <form id="formAccessReset" class="space-y-3">
+            <div>
+              <label class="block text-sm mb-1" for="resetPassword">New temporary password</label>
+              <div class="flex items-center gap-2">
+                <input id="resetPassword" name="password" type="text" class="input" placeholder="Generate a secure password">
+                <button id="btnGenerateResetPassword" type="button" class="btn btn-outline text-xs whitespace-nowrap">Generate</button>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button type="submit" class="btn text-sm">Reset password</button>
+            </div>
+            <p id="accessResetMsg" class="text-xs text-slate-500"></p>
+          </form>
+        </section>
+
+        <section class="border rounded-xl p-4 space-y-3">
+          <div>
+            <h3 class="text-sm font-semibold">Create a new local user</h3>
+            <p class="text-xs text-slate-500">Provision a username and initial password without sending an invitation email.</p>
+          </div>
+          <form id="formAccessCreate" class="space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="sm:col-span-2">
+                <label class="block text-sm mb-1" for="accessCreateFullName">Full name</label>
+                <input id="accessCreateFullName" name="fullName" class="input" placeholder="Jamie Ramirez">
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-sm mb-1" for="accessCreateEmail">Email</label>
+                <input id="accessCreateEmail" name="email" type="email" class="input" placeholder="name@example.com">
+              </div>
+              <div>
+                <label class="block text-sm mb-1" for="accessCreateUsername">Username</label>
+                <input id="accessCreateUsername" name="username" class="input" placeholder="username" autocomplete="off" data-autofocus>
+              </div>
+              <div>
+                <label class="block text-sm mb-1" for="accessCreatePassword">Initial password</label>
+                <div class="flex items-center gap-2">
+                  <input id="accessCreatePassword" name="password" type="text" class="input" placeholder="Generate a secure password">
+                  <button id="btnGenerateCreatePassword" type="button" class="btn btn-outline text-xs whitespace-nowrap">Generate</button>
+                </div>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button type="submit" class="btn btn-primary text-sm">Create user</button>
+            </div>
+            <p id="accessCreateMsg" class="text-xs text-slate-500"></p>
+          </form>
+        </section>
+      </div>
     </div>
   </div>
 
@@ -1347,6 +1441,13 @@ function setStatusText(element, message, tone = 'neutral') {
   }
 }
 
+function clearStatusText(element) {
+  if (!element) return;
+  element.textContent = '';
+  element.classList.remove('text-emerald-600', 'text-rose-600');
+  element.classList.add('text-slate-500');
+}
+
 function extractProgramId(program) {
   if (!program) return '';
   const id = program.program_id ?? program.id ?? program.programId ?? program.programID ?? program.slug ?? '';
@@ -1494,6 +1595,33 @@ async function archiveUserRequest(userId) {
   });
 }
 
+async function createLocalUserAccess(payload) {
+  return fetch(`${API}/api/users/local`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+async function provisionUserAccess(userId, payload) {
+  return fetch(`${API}/api/users/${userId}/provision`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+async function resetUserPasswordRequest(userId, payload) {
+  return fetch(`${API}/api/users/${userId}/reset-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
 function persistSelectedTraineeSession(trainee) {
   try {
     if (!trainee || !trainee.id) {
@@ -1635,6 +1763,7 @@ const btnOpenEdit = document.getElementById('btnOpenEdit');
 const btnOpenRoles = document.getElementById('btnOpenRoles');
 const btnOpenPrograms = document.getElementById('btnOpenPrograms');
 const btnOpenLifecycle = document.getElementById('btnOpenLifecycle');
+const btnOpenAccess = document.getElementById('btnOpenAccess');
 const userActionButtons = document.querySelectorAll('[data-requires-user]');
 
 const formCreate = document.getElementById('formCreate');
@@ -1643,6 +1772,9 @@ const formRoles = document.getElementById('formRoles');
 const formPrograms = document.getElementById('formPrograms');
 const formRemovePrograms = document.getElementById('formRemovePrograms');
 const formDeactivate = document.getElementById('formDeactivate');
+const formAccessProvision = document.getElementById('formAccessProvision');
+const formAccessReset = document.getElementById('formAccessReset');
+const formAccessCreate = document.getElementById('formAccessCreate');
 
 const createMsg = document.getElementById('createMsg');
 const editMsg = document.getElementById('editMsg');
@@ -1650,6 +1782,9 @@ const rolesDrawerMsg = document.getElementById('rolesDrawerMsg');
 const programsMsg = document.getElementById('programsMsg');
 const removeProgramsDrawerMsg = document.getElementById('removeProgramsDrawerMsg');
 const lifecycleMsg = document.getElementById('lifecycleMsg');
+const accessProvisionMsg = document.getElementById('accessProvisionMsg');
+const accessResetMsg = document.getElementById('accessResetMsg');
+const accessCreateMsg = document.getElementById('accessCreateMsg');
 const btnLoadCalendar = document.getElementById('btnLoadCalendar');
 const btnRemovePrograms = document.getElementById('btnRemovePrograms');
 const loadCalendarStatus = document.getElementById('loadCalendarStatus');
@@ -1660,6 +1795,8 @@ const rolesUserName = document.getElementById('rolesUserName');
 const programsUserName = document.getElementById('programsUserName');
 const removeProgramsUserName = document.getElementById('removeProgramsUserName');
 const lifecycleUserName = document.getElementById('lifecycleUserName');
+const accessProvisionName = document.getElementById('accessProvisionName');
+const accessResetName = document.getElementById('accessResetName');
 
 const drawerRolesBox = document.getElementById('drawerRolesBox');
 const drawerProgramList = document.getElementById('drawerProgramList');
@@ -1677,6 +1814,17 @@ const inputEditOrganization = document.getElementById('editOrganization');
 const inputEditEmail = document.getElementById('editEmail');
 const inputCreateRoles = document.getElementById('createRoles');
 const textareaDeactivateReason = document.getElementById('deactivateReason');
+const provisionUsernameInput = document.getElementById('provisionUsername');
+const provisionPasswordInput = document.getElementById('provisionPassword');
+const resetPasswordInput = document.getElementById('resetPassword');
+const createFullNameInput = document.getElementById('accessCreateFullName');
+const createEmailInput = document.getElementById('accessCreateEmail');
+const createUsernameInput = document.getElementById('accessCreateUsername');
+const createPasswordInput = document.getElementById('accessCreatePassword');
+const btnGenerateProvisionPassword = document.getElementById('btnGenerateProvisionPassword');
+const btnGenerateResetPassword = document.getElementById('btnGenerateResetPassword');
+const btnGenerateCreatePassword = document.getElementById('btnGenerateCreatePassword');
+const accessDrawerNotice = document.getElementById('accessDrawerNotice');
 
 populateSelectOptions(inputEditOrganization, ORGANIZATION_OPTIONS);
 populateSelectOptions(inputEditSubUnit, SUB_UNIT_OPTIONS);
@@ -1822,6 +1970,116 @@ function setLifecycleButtons(status) {
   });
 }
 
+function generateSecurePassword(length = 12) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%&*?';
+  const size = Math.max(8, length);
+  if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+    const buffer = new Uint32Array(size);
+    window.crypto.getRandomValues(buffer);
+    return Array.from(buffer, value => alphabet[value % alphabet.length]).join('');
+  }
+  let password = '';
+  for (let i = 0; i < size; i += 1) {
+    const index = Math.floor(Math.random() * alphabet.length);
+    password += alphabet[index];
+  }
+  return password;
+}
+
+function assignGeneratedPassword(input) {
+  if (!input) return;
+  const value = generateSecurePassword();
+  input.value = value;
+  if (typeof input.focus === 'function') input.focus();
+  if (typeof input.select === 'function') {
+    try {
+      input.select();
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+}
+
+async function extractErrorMessage(response, fallback) {
+  if (!response) return fallback;
+  const contentType = response.headers?.get ? response.headers.get('content-type') || '' : '';
+  if (contentType.includes('application/json')) {
+    try {
+      const data = await response.json();
+      const message = typeof data?.message === 'string' ? data.message.trim() : '';
+      const error = typeof data?.error === 'string' ? data.error.trim() : '';
+      if (message) return message;
+      if (error) return error;
+    } catch (_err) {
+      // fall through to text parsing
+    }
+  }
+  try {
+    const text = await response.text();
+    if (text && text.trim()) {
+      return text.trim();
+    }
+  } catch (_err) {
+    // ignore
+  }
+  return fallback;
+}
+
+function updateAccessDrawerContext(user) {
+  const hasUser = Boolean(user && user.id);
+  const displayName = hasUser ? (user.full_name || user.username || 'this user') : 'this user';
+  if (accessProvisionName) accessProvisionName.textContent = displayName;
+  if (accessResetName) accessResetName.textContent = displayName;
+
+  if (provisionUsernameInput) {
+    provisionUsernameInput.disabled = !hasUser;
+    provisionUsernameInput.value = hasUser ? (user.username || user.email || '') : '';
+  }
+  if (provisionPasswordInput) {
+    provisionPasswordInput.disabled = !hasUser;
+    if (!hasUser) provisionPasswordInput.value = '';
+  }
+  if (btnGenerateProvisionPassword) {
+    btnGenerateProvisionPassword.disabled = !hasUser;
+  }
+  if (formAccessProvision) {
+    const submit = formAccessProvision.querySelector('button[type="submit"]');
+    if (submit) {
+      submit.disabled = !hasUser;
+      submit.classList.toggle('opacity-50', !hasUser);
+      submit.classList.toggle('pointer-events-none', !hasUser);
+    }
+  }
+
+  if (resetPasswordInput) {
+    resetPasswordInput.disabled = !hasUser;
+    if (!hasUser) resetPasswordInput.value = '';
+  }
+  if (btnGenerateResetPassword) {
+    btnGenerateResetPassword.disabled = !hasUser;
+  }
+  if (formAccessReset) {
+    const submit = formAccessReset.querySelector('button[type="submit"]');
+    if (submit) {
+      submit.disabled = !hasUser;
+      submit.classList.toggle('opacity-50', !hasUser);
+      submit.classList.toggle('pointer-events-none', !hasUser);
+    }
+  }
+}
+
+function resetAccessDrawerForms() {
+  if (formAccessProvision) formAccessProvision.reset();
+  if (formAccessReset) formAccessReset.reset();
+  if (formAccessCreate) formAccessCreate.reset();
+  if (provisionPasswordInput) provisionPasswordInput.value = '';
+  if (resetPasswordInput) resetPasswordInput.value = '';
+  if (createPasswordInput) createPasswordInput.value = '';
+  clearStatusText(accessProvisionMsg);
+  clearStatusText(accessResetMsg);
+  clearStatusText(accessCreateMsg);
+}
+
 function renderSelectedUser(user) {
   const previousUser = selectedUser;
   const previousUserId = previousUser ? previousUser.id : null;
@@ -1867,6 +2125,7 @@ function renderSelectedUser(user) {
     if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, '');
     if (inputEditOrganization) ensureSelectValue(inputEditOrganization, '');
     if (inputEditEmail) inputEditEmail.value = '';
+    updateAccessDrawerContext(null);
     return;
   }
 
@@ -1897,6 +2156,7 @@ function renderSelectedUser(user) {
     removeProgramsUserName.textContent = displayName;
   }
   lifecycleUserName.textContent = displayName;
+  updateAccessDrawerContext(user);
   if (inputEditFullName) inputEditFullName.value = user.full_name || '';
   if (inputEditLastName) inputEditLastName.value = user.last_name || '';
   if (inputEditFirstName) inputEditFirstName.value = user.first_name || '';
@@ -2038,6 +2298,32 @@ btnOpenLifecycle.addEventListener('click', () => {
   openDrawer('drawerLifecycle');
 });
 
+if (btnOpenAccess) {
+  if (!IS_ADMIN) {
+    btnOpenAccess.disabled = true;
+    btnOpenAccess.classList.add('opacity-50', 'cursor-not-allowed');
+  }
+  btnOpenAccess.addEventListener('click', () => {
+    if (!IS_ADMIN) return;
+    resetAccessDrawerForms();
+    updateAccessDrawerContext(selectedUser);
+    if (accessDrawerNotice) accessDrawerNotice.classList.add('hidden');
+    openDrawer('drawerAccess');
+  });
+}
+
+if (btnGenerateProvisionPassword && provisionPasswordInput) {
+  btnGenerateProvisionPassword.addEventListener('click', () => assignGeneratedPassword(provisionPasswordInput));
+}
+
+if (btnGenerateResetPassword && resetPasswordInput) {
+  btnGenerateResetPassword.addEventListener('click', () => assignGeneratedPassword(resetPasswordInput));
+}
+
+if (btnGenerateCreatePassword && createPasswordInput) {
+  btnGenerateCreatePassword.addEventListener('click', () => assignGeneratedPassword(createPasswordInput));
+}
+
 if (btnLoadCalendar) {
   btnLoadCalendar.addEventListener('click', async () => {
     if (!selectedUser) return;
@@ -2106,6 +2392,150 @@ formCreate.addEventListener('submit', async e => {
     createMsg.textContent = 'Failed to invite user.';
   }
 });
+
+if (formAccessProvision) {
+  formAccessProvision.addEventListener('submit', async event => {
+    event.preventDefault();
+    clearStatusText(accessProvisionMsg);
+    if (!IS_ADMIN) {
+      setStatusText(accessProvisionMsg, 'Only admins can provision user access.', 'error');
+      return;
+    }
+    if (!selectedUser || !selectedUser.id) {
+      setStatusText(accessProvisionMsg, 'Select a user to provision access.', 'error');
+      return;
+    }
+    const username = (provisionUsernameInput?.value || '').toString().trim();
+    const password = (provisionPasswordInput?.value || '').toString().trim();
+    if (!username) {
+      setStatusText(accessProvisionMsg, 'Username is required.', 'error');
+      return;
+    }
+    if (!password || password.length < 8) {
+      setStatusText(accessProvisionMsg, 'Password must be at least 8 characters long.', 'error');
+      return;
+    }
+    setStatusText(accessProvisionMsg, 'Saving credentials…', 'neutral');
+    try {
+      const res = await provisionUserAccess(selectedUser.id, { username, password });
+      if (!res.ok) {
+        const message = await extractErrorMessage(res, 'Unable to provision access.');
+        setStatusText(accessProvisionMsg, message, 'error');
+        return;
+      }
+      try {
+        const data = await res.json();
+        if (data && typeof data === 'object' && data.id) {
+          const index = USERS.findIndex(user => user && user.id === data.id);
+          if (index !== -1) {
+            USERS[index] = { ...USERS[index], ...data };
+            renderSelectedUser(USERS[index]);
+          }
+        }
+      } catch (_err) {
+        // ignore parse errors
+      }
+      if (provisionPasswordInput) {
+        provisionPasswordInput.value = '';
+      }
+      setStatusText(accessProvisionMsg, 'Credentials saved. Share the password securely.', 'success');
+      await reloadUsers();
+    } catch (error) {
+      console.error(error);
+      setStatusText(accessProvisionMsg, 'Unable to provision access. Please try again.', 'error');
+    }
+  });
+}
+
+if (formAccessReset) {
+  formAccessReset.addEventListener('submit', async event => {
+    event.preventDefault();
+    clearStatusText(accessResetMsg);
+    if (!IS_ADMIN) {
+      setStatusText(accessResetMsg, 'Only admins can reset passwords.', 'error');
+      return;
+    }
+    if (!selectedUser || !selectedUser.id) {
+      setStatusText(accessResetMsg, 'Select a user to reset their password.', 'error');
+      return;
+    }
+    const password = (resetPasswordInput?.value || '').toString().trim();
+    if (!password || password.length < 8) {
+      setStatusText(accessResetMsg, 'Password must be at least 8 characters long.', 'error');
+      return;
+    }
+    setStatusText(accessResetMsg, 'Resetting password…', 'neutral');
+    try {
+      const res = await resetUserPasswordRequest(selectedUser.id, { password });
+      if (!res.ok) {
+        const message = await extractErrorMessage(res, 'Unable to reset password.');
+        setStatusText(accessResetMsg, message, 'error');
+        return;
+      }
+      if (resetPasswordInput) {
+        resetPasswordInput.value = '';
+      }
+      setStatusText(accessResetMsg, 'Password updated. Share the new password securely.', 'success');
+    } catch (error) {
+      console.error(error);
+      setStatusText(accessResetMsg, 'Unable to reset password. Please try again.', 'error');
+    }
+  });
+}
+
+if (formAccessCreate) {
+  formAccessCreate.addEventListener('submit', async event => {
+    event.preventDefault();
+    clearStatusText(accessCreateMsg);
+    if (!IS_ADMIN) {
+      setStatusText(accessCreateMsg, 'Only admins can create users.', 'error');
+      return;
+    }
+    const fullName = (createFullNameInput?.value || '').toString().trim();
+    const email = (createEmailInput?.value || '').toString().trim();
+    const username = (createUsernameInput?.value || '').toString().trim();
+    const password = (createPasswordInput?.value || '').toString().trim();
+    if (!username) {
+      setStatusText(accessCreateMsg, 'Username is required.', 'error');
+      return;
+    }
+    if (!password || password.length < 8) {
+      setStatusText(accessCreateMsg, 'Password must be at least 8 characters long.', 'error');
+      return;
+    }
+    setStatusText(accessCreateMsg, 'Creating user…', 'neutral');
+    try {
+      const res = await createLocalUserAccess({ full_name: fullName, email, username, password });
+      if (!res.ok) {
+        const message = await extractErrorMessage(res, 'Unable to create user.');
+        setStatusText(accessCreateMsg, message, 'error');
+        return;
+      }
+      let createdId = null;
+      try {
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          createdId = data.id || data.user_id || null;
+        }
+      } catch (_err) {
+        // ignore parse errors
+      }
+      if (formAccessCreate) formAccessCreate.reset();
+      if (createPasswordInput) createPasswordInput.value = '';
+      setStatusText(accessCreateMsg, 'User created. Share credentials securely.', 'success');
+      await reloadUsers(false);
+      if (createdId) {
+        const created = USERS.find(user => user && user.id === createdId);
+        if (created) {
+          renderSelectedUser(created);
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      setStatusText(accessCreateMsg, 'Unable to create user. Please try again.', 'error');
+    }
+  });
+}
 
 formEdit.addEventListener('submit', async e => {
   e.preventDefault();
