@@ -51,6 +51,9 @@ describe('template api', () => {
         status text default 'active' not null,
         password_hash text,
         provider text,
+        organization_id text,
+        organization text,
+        role text,
         last_login_at timestamptz
       );
       create table public.session (
@@ -147,13 +150,19 @@ describe('template api', () => {
     await pool.query('delete from public.users');
   });
 
-  const createUserWithRole = async (username, roleKey) => {
+  const createUserWithRole = async (username, roleKey, overrides = {}) => {
     const userId = crypto.randomUUID();
     const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 1);
     await pool.query(
       'insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)',
       [userId, username, passwordHash, 'local']
     );
+    const entries = Object.entries(overrides || {});
+    if (entries.length) {
+      const setClauses = entries.map(([key], index) => `${key} = $${index + 2}`);
+      const values = [userId, ...entries.map(([, value]) => value)];
+      await pool.query(`update public.users set ${setClauses.join(', ')} where id = $1`, values);
+    }
     if (roleKey) {
       await pool.query(
         'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key = $2',
@@ -218,6 +227,71 @@ describe('template api', () => {
     expect(hasDeleted).toBe(true);
 
     await agent.get('/api/templates').query({ status: 'invalid' }).expect(400);
+  });
+
+  test('GET /api/templates restricts managers to their organization', async () => {
+    await grantPermission('template.read');
+    const managerUsername = 'manager-templates';
+    const organizationId = 'org-manager-1';
+    await createUserWithRole(managerUsername, 'manager', {
+      role: 'manager',
+      organization_id: organizationId,
+    });
+
+    const templateRows = [
+      { id: nextTemplateId(), label: 'Manager Org Template', organization: organizationId },
+      { id: nextTemplateId(), label: 'Other Org Template', organization: 'other-org' },
+      { id: nextTemplateId(), label: 'No Org Template', organization: null },
+    ];
+
+    for (const row of templateRows) {
+      await pool.query(
+        'insert into public.program_task_templates(template_id, week_number, label, organization, status) values ($1,$2,$3,$4,$5)',
+        [row.id, 1, row.label, row.organization, 'draft']
+      );
+    }
+
+    const agent = await loginAgent(managerUsername);
+
+    const res = await agent.get('/api/templates').expect(200);
+    expect(res.body.meta.total).toBe(1);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].organization).toBe(organizationId);
+
+    const resWithQuery = await agent
+      .get('/api/templates')
+      .query({ organization: 'other-org' })
+      .expect(200);
+    expect(resWithQuery.body.data).toEqual(res.body.data);
+  });
+
+  test('GET /api/templates allows admins to filter by organization', async () => {
+    const adminUsername = 'admin-templates-org';
+    await createUserWithRole(adminUsername, 'admin', { role: 'admin' });
+
+    const targetOrg = 'filter-org';
+    const templateRows = [
+      { id: nextTemplateId(), label: 'Target Org Template', organization: targetOrg },
+      { id: nextTemplateId(), label: 'Other Org Template', organization: 'other-org' },
+    ];
+
+    for (const row of templateRows) {
+      await pool.query(
+        'insert into public.program_task_templates(template_id, week_number, label, organization, status) values ($1,$2,$3,$4,$5)',
+        [row.id, 1, row.label, row.organization, 'draft']
+      );
+    }
+
+    const agent = await loginAgent(adminUsername);
+
+    const res = await agent
+      .get('/api/templates')
+      .query({ organization: targetOrg })
+      .expect(200);
+
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].organization).toBe(targetOrg);
+    expect(res.body.meta.total).toBe(1);
   });
 
   test('POST /api/templates enforces validation rules', async () => {

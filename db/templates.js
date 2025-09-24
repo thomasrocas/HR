@@ -77,6 +77,9 @@ function createTemplatesDao(pool) {
     includeDeleted: Boolean(options.includeDeleted),
     status: options.status,
     search: options.search,
+    organization: Object.prototype.hasOwnProperty.call(options, 'organization')
+      ? options.organization
+      : undefined,
   });
 
   const buildStatusFilter = (status, params) => {
@@ -97,11 +100,19 @@ function createTemplatesDao(pool) {
   };
 
   async function list(options = {}) {
-    const { db, limit, offset, includeDeleted, status, search } = withDb(options);
+    const { db, limit, offset, includeDeleted, status, search, organization } = withDb(options);
     const params = [];
     let where = 'where 1=1';
     if (!includeDeleted) {
       where += ' and t.deleted_at is null';
+    }
+    if (organization !== undefined) {
+      if (organization === null) {
+        where += ' and t.organization is null';
+      } else {
+        params.push(organization);
+        where += ` and t.organization = $${params.length}`;
+      }
     }
     where += buildStatusFilter(status, params);
     where += buildSearchFilter(search, params);
