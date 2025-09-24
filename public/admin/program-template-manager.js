@@ -448,6 +448,230 @@ function stripTemplateIdentifierFields(record) {
   return sanitized;
 }
 
+const PROGRAM_IDENTIFIER_KEYS = new Set([
+  'id',
+  'program_id',
+  'programId',
+  'programID',
+  'programid',
+  'program_identifier',
+  'programIdentifier',
+  'programidentifier',
+  'slug',
+  'program_slug',
+  'programSlug',
+  'uuid',
+  'program_uuid',
+]);
+
+function hasProgramIdentifier(record) {
+  if (!record || typeof record !== 'object') {
+    return false;
+  }
+  return Array.from(PROGRAM_IDENTIFIER_KEYS).some(key => Object.prototype.hasOwnProperty.call(record, key));
+}
+
+function extractProgramIdentifier(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  for (const key of PROGRAM_IDENTIFIER_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) {
+      continue;
+    }
+    const value = record[key];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    const normalizedValue = typeof value === 'string' ? value.trim() : normalizeId(value).trim();
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+  }
+  return null;
+}
+
+function stripProgramIdentifierFields(record) {
+  if (!record || typeof record !== 'object') {
+    return {};
+  }
+  const sanitized = {};
+  Object.entries(record).forEach(([key, value]) => {
+    if (PROGRAM_IDENTIFIER_KEYS.has(key)) {
+      return;
+    }
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      return;
+    }
+    sanitized[key] = value;
+  });
+  return sanitized;
+}
+
+function normalizeProgramImportRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const normalized = {};
+  let hasValue = false;
+  let identifier = null;
+  const assignString = (value) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    return String(value).trim();
+  };
+  Object.entries(record).forEach(([key, value]) => {
+    if (!key) return;
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    const stringValue = assignString(value);
+    const isEmpty = stringValue === '';
+    switch (normalizedKey) {
+      case 'id':
+      case 'program_id':
+      case 'programid':
+      case 'program_identifier':
+      case 'program_uuid':
+      case 'uuid':
+      case 'program_slug':
+      case 'slug': {
+        if (!isEmpty) {
+          const normalizedId = (() => {
+            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+              return normalizeId(value).trim();
+            }
+            return '';
+          })();
+          if (normalizedId) {
+            identifier = normalizedId;
+            hasValue = true;
+          }
+        }
+        break;
+      }
+      case 'title':
+      case 'program_title':
+      case 'program':
+      case 'program_name':
+      case 'name': {
+        if (!isEmpty) {
+          normalized.title = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'total_weeks':
+      case 'totalweeks':
+      case 'weeks':
+      case 'week_count':
+      case 'duration':
+      case 'duration_weeks':
+      case 'program_length':
+      case 'length_weeks': {
+        if (!isEmpty) {
+          const weeksValue = toNullableNumber(stringValue);
+          if (weeksValue !== null) {
+            normalized.total_weeks = weeksValue;
+            hasValue = true;
+          }
+        }
+        break;
+      }
+      case 'description':
+      case 'details':
+      case 'summary':
+      case 'notes':
+      case 'program_description': {
+        if (!isEmpty) {
+          normalized.description = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'results':
+      case 'outcomes':
+      case 'learning_results':
+      case 'expected_results': {
+        if (!isEmpty) {
+          normalized.results = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'purpose':
+      case 'objective':
+      case 'objectives':
+      case 'goal':
+      case 'goals': {
+        if (!isEmpty) {
+          normalized.purpose = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'organization':
+      case 'org':
+      case 'organization_name': {
+        if (!isEmpty) {
+          normalized.organization = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'sub_unit':
+      case 'subunit':
+      case 'sub_unit_name':
+      case 'subunit_name': {
+        if (!isEmpty) {
+          normalized.sub_unit = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'department':
+      case 'dept':
+      case 'department_name': {
+        if (!isEmpty) {
+          normalized.department = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      case 'discipline':
+      case 'discipline_type':
+      case 'disciplinetype':
+      case 'focus_area':
+      case 'track': {
+        if (!isEmpty) {
+          normalized.discipline = stringValue;
+          hasValue = true;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  });
+  if (!hasValue) return null;
+  const cleaned = {};
+  if (identifier) {
+    cleaned.program_id = identifier;
+  }
+  Object.entries(normalized).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      return;
+    }
+    cleaned[key] = value;
+  });
+  if (!Object.keys(cleaned).length) {
+    return identifier ? { program_id: identifier } : null;
+  }
+  return cleaned;
+}
+
 function buildTemplateImportOperation(record, index) {
   if (!record || typeof record !== 'object') {
     return null;
@@ -477,6 +701,47 @@ function buildTemplateImportOperation(record, index) {
 
   if (operation.type === 'create' && payloadKeys.length === 0) {
     operation.error = 'No fields provided for template creation.';
+    return operation;
+  }
+
+  return operation;
+}
+
+function buildProgramImportOperation(record, index) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  const hasIdentifierField = hasProgramIdentifier(record);
+  const programId = extractProgramIdentifier(record);
+  const payload = stripProgramIdentifierFields(record);
+  const payloadKeys = Object.keys(payload);
+  const operationType = programId ? 'update' : (hasIdentifierField ? 'update' : 'create');
+  const operation = {
+    index,
+    payload,
+    programId: programId || null,
+    type: operationType,
+    error: null,
+  };
+
+  if (operation.type === 'create') {
+    if (!payload.title) {
+      operation.error = 'Program title is required to create a new program.';
+    }
+  } else if (operation.type === 'update') {
+    if (!programId) {
+      operation.error = 'Program identifier is missing or invalid for update.';
+    } else if (payloadKeys.length === 0) {
+      operation.error = 'No program fields were provided for update.';
+    }
+  }
+
+  if (operation.error) {
+    return operation;
+  }
+
+  if (operation.type === 'create' && payloadKeys.length === 0) {
+    operation.error = 'No fields provided for program creation.';
     return operation;
   }
 
@@ -1394,7 +1659,32 @@ function parseCsvRows(text) {
     .map(row => row.map(cell => (cell ?? '').toString()));
 }
 
-function parseTemplateImportCsv(text) {
+function extractImportRecords(payload, keys = []) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+  const fallbackKeys = ['data', 'items', 'results', 'rows', 'records'];
+  const searchKeys = Array.from(new Set([...(Array.isArray(keys) ? keys : []), ...fallbackKeys]));
+  for (const key of searchKeys) {
+    if (!key) continue;
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      const nested = extractImportRecords(value, keys);
+      if (nested.length) {
+        return nested;
+      }
+    }
+  }
+  return [];
+}
+
+function parseImportCsv(text) {
   const rows = parseCsvRows(text);
   if (!rows.length) return [];
   const [headerRow, ...dataRows] = rows;
@@ -1416,28 +1706,11 @@ function parseTemplateImportCsv(text) {
   return records;
 }
 
-function extractTemplatesFromImportPayload(payload) {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  if (!payload || typeof payload !== 'object') {
-    return [];
-  }
-  const candidateKeys = ['templates', 'data', 'items', 'results', 'rows', 'records'];
-  for (const key of candidateKeys) {
-    const value = payload[key];
-    if (Array.isArray(value)) {
-      return value;
-    }
-  }
-  return [];
-}
-
-function parseTemplateImportJson(text) {
+function parseImportJson(text, keys = []) {
   if (!text) return [];
   try {
     const parsed = JSON.parse(stripBom(text));
-    const extracted = extractTemplatesFromImportPayload(parsed);
+    const extracted = extractImportRecords(parsed, keys);
     if (extracted.length) {
       return extracted;
     }
@@ -1446,10 +1719,13 @@ function parseTemplateImportJson(text) {
     }
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.error('Failed to parse template import JSON.', error);
+    console.error('Failed to parse import JSON.', error);
     return [];
   }
 }
+
+const PROGRAM_IMPORT_RECORD_KEYS = ['programs'];
+const TEMPLATE_IMPORT_RECORD_KEYS = ['templates'];
 
 const TEMPLATE_IMPORT_IGNORED_KEYS = new Set([
   'id',
@@ -1666,6 +1942,64 @@ async function tryImportTemplatesBulk(operations) {
   throw error;
 }
 
+async function importProgramsSequentially(operations) {
+  const entries = Array.isArray(operations) ? operations : [];
+  const total = entries.length;
+  let success = 0;
+  let failure = 0;
+  const errors = [];
+  for (let index = 0; index < total; index += 1) {
+    const operation = entries[index];
+    if (!operation) {
+      continue;
+    }
+    if (operation.error) {
+      failure += 1;
+      const baseMessage = operation.error;
+      const message = typeof operation.index === 'number'
+        ? `Program record ${operation.index + 1}: ${baseMessage}`
+        : baseMessage;
+      errors.push(message);
+      continue;
+    }
+    const { type, payload, programId } = operation;
+    const isUpdate = type === 'update';
+    const actionLabel = isUpdate ? 'Updating' : 'Creating';
+    if (programMessage) {
+      programMessage.textContent = `${actionLabel} programs (${index + 1}/${total})…`;
+    }
+    try {
+      const requestUrl = isUpdate ? `${API}/programs/${encodeURIComponent(programId)}` : `${API}/programs`;
+      const method = isUpdate ? 'PATCH' : 'POST';
+      if (isUpdate) {
+        console.info('[Program Import] Updating program via PATCH', { programId, payload });
+      }
+      const res = await fetch(requestUrl, {
+        method,
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        success += 1;
+      } else {
+        failure += 1;
+        const message = await readErrorMessageFromResponse(res);
+        if (message) {
+          errors.push(message);
+        }
+      }
+    } catch (error) {
+      console.error('Program import request failed.', error);
+      failure += 1;
+      if (error?.message) {
+        errors.push(error.message);
+      }
+    }
+  }
+  return { success, failure, errors };
+}
+
 async function importTemplatesSequentially(operations) {
   const entries = Array.isArray(operations) ? operations : [];
   const total = entries.length;
@@ -1724,6 +2058,134 @@ async function importTemplatesSequentially(operations) {
   return { success, failure, errors };
 }
 
+async function handleProgramImportFile(file) {
+  if (!CAN_MANAGE_PROGRAMS) {
+    showToast('You do not have permission to import programs.', { type: 'error' });
+    return;
+  }
+  if (!file) return;
+  const fileName = file.name || 'selected file';
+  const previousSelectedProgramId = selectedProgramId;
+  try {
+    programMessage.textContent = `Reading ${fileName}…`;
+    const fileText = await readFileAsText(file);
+    const extension = (fileName.split('.').pop() || '').toLowerCase();
+    let rawRecords = [];
+    if (extension === 'json') {
+      rawRecords = parseImportJson(fileText, PROGRAM_IMPORT_RECORD_KEYS);
+    } else if (extension === 'csv') {
+      rawRecords = parseImportCsv(fileText);
+    } else {
+      rawRecords = parseImportJson(fileText, PROGRAM_IMPORT_RECORD_KEYS);
+      if (!rawRecords.length) {
+        rawRecords = parseImportCsv(fileText);
+      }
+    }
+    const normalizedRecords = rawRecords
+      .map(normalizeProgramImportRecord)
+      .filter(Boolean);
+    if (!normalizedRecords.length) {
+      showToast('No programs were found in the selected file.', { type: 'error' });
+      programMessage.textContent = 'No programs were imported. Please verify the file contents and try again.';
+      return;
+    }
+    const operations = normalizedRecords
+      .map((record, index) => buildProgramImportOperation(record, index))
+      .filter(Boolean);
+    if (!operations.length) {
+      showToast('No programs were found in the selected file.', { type: 'error' });
+      programMessage.textContent = 'No programs were imported. Please verify the file contents and try again.';
+      return;
+    }
+    const blockedOperations = [];
+    const actionableOperations = [];
+    operations.forEach(operation => {
+      if (!operation) {
+        return;
+      }
+      if (operation.error) {
+        blockedOperations.push(operation);
+        return;
+      }
+      if (operation.type === 'create' || operation.type === 'update') {
+        actionableOperations.push(operation);
+      }
+    });
+    const total = normalizedRecords.length;
+    programMessage.textContent = `Importing ${total} program${total === 1 ? '' : 's'}…`;
+    showToast(`Importing ${total} program${total === 1 ? '' : 's'}…`, { type: 'info' });
+    let success = 0;
+    let failure = 0;
+    let errors = [];
+    if (blockedOperations.length) {
+      failure += blockedOperations.length;
+      blockedOperations.forEach(operation => {
+        const baseMessage = operation.error || 'Program import record could not be processed.';
+        const message = typeof operation.index === 'number'
+          ? `Program record ${operation.index + 1}: ${baseMessage}`
+          : baseMessage;
+        errors.push(message);
+      });
+      const blockedUpdates = blockedOperations.filter(operation => operation.type === 'update');
+      if (blockedUpdates.length) {
+        console.warn('[Program Import] Skipping program updates with errors.', blockedUpdates);
+      }
+    }
+    if (actionableOperations.length) {
+      const sequentialResult = await importProgramsSequentially(actionableOperations);
+      success += sequentialResult.success;
+      failure += sequentialResult.failure;
+      if (Array.isArray(sequentialResult.errors) && sequentialResult.errors.length) {
+        errors = errors.concat(sequentialResult.errors);
+      }
+    }
+    if (success > 0) {
+      await loadPrograms();
+      if (selectedProgramId !== previousSelectedProgramId) {
+        try {
+          await loadProgramTemplateAssignments({ preserveSelection: true });
+        } catch (assignmentError) {
+          console.error('Failed to reload program-template assignments after import.', assignmentError);
+        }
+      }
+    }
+    if (success > 0 && failure === 0) {
+      showToast(`Successfully imported ${success} program${success === 1 ? '' : 's'}.`, { type: 'success' });
+      programMessage.textContent = `Import complete — ${success} program${success === 1 ? '' : 's'} added or updated.`;
+      return;
+    }
+    if (success > 0 && failure > 0) {
+      const summary = `Import complete — ${success} succeeded, ${failure} failed.`;
+      showToast(summary, { type: 'error' });
+      programMessage.textContent = summary;
+      if (errors.length) {
+        showToast(errors[0], { type: 'error' });
+      }
+      return;
+    }
+    if (failure > 0) {
+      const summary = failure === total
+        ? 'Program import failed. All records were rejected.'
+        : `Program import failed for ${failure} record${failure === 1 ? '' : 's'}.`;
+      programMessage.textContent = summary;
+      showToast(summary, { type: 'error' });
+      if (errors.length) {
+        showToast(errors[0], { type: 'error' });
+      }
+      return;
+    }
+    programMessage.textContent = 'No programs were imported.';
+  } catch (error) {
+    console.error('Failed to import programs.', error);
+    showToast('Program import failed. Please try again later.', { type: 'error' });
+    programMessage.textContent = 'Program import failed. Please review the console for details.';
+  } finally {
+    if (inputImportPrograms) {
+      inputImportPrograms.value = '';
+    }
+  }
+}
+
 async function handleTemplateImportFile(file) {
   if (!CAN_MANAGE_TEMPLATES) {
     showToast('You do not have permission to import templates.', { type: 'error' });
@@ -1737,13 +2199,13 @@ async function handleTemplateImportFile(file) {
     const extension = (fileName.split('.').pop() || '').toLowerCase();
     let rawRecords = [];
     if (extension === 'json') {
-      rawRecords = parseTemplateImportJson(fileText);
+      rawRecords = parseImportJson(fileText, TEMPLATE_IMPORT_RECORD_KEYS);
     } else if (extension === 'csv') {
-      rawRecords = parseTemplateImportCsv(fileText);
+      rawRecords = parseImportCsv(fileText);
     } else {
-      rawRecords = parseTemplateImportJson(fileText);
+      rawRecords = parseImportJson(fileText, TEMPLATE_IMPORT_RECORD_KEYS);
       if (!rawRecords.length) {
-        rawRecords = parseTemplateImportCsv(fileText);
+        rawRecords = parseImportCsv(fileText);
       }
     }
     const normalizedRecords = rawRecords
@@ -1922,6 +2384,8 @@ const btnRefreshTemplates = document.getElementById('btnRefreshTemplates');
 const btnNewProgram = document.getElementById('btnNewProgram');
 const btnEditProgram = document.getElementById('btnEditProgram');
 const btnExportProgramsCsv = document.getElementById('exportCsv');
+const btnImportPrograms = document.getElementById('btnImportPrograms');
+const inputImportPrograms = document.getElementById('inputImportPrograms');
 const btnExportTemplatesCsv = document.getElementById('tmplExportCsv');
 const btnNewTemplate = document.getElementById('btnNewTemplate');
 const btnEditTemplate = document.getElementById('btnEditTemplate');
@@ -2582,6 +3046,13 @@ if (!CAN_MANAGE_PROGRAMS) {
   }
   if (confirmArchiveProgramButton) confirmArchiveProgramButton.disabled = true;
   if (confirmDeleteProgramButton) confirmDeleteProgramButton.disabled = true;
+  if (btnImportPrograms) {
+    btnImportPrograms.disabled = true;
+    btnImportPrograms.title = 'Only admins or managers can import programs.';
+  }
+  if (inputImportPrograms) {
+    inputImportPrograms.disabled = true;
+  }
 } else {
   if (btnNewProgram) {
     btnNewProgram.disabled = false;
@@ -2589,6 +3060,13 @@ if (!CAN_MANAGE_PROGRAMS) {
   }
   if (confirmArchiveProgramButton) confirmArchiveProgramButton.disabled = false;
   if (confirmDeleteProgramButton) confirmDeleteProgramButton.disabled = false;
+  if (btnImportPrograms) {
+    btnImportPrograms.disabled = false;
+    btnImportPrograms.title = '';
+  }
+  if (inputImportPrograms) {
+    inputImportPrograms.disabled = false;
+  }
 }
 if (!CAN_MANAGE_TEMPLATES) {
   templateActionHint.textContent = 'You have read-only access. Only admins or managers can change template statuses or import templates.';
@@ -7091,6 +7569,22 @@ if (btnExportTemplatesCsv) {
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
+  });
+}
+
+if (btnImportPrograms && inputImportPrograms) {
+  btnImportPrograms.addEventListener('click', () => {
+    if (!CAN_MANAGE_PROGRAMS) return;
+    if (inputImportPrograms.disabled) return;
+    inputImportPrograms.click();
+  });
+  inputImportPrograms.addEventListener('change', event => {
+    const target = event.target;
+    const files = target?.files;
+    const file = files && files.length ? files[0] : null;
+    if (file) {
+      handleProgramImportFile(file);
+    }
   });
 }
 
