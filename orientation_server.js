@@ -859,8 +859,11 @@ apiRouter.get('/templates', ensurePerm('template.read'), async (req, res) => {
       status = normalizedStatus;
     }
     const queryOrganization = typeof req.query?.organization === 'string' ? req.query.organization : undefined;
+    const roles = Array.isArray(req.roles) ? req.roles : [];
+    const isAdmin = roles.includes('admin') || req.user?.role === 'admin';
+    const isManager = roles.includes('manager') || req.user?.role === 'manager';
     let enforcedOrganization;
-    if (req.user?.role === 'manager') {
+    if (isManager && !isAdmin) {
       const rawOrganization = req.user?.organization_id
         ?? req.user?.organizationId
         ?? req.user?.organizationID
