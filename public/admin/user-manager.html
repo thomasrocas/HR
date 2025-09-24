@@ -338,7 +338,7 @@
               <button id="btnOpenEdit" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Edit name &amp; email</button>
               <button id="btnOpenRoles" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Update roles</button>
               <button id="btnOpenPrograms" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Assign programs</button>
-              <button id="btnRemovePrograms" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Remove programs</button>
+              <button id="btnRemovePrograms" type="button" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Remove programs</button>
               <button id="btnLoadCalendar" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm">Load calendar</button>
               <button id="btnOpenLifecycle" data-requires-user class="inline-flex items-center justify-center px-3 py-2 rounded-xl border text-sm sm:col-span-2">Deactivate / Reactivate / Archive</button>
             </div>
@@ -1037,7 +1037,8 @@ btnOpenPrograms.addEventListener('click', () => {
   openDrawer('drawerPrograms');
 });
 
-btnRemovePrograms.addEventListener('click', () => {
+btnRemovePrograms.addEventListener('click', event => {
+  event.preventDefault();
   if (!selectedUser) return;
   if (removeProgramsDrawerMsg) {
     setStatusText(removeProgramsDrawerMsg, '', 'neutral');
