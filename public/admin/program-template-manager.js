@@ -2976,220 +2976,8 @@ let templateAuditApiAvailabilityPromise = null;
 let templateAuditUnavailableLogged = false;
 
 
-const TEMPLATE_AUDIT_AVAILABILITY_STORAGE_KEY = 'anx:template-audit:availability';
-let templateAuditFeatureEnabledPreference = null;
-
-const truthyFeatureValues = new Set(['1', 'true', 't', 'y', 'yes', 'enabled', 'on', 'available']);
-const falsyFeatureValues = new Set(['0', 'false', 'f', 'n', 'no', 'disabled', 'off', 'unavailable']);
-
-function normalizeBooleanInput(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (Number.isNaN(value)) return null;
-    if (value === 0) return false;
-    return value !== 0;
-  }
-  const normalized = String(value).trim().toLowerCase();
-  if (!normalized) return null;
-  if (truthyFeatureValues.has(normalized)) return true;
-  if (falsyFeatureValues.has(normalized)) return false;
-  return null;
-}
-
-function safeGetStorageItem(storage, key) {
-  if (!storage || typeof storage.getItem !== 'function') return null;
-  try {
-    return storage.getItem(key);
-  } catch (_err) {
-    return null;
-  }
-}
-
-function safeSetStorageItem(storage, key, value) {
-  if (!storage || typeof storage.setItem !== 'function') return false;
-  try {
-    storage.setItem(key, value);
-    return true;
-  } catch (_err) {
-    return false;
-  }
-}
-
-function readStoredTemplateAuditPreference() {
-  const raw = safeGetStorageItem(window?.sessionStorage, TEMPLATE_AUDIT_AVAILABILITY_STORAGE_KEY)
-    ?? safeGetStorageItem(window?.localStorage, TEMPLATE_AUDIT_AVAILABILITY_STORAGE_KEY);
-  const coerced = normalizeBooleanInput(raw);
-  return coerced;
-}
-
-function persistTemplateAuditPreference(enabled) {
-  const value = enabled ? 'enabled' : 'disabled';
-  const wroteSession = safeSetStorageItem(window?.sessionStorage, TEMPLATE_AUDIT_AVAILABILITY_STORAGE_KEY, value);
-  if (!wroteSession) {
-    safeSetStorageItem(window?.localStorage, TEMPLATE_AUDIT_AVAILABILITY_STORAGE_KEY, value);
-  }
-}
-
-function readBooleanMetaFlag(names = []) {
-  if (typeof document === 'undefined') return null;
-  for (const name of names) {
-    if (!name) continue;
-    const meta = document.querySelector(`meta[name="${name}"]`);
-    if (!meta) continue;
-    const content = meta.getAttribute('content');
-    const coerced = normalizeBooleanInput(content);
-    if (coerced !== null) return coerced;
-  }
-  return null;
-}
-
-function readBooleanDatasetFlag(keys = []) {
-  if (typeof document === 'undefined') return null;
-  const dataset = document.body?.dataset;
-  if (!dataset) return null;
-  for (const key of keys) {
-    if (!key) continue;
-    const value = dataset[key] ?? dataset[key.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase())];
-    const coerced = normalizeBooleanInput(value);
-    if (coerced !== null) return coerced;
-  }
-  return null;
-}
-
-function readBooleanWindowFlag(paths = []) {
-  if (typeof window === 'undefined') return null;
-  for (const path of paths) {
-    if (!Array.isArray(path) || !path.length) continue;
-    let node = window;
-    let valid = true;
-    for (const segment of path) {
-      if (node && typeof node === 'object' && segment in node) {
-        node = node[segment];
-      } else {
-        valid = false;
-        break;
-      }
-    }
-    if (!valid) continue;
-    const coerced = normalizeBooleanInput(node);
-    if (coerced !== null) return coerced;
-  }
-  return null;
-}
-
-function getUserPermissions(user = getEffectiveCurrentUser()) {
-  if (!user || typeof user !== 'object') return [];
-  const collection = [];
-  const addCandidate = (value) => {
-    if (value === null || value === undefined) return;
-    if (Array.isArray(value)) {
-      value.forEach(addCandidate);
-      return;
-    }
-    const normalized = String(value).trim();
-    if (!normalized) return;
-    collection.push(normalized);
-  };
-  addCandidate(user.permissions);
-  addCandidate(user.permission);
-  addCandidate(user.perms);
-  addCandidate(user.perm);
-  addCandidate(user.permissions_list);
-  addCandidate(user.permission_list);
-  addCandidate(user.permissionKeys);
-  addCandidate(user.permission_keys);
-  return collection
-    .map(value => value.toLowerCase())
-    .filter(Boolean);
-}
-
-function detectAuditPermissionSignal() {
-  const perms = getUserPermissions();
-  if (!perms.length) return null;
-  if (perms.some(permission => permission.includes('audit'))) {
-    return true;
-  }
-  return null;
-}
-
-function evaluateTemplateAuditFeaturePreference() {
-  if (templateAuditFeatureEnabledPreference !== null) {
-    return templateAuditFeatureEnabledPreference;
-  }
-  const stored = readStoredTemplateAuditPreference();
-  if (stored !== null) {
-    templateAuditFeatureEnabledPreference = stored;
-    return templateAuditFeatureEnabledPreference;
-  }
-  const explicitMeta = readBooleanMetaFlag([
-    'template-audit-enabled',
-    'templateAuditEnabled',
-    'anx:template-audit-enabled',
-    'anx:template-audit',
-  ]);
-  if (explicitMeta !== null) {
-    templateAuditFeatureEnabledPreference = explicitMeta;
-    return templateAuditFeatureEnabledPreference;
-  }
-  const bodyDataset = readBooleanDatasetFlag([
-    'templateAudit',
-    'templateAuditEnabled',
-    'template-audit',
-    'template-audit-enabled',
-  ]);
-  if (bodyDataset !== null) {
-    templateAuditFeatureEnabledPreference = bodyDataset;
-    return templateAuditFeatureEnabledPreference;
-  }
-  const windowFlag = readBooleanWindowFlag([
-    ['ANX', 'features', 'templateAudit'],
-    ['ANX', 'features', 'template_audit'],
-    ['ANX', 'featureFlags', 'templateAudit'],
-    ['ANX', 'featureFlags', 'template_audit'],
-    ['APP_CONFIG', 'templateAuditEnabled'],
-    ['APP', 'config', 'templateAuditEnabled'],
-    ['CONFIG', 'features', 'templateAudit'],
-    ['CONFIG', 'features', 'template_audit'],
-    ['RBAC', 'featureFlags', 'templateAudit'],
-    ['RBAC', 'featureFlags', 'template_audit'],
-    ['AUTH', 'features', 'templateAudit'],
-    ['AUTH', 'features', 'template_audit'],
-  ]);
-  if (windowFlag !== null) {
-    templateAuditFeatureEnabledPreference = windowFlag;
-    return templateAuditFeatureEnabledPreference;
-  }
-  const permissionSignal = detectAuditPermissionSignal();
-  if (permissionSignal !== null) {
-    templateAuditFeatureEnabledPreference = permissionSignal;
-    return templateAuditFeatureEnabledPreference;
-  }
-  templateAuditFeatureEnabledPreference = false;
-  return templateAuditFeatureEnabledPreference;
-}
-
-function setTemplateAuditFeaturePreference(enabled, { persist = false } = {}) {
-  if (enabled === null || enabled === undefined) return;
-  templateAuditFeatureEnabledPreference = Boolean(enabled);
-  if (persist) {
-    persistTemplateAuditPreference(templateAuditFeatureEnabledPreference);
-  }
-}
-
-function shouldAttemptTemplateAuditFetch() {
-  return evaluateTemplateAuditFeaturePreference();
-}
-
-
 async function fetchTemplateAuditRecords(templateId) {
   if (!templateId) {
-    return { records: [], info: null };
-  }
-
-  if (!shouldAttemptTemplateAuditFetch()) {
-    templateAuditApiAvailable = false;
-    templateAuditApiAvailabilityState = 'unavailable';
     return { records: [], info: null };
   }
 
@@ -3228,9 +3016,6 @@ async function fetchTemplateAuditRecords(templateId) {
       const responsePayload = await fetchJson(url);
       templateAuditApiAvailable = true;
       templateAuditApiAvailabilityState = 'available';
-
-      setTemplateAuditFeaturePreference(true, { persist: true });
-
       return responsePayload;
     } catch (error) {
       if (error && error.status === 404) {
@@ -3240,9 +3025,6 @@ async function fetchTemplateAuditRecords(templateId) {
           console.info('Template audit endpoint unavailable, continuing without audit records.');
           templateAuditUnavailableLogged = true;
         }
-
-        setTemplateAuditFeaturePreference(false, { persist: true });
-
         return null;
       }
       templateAuditApiAvailabilityState = 'unknown';
@@ -3390,7 +3172,6 @@ function ensureTemplateAudit(template) {
 
   const inline = extractTemplateAuditFromTemplate(template);
   if (inline && inline.info) {
-    setTemplateAuditFeaturePreference(true);
     const readyState = {
       status: 'ready',
       info: inline.info,
@@ -3418,9 +3199,6 @@ function ensureTemplateAudit(template) {
         templateAuditState.set(templateId, readyState);
         applyTemplateAuditData(templateId, null, null);
         templateAuditApiAvailable = false;
-
-        setTemplateAuditFeaturePreference(false, { persist: true });
-
         return;
       }
       console.error('Failed to load template audit', error);
