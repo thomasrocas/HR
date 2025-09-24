@@ -1484,6 +1484,211 @@ app.patch('/prefs', ensureAuth, async (req, res) => {
 
 // ==== 7) RBAC admin ====
 
+async function handleAdminUserCreate(req, res, { endpointLabel }) {
+  if (!req.roles?.includes('admin')) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const body = req.body || {};
+  const email = toNullableString(body.email);
+  if (!email || !validEmail(email)) {
+    return res.status(400).json({ error: 'invalid_email' });
+  }
+
+  const usernameProvided = Object.prototype.hasOwnProperty.call(body, 'username');
+  let normalizedUsername = null;
+  if (usernameProvided) {
+    const usernameValue = toNullableString(body.username);
+    if (usernameValue && !validUsername(usernameValue)) {
+      return res.status(400).json({ error: 'invalid_username' });
+    }
+    normalizedUsername = usernameValue;
+  }
+
+  const nameKeys = ['full_name', 'fullName', 'name'];
+  let nameProvided = false;
+  let normalizedName = null;
+  for (const key of nameKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      nameProvided = true;
+      normalizedName = toNullableString(body[key]);
+      break;
+    }
+  }
+
+  const organizationKeys = ['organization', 'org', 'organization_name', 'organizationName'];
+  let organizationProvided = false;
+  let normalizedOrganization = null;
+  for (const key of organizationKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      organizationProvided = true;
+      normalizedOrganization = toNullableString(body[key]);
+      break;
+    }
+  }
+
+  const additionalFieldConfigs = [
+    { column: 'last_name', keys: ['last_name', 'lastName'] },
+    { column: 'first_name', keys: ['first_name', 'firstName'] },
+    { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
+    { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
+    { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
+    { column: 'discipline_type', keys: ['discipline', 'discipline_type', 'disciplineType'] },
+  ];
+  const additionalFields = [];
+  for (const config of additionalFieldConfigs) {
+    for (const key of config.keys) {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        additionalFields.push({ column: config.column, value: toNullableString(body[key]) });
+        break;
+      }
+    }
+  }
+
+  const sendInvite = Boolean(body.sendInvite);
+  let normalizedStatus = 'active';
+  if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+    const statusValue = toNullableString(body.status);
+    if (statusValue) {
+      const statusNormalized = statusValue.toLowerCase();
+      if (!USER_STATUS_VALUES.has(statusNormalized)) {
+        return res.status(400).json({ error: 'invalid_status' });
+      }
+      normalizedStatus = statusNormalized;
+    }
+  } else if (sendInvite) {
+    normalizedStatus = 'pending';
+  }
+
+  const statusReasonProvided = Object.prototype.hasOwnProperty.call(body, 'status_reason')
+    || Object.prototype.hasOwnProperty.call(body, 'statusReason');
+  const normalizedStatusReason = statusReasonProvided
+    ? toNullableString(body.status_reason ?? body.statusReason ?? null)
+    : null;
+
+  const rawRoles = Array.isArray(body.roles) ? body.roles : [];
+  const requestedRoles = Array.from(new Set(
+    rawRoles
+      .map(role => (role === null || role === undefined ? '' : String(role).trim().toLowerCase()))
+      .filter(Boolean)
+  ));
+
+  try {
+    const emailDup = await pool.query('select 1 from public.users where lower(email)=lower($1) limit 1', [email]);
+    if (emailDup.rowCount) {
+      return res.status(409).json({ error: 'already_exists' });
+    }
+    if (normalizedUsername) {
+      const usernameDup = await pool.query('select 1 from public.users where lower(username)=lower($1) limit 1', [normalizedUsername]);
+      if (usernameDup.rowCount) {
+        return res.status(409).json({ error: 'already_exists' });
+      }
+    }
+
+    const userId = crypto.randomUUID();
+    const columns = ['id', 'email', 'status'];
+    const values = [userId, email, normalizedStatus];
+    if (normalizedUsername !== null) {
+      columns.push('username');
+      values.push(normalizedUsername);
+    }
+    if (nameProvided) {
+      columns.push('full_name');
+      values.push(normalizedName);
+    }
+    if (organizationProvided) {
+      columns.push('organization');
+      values.push(normalizedOrganization);
+    }
+    for (const field of additionalFields) {
+      columns.push(field.column);
+      values.push(field.value);
+    }
+
+    const includeStatusReason = normalizedStatusReason !== null && (await hasUserStatusReasonColumn());
+    if (includeStatusReason) {
+      columns.push('status_reason');
+      values.push(normalizedStatusReason);
+    }
+
+    const placeholders = values.map((_, index) => `$${index + 1}`);
+    const returningColumns = [
+      'id',
+      'email',
+      'full_name',
+      'username',
+      'organization',
+      'status',
+      'last_login_at',
+      'last_name',
+      'first_name',
+      'surname',
+      'sub_unit',
+      'department',
+      'discipline_type'
+    ];
+    if (includeStatusReason) {
+      returningColumns.push('status_reason');
+    }
+
+    const insertSql = `
+      insert into public.users (${columns.join(', ')})
+           values (${placeholders.join(', ')})
+        returning ${returningColumns.join(', ')};`;
+    const { rows } = await pool.query(insertSql, values);
+    const user = rows[0];
+    if (!user) {
+      return res.status(500).json({ error: 'failed_to_create' });
+    }
+
+    await ensureDefaultRole(userId);
+    await ensurePreferencesRow(userId);
+
+    if (requestedRoles.length) {
+      const { rows: availableRoles } = await pool.query(
+        'select role_id, role_key from public.roles where lower(role_key) = any($1)',
+        [requestedRoles]
+      );
+      for (const role of availableRoles) {
+        await pool.query(
+          'insert into public.user_roles(user_id, role_id) values ($1, $2) on conflict do nothing',
+          [userId, role.role_id]
+        );
+      }
+    }
+
+    const { rows: roleRows } = await pool.query(
+      'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
+      [userId]
+    );
+
+    res.status(201).json({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      name: user.full_name,
+      username: user.username,
+      organization: user.organization ?? null,
+      status: user.status ?? normalizedStatus,
+      last_login_at: user.last_login_at ?? null,
+      last_name: user.last_name ?? null,
+      first_name: user.first_name ?? null,
+      surname: user.surname ?? null,
+      sub_unit: user.sub_unit ?? null,
+      department: user.department ?? null,
+      discipline_type: user.discipline_type ?? null,
+      discipline: user.discipline_type ?? null,
+      roles: roleRows.map(r => r.role_key),
+      status_reason: includeStatusReason ? user.status_reason ?? null : undefined,
+    });
+  } catch (err) {
+    console.error(`POST ${endpointLabel} error`, err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+}
+
+app.post('/api/users', ensureAuth, (req, res) => handleAdminUserCreate(req, res, { endpointLabel: '/api/users' }));
+app.post('/rbac/users', ensureAuth, (req, res) => handleAdminUserCreate(req, res, { endpointLabel: '/rbac/users' }));
+
 app.patch('/api/users/:id', ensureAuth, async (req, res) => {
   const isAdmin = req.roles.includes('admin');
   const isManager = req.roles.includes('manager');
