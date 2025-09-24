@@ -5883,25 +5883,16 @@ function openDeleteTemplateModal(templateId) {
     return;
   }
   deleteTargetTemplateId = templateId;
-  const status = getTemplateStatus(template);
-  const normalizedStatus = (status || '').toLowerCase();
-  const isArchived = normalizedStatus === 'archived';
   if (deleteTemplateModalDescription) {
     const name = getTemplateName(template) || 'this template';
-    deleteTemplateModalDescription.textContent = isArchived
-      ? `“${name}” has already been archived.`
-      : `This will permanently delete “${name}”.`;
+    deleteTemplateModalDescription.textContent = `This will permanently delete “${name}”.`;
   }
   if (confirmDeleteTemplateButton) {
-    confirmDeleteTemplateButton.disabled = isArchived;
-    confirmDeleteTemplateButton.title = isArchived ? 'Archived templates cannot be deleted.' : '';
-    confirmDeleteTemplateButton.setAttribute('aria-disabled', isArchived ? 'true' : 'false');
+    confirmDeleteTemplateButton.disabled = false;
+    confirmDeleteTemplateButton.title = '';
+    confirmDeleteTemplateButton.setAttribute('aria-disabled', 'false');
   }
-  if (isArchived) {
-    setModalMessage(deleteTemplateModalMessage, 'This template has already been archived and cannot be deleted again.');
-  } else {
-    setModalMessage(deleteTemplateModalMessage, '');
-  }
+  setModalMessage(deleteTemplateModalMessage, '');
   openModal(deleteTemplateModal);
 }
 
@@ -5927,13 +5918,6 @@ async function confirmDeleteTemplate() {
   }
   if (!deleteTargetTemplateId) return;
   const targetId = deleteTargetTemplateId;
-  const template = getTemplateById(targetId);
-  const templateStatus = template ? getTemplateStatus(template) : '';
-  const isArchived = (templateStatus || '').toLowerCase() === 'archived';
-  if (isArchived) {
-    setModalMessage(deleteTemplateModalMessage, 'This template has already been archived and cannot be deleted again.');
-    return;
-  }
   await flushPendingTemplateAssociationChanges();
   const originalLabel = confirmDeleteTemplateButton ? confirmDeleteTemplateButton.textContent : '';
   if (confirmDeleteTemplateButton) {
