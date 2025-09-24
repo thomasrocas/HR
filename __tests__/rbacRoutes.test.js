@@ -55,6 +55,15 @@ describe('rbac admin routes', () => {
       create table public.programs (
         program_id uuid primary key,
         title text,
+        total_weeks int,
+        description text,
+        results text,
+        purpose text,
+        organization text,
+        sub_unit text,
+        created_by uuid,
+        created_at timestamptz default now(),
+        deleted_at timestamp,
         deleted boolean default false
       );
       create table public.orientation_tasks (

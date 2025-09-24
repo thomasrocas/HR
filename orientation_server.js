@@ -1897,6 +1897,8 @@ app.get('/programs', ensurePerm('program.read'), async (req, res) => {
              title,
              total_weeks,
              description,
+             results,
+             purpose,
              created_by,
              created_at,
              deleted_at,
@@ -1920,21 +1922,28 @@ app.post('/programs', ensurePerm('program.create'), async (req, res) => {
       title,
       total_weeks,
       description = null,
+      results = null,
+      purpose = null,
       organization,
       sub_unit
     } = req.body || {};
     const sanitizedTotalWeeks = sanitizeProgramTotalWeeks(total_weeks);
+    const sanitizedDescription = toNullableString(description);
+    const sanitizedResults = toNullableString(results);
+    const sanitizedPurpose = toNullableString(purpose);
     const sanitizedOrganization = toNullableString(organization);
     const sanitizedSubUnit = toNullableString(sub_unit);
     const sql = `
-      insert into public.programs (program_id, title, total_weeks, description, organization, sub_unit, created_by)
-      values ($1,$2,$3,$4,$5,$6,$7)
+      insert into public.programs (program_id, title, total_weeks, description, results, purpose, organization, sub_unit, created_by)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       returning *;`;
     const params = [
       program_id,
       title,
       sanitizedTotalWeeks,
-      description,
+      sanitizedDescription,
+      sanitizedResults,
+      sanitizedPurpose,
       sanitizedOrganization,
       sanitizedSubUnit,
       req.user.id
@@ -1960,11 +1969,11 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
     const fields = [];
     const vals = [];
 
-    for (const key of ['title', 'total_weeks', 'description', 'organization', 'sub_unit']) {
+    for (const key of ['title', 'total_weeks', 'description', 'results', 'purpose', 'organization', 'sub_unit']) {
       if (key in req.body) {
         if (key === 'total_weeks') {
           vals.push(sanitizeProgramTotalWeeks(req.body[key]));
-        } else if (key === 'organization' || key === 'sub_unit') {
+        } else if (key === 'organization' || key === 'sub_unit' || key === 'description' || key === 'results' || key === 'purpose') {
           vals.push(toNullableString(req.body[key]));
         } else {
           vals.push(req.body[key]);
@@ -3162,12 +3171,20 @@ create table if not exists public.programs (
   title        text not null,
   total_weeks  int,
   description  text,
+  results      text,
+  purpose      text,
   organization text,
   sub_unit     text,
   created_by   uuid references public.users(id),
   created_at   timestamptz default now(),
   deleted_at   timestamp
 );
+
+alter table public.programs
+  add column if not exists results text;
+
+alter table public.programs
+  add column if not exists purpose text;
 
 create table if not exists public.program_task_templates (
   template_id bigserial primary key,
