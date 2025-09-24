@@ -2969,9 +2969,27 @@ function hydrateTemplateLibraryIndex() {
   });
 }
 
+let templateAuditApiAvailable = true;
+let templateAuditApiAvailabilityState = 'unknown';
+let templateAuditApiAvailabilityPromise = null;
+let templateAuditUnavailableLogged = false;
+
 async function fetchTemplateAuditRecords(templateId) {
   if (!templateId) {
     return { records: [], info: null };
+  }
+  if (!templateAuditApiAvailable || templateAuditApiAvailabilityState === 'unavailable') {
+    return { records: [], info: null };
+  }
+  if (templateAuditApiAvailabilityState === 'checking' && templateAuditApiAvailabilityPromise) {
+    try {
+      await templateAuditApiAvailabilityPromise;
+    } catch (error) {
+      // the awaited promise already handled setting state and logging
+    }
+    if (!templateAuditApiAvailable || templateAuditApiAvailabilityState === 'unavailable') {
+      return { records: [], info: null };
+    }
   }
   const params = new URLSearchParams();
   params.set('table', TEMPLATE_AUDIT_TABLE_NAME);
@@ -2987,7 +3005,48 @@ async function fetchTemplateAuditRecords(templateId) {
   params.set('action', 'INSERT');
   params.set('operation', 'INSERT');
   const url = `${API}/api/audit?${params.toString()}`;
-  const payload = await fetchJson(url);
+  let payload = null;
+  const performFetch = async () => {
+    try {
+      const responsePayload = await fetchJson(url);
+      templateAuditApiAvailable = true;
+      templateAuditApiAvailabilityState = 'available';
+      return responsePayload;
+    } catch (error) {
+      if (error && error.status === 404) {
+        templateAuditApiAvailable = false;
+        templateAuditApiAvailabilityState = 'unavailable';
+        if (!templateAuditUnavailableLogged) {
+          console.info('Template audit endpoint unavailable, continuing without audit records.');
+          templateAuditUnavailableLogged = true;
+        }
+        return null;
+      }
+      templateAuditApiAvailabilityState = 'unknown';
+      throw error;
+    }
+  };
+
+  if (templateAuditApiAvailabilityState !== 'available') {
+    templateAuditApiAvailabilityState = 'checking';
+    const availabilityPromise = performFetch();
+    templateAuditApiAvailabilityPromise = availabilityPromise;
+    try {
+      payload = await availabilityPromise;
+    } finally {
+      if (templateAuditApiAvailabilityPromise === availabilityPromise) {
+        templateAuditApiAvailabilityPromise = null;
+        if (templateAuditApiAvailabilityState === 'checking') {
+          templateAuditApiAvailabilityState = templateAuditApiAvailable ? 'available' : 'unavailable';
+        }
+      }
+    }
+  } else {
+    payload = await performFetch();
+  }
+  if (payload === null) {
+    return { records: [], info: null };
+  }
   const records = extractAuditEntriesFromPayload(payload, templateId);
   const candidate = findInsertAuditCandidate(records);
   const info = candidate
@@ -3129,6 +3188,13 @@ function ensureTemplateAudit(template) {
       templateAuditState.set(templateId, readyState);
       applyTemplateAuditData(templateId, readyState.info, readyState.records);
     } catch (error) {
+      if (error && error.status === 404) {
+        const readyState = { status: 'ready', info: null, records: null };
+        templateAuditState.set(templateId, readyState);
+        applyTemplateAuditData(templateId, null, null);
+        templateAuditApiAvailable = false;
+        return;
+      }
       console.error('Failed to load template audit', error);
       templateAuditState.set(templateId, { status: 'error', info: null, records: null, error });
     } finally {
