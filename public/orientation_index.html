@@ -736,7 +736,8 @@ async function apiListUsers(){
 
 /* ---- Program & Template helpers ---- */
 async function apiListPrograms(){
-  const r = await fetch(`${API}/programs`, { credentials:'include' });
+  const url = withUser(`${API}/programs`);
+  const r = await fetch(url, { credentials:'include' });
   if(!r.ok) throw new Error('GET /programs failed');
   return r.json();
 }
@@ -944,7 +945,13 @@ function App({ me, onSignOut }){
   const [targetUserId, setTargetUserId] = useState(TARGET_USER_ID);
   const [targetUserName, setTargetUserName] = useState(() => {
     if (TARGET_USER_NAME) return TARGET_USER_NAME;
-    if (TARGET_USER_ID && (!me?.id || !sameId(TARGET_USER_ID, me.id))) return '';
+    if (TARGET_USER_ID && (!me?.id || !sameId(TARGET_USER_ID, me.id))) {
+      const stored = readStoredTrainee();
+      if (stored && sameId(stored.id, TARGET_USER_ID) && stored.name) {
+        return stored.name;
+      }
+      return '';
+    }
     return me?.name || 'Halle Angeles';
   });
   const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
