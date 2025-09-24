@@ -877,7 +877,11 @@ setUserActionState(false);
 function renderUsers(filter = '') {
   const f = filter.trim().toLowerCase();
   const rows = USERS
-    .filter(u => (u.full_name || '').toLowerCase().includes(f) || (u.username || '').toLowerCase().includes(f))
+    .filter(u => {
+      const fullName = (u.full_name || '').toLowerCase();
+      const email = (u.email || u.username || '').toLowerCase();
+      return fullName.includes(f) || email.includes(f);
+    })
     .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
   if (!rows.length) {
     elUserList.innerHTML = '<div class="p-4 text-sm text-slate-500">No users match your search.</div>';
@@ -887,7 +891,7 @@ function renderUsers(filter = '') {
     const active = selectedUser && selectedUser.id === u.id;
     const idAttr = escapeHtml(u.id || '');
     const displayName = escapeHtml(u.full_name || '—');
-    const username = escapeHtml(u.username || '');
+    const email = escapeHtml(u.email || u.username || '');
     const organization = escapeHtml(u.organization || '—');
     const status = escapeHtml(u.status || 'active');
     const roles = escapeHtml((u.roles || []).join(', ') || '—');
@@ -895,7 +899,7 @@ function renderUsers(filter = '') {
     return `
     <button data-id="${idAttr}" class="w-full text-left px-3 py-2 border-b hover:bg-white ${classes}">
       <div class="font-medium">${displayName}</div>
-      <div class="text-xs text-slate-500">${username}</div>
+      <div class="text-xs text-slate-500">${email}</div>
       <div class="text-xs text-slate-500">Organization: ${organization}</div>
       <div class="text-xs text-slate-500">Status: ${status}</div>
       <div class="text-xs text-slate-500">Roles: ${roles}</div>
@@ -977,7 +981,8 @@ function renderSelectedUser(user) {
 
   selectedUser = user;
   const displayName = user.full_name || user.username || '—';
-  elSelectedSummary.textContent = user.full_name || user.username || '—';
+  const email = user.email || user.username || '—';
+  elSelectedSummary.textContent = email;
   elSelectedName.textContent = displayName;
   elSelectedUsername.textContent = user.username || '—';
   const organization = (user.organization || '').trim();
@@ -1009,7 +1014,7 @@ function renderSelectedUser(user) {
   if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
   if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
-  if (inputEditEmail) inputEditEmail.value = user.username || '';
+  if (inputEditEmail) inputEditEmail.value = user.email || user.username || '';
   if (loadCalendarStatus) {
     loadCalendarStatus.textContent = '';
     loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
