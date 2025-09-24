@@ -847,6 +847,33 @@ function Section({title, subtitle, children, right}){
     </section>
   );
 }
+function ProgramOverviewCard({ programSummary }) {
+  if (!programSummary) return null;
+  return (
+    <div className="card p-6 space-y-4">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Program Overview</div>
+        <div className="text-lg font-semibold text-slate-800 mt-1">
+          {programSummary.name || 'Program'}
+        </div>
+      </div>
+      <div className="grid gap-6 md:grid-cols-2">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+            {toDisplayString(programSummary.result)}
+          </p>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Purpose</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+            {toDisplayString(programSummary.purpose)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 function ProgressBar({value}){
   return (
     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -2720,6 +2747,11 @@ useEffect(() => {
         title={`${numWeeks}-Week Visual Calendar`}
         subtitle="Assign tasks by date; click Assign on a day."
       >
+        {calendarMode !== 'all' && programSummary && (
+          <div className="mb-4">
+            <ProgramOverviewCard programSummary={programSummary} />
+          </div>
+        )}
         <div id="calendarControls" className="mb-4 flex flex-col gap-3 rounded-lg bg-slate-50 p-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
             <label htmlFor="programSelect" className="text-xs font-semibold uppercase tracking-wide text-slate-500">Program View</label>
@@ -2932,32 +2964,6 @@ useEffect(() => {
             );
           })}
         </div>
-        {calendarMode !== 'all' && programSummary && (
-          <div className="mt-6">
-            <div className="card p-6 space-y-4">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Program Overview</div>
-                <div className="text-lg font-semibold text-slate-800 mt-1">
-                  {programSummary.name || 'Program'}
-                </div>
-              </div>
-              <div className="grid gap-6 md:grid-cols-2">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</div>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
-                    {toDisplayString(programSummary.result)}
-                  </p>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Purpose</div>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
-                    {toDisplayString(programSummary.purpose)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
         {assignPicker && hasPerm('task.assign') && isPrivileged && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
         {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
       </Section>
