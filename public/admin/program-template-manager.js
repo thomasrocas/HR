@@ -1388,8 +1388,6 @@ const PROGRAM_SORT_ACCESSORS = {
   lifecycle: getProgramLifecycle,
   weeks: getProgramTotalWeeks,
   description: getProgramDescription,
-  results: getProgramResults,
-  purpose: getProgramPurpose,
   createdAt: getProgramCreatedAt,
   archivedAt: getProgramArchivedAt,
 };
@@ -3153,8 +3151,6 @@ function getFilteredPrograms(source = programs) {
       getProgramTitle(p),
       getProgramLifecycle(p),
       getProgramDescription(p),
-      getProgramResults(p),
-      getProgramPurpose(p),
       getProgramId(p),
     ];
     const totalWeeks = getProgramTotalWeeks(p);
@@ -5999,7 +5995,7 @@ function renderPrograms() {
   };
   const displayed = currentProgramPageItems;
   if (!displayed.length) {
-    programTableBody.innerHTML = '<tr class="empty-row"><td colspan="9">No programs found.</td></tr>';
+    programTableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No programs found.</td></tr>';
   } else {
     programTableBody.innerHTML = displayed.map(program => {
       const programId = getProgramId(program);
@@ -6018,8 +6014,6 @@ function renderPrograms() {
       const totalWeeks = getProgramTotalWeeks(program);
       const createdAt = getProgramCreatedAt(program);
       const description = getProgramDescription(program) || '—';
-      const results = getProgramResults(program) || '—';
-      const purpose = getProgramPurpose(program) || '—';
       return `
         <tr ${rowAttrs.join(' ')}>
           <td><input type="checkbox" data-program-id="${programId ?? ''}" ${checkedAttr} ${disabledAttr} class="rounded border-slate-300"></td>
@@ -6027,8 +6021,6 @@ function renderPrograms() {
           <td>${createStatusBadge(lifecycle)}</td>
           <td>${Number.isFinite(totalWeeks) ? totalWeeks : '—'}</td>
           <td>${description}</td>
-          <td>${results}</td>
-          <td>${purpose}</td>
           <td>${formatDate(createdAt)}</td>
           <td class="text-right">${formatDate(archivedAt)}</td>
         </tr>
