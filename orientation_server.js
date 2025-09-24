@@ -106,7 +106,7 @@ const apiRouter = express.Router();
 // Behind proxies / WebViewer? Trust the first proxy so secure cookies & IPs work properly
 app.set('trust proxy', 1);
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // ==== 3) Static website ====
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -1156,6 +1156,160 @@ apiRouter.post('/templates/:templateId/restore', ensurePerm('template.delete'), 
   } catch (err) {
     console.error('POST /api/templates/:id/restore error', err);
     res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.update'), async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) {
+      return res.status(400).json({ error: 'No rows provided' });
+    }
+
+    const allowedColumns = [
+      'program_id',
+      'title',
+      'total_weeks',
+      'description',
+      'results',
+      'purpose',
+      'organization',
+      'sub_unit',
+      'discipline_type',
+      'department',
+    ];
+    const allowed = new Set(allowedColumns);
+
+    const cleaned = rows.map((row, index) => {
+      const source = row && typeof row === 'object' ? row : {};
+      const filtered = {};
+      Object.entries(source).forEach(([key, value]) => {
+        if (!allowed.has(key)) return;
+        filtered[key] = value;
+      });
+
+      if (Object.prototype.hasOwnProperty.call(filtered, 'program_id')) {
+        const raw = filtered.program_id;
+        if (raw === null || raw === undefined || raw === '') {
+          delete filtered.program_id;
+        } else {
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed)) {
+            const error = new Error(`Invalid program_id value at row ${index + 1}`);
+            error.status = 400;
+            error.detail = { row: index, field: 'program_id' };
+            throw error;
+          }
+          filtered.program_id = parsed;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(filtered, 'total_weeks')) {
+        const raw = filtered.total_weeks;
+        if (raw === null || raw === undefined || raw === '') {
+          filtered.total_weeks = null;
+        } else {
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed)) {
+            const error = new Error(`Invalid total_weeks value at row ${index + 1}`);
+            error.status = 400;
+            error.detail = { row: index, field: 'total_weeks' };
+            throw error;
+          }
+          filtered.total_weeks = parsed;
+        }
+      }
+
+      allowedColumns.forEach(column => {
+        if (column === 'program_id' || column === 'total_weeks') return;
+        if (Object.prototype.hasOwnProperty.call(filtered, column)) {
+          const raw = filtered[column];
+          filtered[column] = raw === null || raw === undefined ? '' : String(raw).trim();
+        }
+      });
+
+      return filtered;
+    });
+
+    cleaned.forEach((record, index) => {
+      const hasProgramId = Object.prototype.hasOwnProperty.call(record, 'program_id');
+      const hasTitleField = Object.prototype.hasOwnProperty.call(record, 'title');
+      const normalizedTitle = hasTitleField ? String(record.title || '').trim() : '';
+      if (!hasProgramId && !normalizedTitle) {
+        throw Object.assign(new Error(`Title is required for create (row ${index + 1})`), {
+          status: 400,
+          detail: { row: index, field: 'title' },
+        });
+      }
+      if (hasTitleField) {
+        record.title = normalizedTitle;
+      }
+      const fieldKeys = Object.keys(record).filter(key => key !== 'program_id');
+      if (!fieldKeys.length) {
+        throw Object.assign(new Error(`No fields provided for row ${index + 1}`), {
+          status: 400,
+          detail: { row: index },
+        });
+      }
+    });
+
+    const colSet = new Set();
+    cleaned.forEach(record => {
+      Object.keys(record).forEach(key => {
+        if (allowed.has(key)) {
+          colSet.add(key);
+        }
+      });
+    });
+
+    const cols = allowedColumns.filter(column => colSet.has(column));
+    if (!cols.length) {
+      return res.status(400).json({ error: 'No valid columns found' });
+    }
+
+    const params = [];
+    const valuesSQL = cleaned.map(record => {
+      const placeholders = cols.map(column => {
+        if (column === 'program_id' && !Object.prototype.hasOwnProperty.call(record, 'program_id')) {
+          return 'DEFAULT';
+        }
+        params.push(Object.prototype.hasOwnProperty.call(record, column) ? record[column] : null);
+        return `$${params.length}`;
+      });
+      return `(${placeholders.join(',')})`;
+    }).join(',');
+
+    const updateCols = cols.filter(column => column !== 'program_id');
+    const updateSQL = updateCols.length
+      ? updateCols.map(column => `${column} = EXCLUDED.${column}`).join(', ')
+      : '';
+    const hasProgramId = cols.includes('program_id')
+      && cleaned.some(record => Object.prototype.hasOwnProperty.call(record, 'program_id'));
+
+    const table = 'public.programs';
+    let sql;
+    if (hasProgramId) {
+      const conflictAction = updateSQL ? `DO UPDATE SET ${updateSQL}` : 'DO NOTHING';
+      sql = `
+        INSERT INTO ${table} (${cols.join(',')})
+        VALUES ${valuesSQL}
+        ON CONFLICT (program_id) ${conflictAction}
+        RETURNING program_id;
+      `;
+    } else {
+      sql = `
+        INSERT INTO ${table} (${cols.join(',')})
+        VALUES ${valuesSQL}
+        RETURNING program_id;
+      `;
+    }
+
+    const result = await pool.query(sql, params);
+    res.json({ upserted: result.rowCount });
+  } catch (err) {
+    console.error('POST /api/programs/bulk_upsert error', err);
+    const status = err?.status && err.status >= 400 && err.status < 500 ? err.status : 500;
+    res.status(status).json({ error: err.message, detail: err.detail, hint: err.hint, code: err.code });
   }
 });
 
