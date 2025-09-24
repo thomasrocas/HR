@@ -2987,7 +2987,16 @@ async function fetchTemplateAuditRecords(templateId) {
   params.set('action', 'INSERT');
   params.set('operation', 'INSERT');
   const url = `${API}/api/audit?${params.toString()}`;
-  const payload = await fetchJson(url);
+  let payload = null;
+  try {
+    payload = await fetchJson(url);
+  } catch (error) {
+    if (error && error.status === 404) {
+      console.info('Template audit endpoint unavailable, continuing without audit records.');
+      return { records: [], info: null };
+    }
+    throw error;
+  }
   const records = extractAuditEntriesFromPayload(payload, templateId);
   const candidate = findInsertAuditCandidate(records);
   const info = candidate
