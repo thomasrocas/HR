@@ -444,12 +444,6 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm mb-1" for="editDiscipline">Discipline</label>
-                    <select id="editDiscipline" name="discipline" class="input">
-                        <option value="">None</option>
-                    </select>
-                </div>
-                <div>
                     <label class="block text-sm mb-1" for="editDepartment">Department</label>
                     <select id="editDepartment" name="department" class="input">
                         <option value="">None</option>
@@ -739,7 +733,7 @@ const USER_FIELD_ALIASES = {
   last_login_at: ['lastLoginAt'],
   organization: ['organization_name', 'organizationName'],
   status: ['state'],
-  discipline_type: ['disciplineType', 'discipline'],
+  discipline_type: ['disciplineType'],
   last_name: ['lastName'],
   surname: ['maiden_name', 'maidenName'],
   first_name: ['firstName'],
@@ -1807,7 +1801,6 @@ const inputEditLastName = document.getElementById('editLastName');
 const inputEditFirstName = document.getElementById('editFirstName');
 const inputEditSurname = document.getElementById('editSurname');
 const inputEditSubUnit = document.getElementById('editSubUnit');
-const inputEditDiscipline = document.getElementById('editDiscipline');
 const inputEditDepartment = document.getElementById('editDepartment');
 const inputEditDisciplineType = document.getElementById('editDisciplineType');
 const inputEditOrganization = document.getElementById('editOrganization');
@@ -1828,7 +1821,6 @@ const accessDrawerNotice = document.getElementById('accessDrawerNotice');
 
 populateSelectOptions(inputEditOrganization, ORGANIZATION_OPTIONS);
 populateSelectOptions(inputEditSubUnit, SUB_UNIT_OPTIONS);
-populateSelectOptions(inputEditDiscipline, DISCIPLINE_TYPE_OPTIONS);
 populateSelectOptions(inputEditDepartment, DEPARTMENT_OPTIONS);
 populateSelectOptions(inputEditDisciplineType, DISCIPLINE_TYPE_OPTIONS);
 
@@ -1896,9 +1888,6 @@ function mergeUserProfilePayload(baseUser, payload) {
   }
   if ('sub_unit' in payload) {
     merged.sub_unit = payload.sub_unit;
-  }
-  if ('discipline' in payload) {
-    merged.discipline = payload.discipline;
   }
   if ('department' in payload) {
     merged.department = payload.department;
@@ -2120,7 +2109,6 @@ function renderSelectedUser(user) {
     if (inputEditFirstName) inputEditFirstName.value = '';
     if (inputEditSurname) inputEditSurname.value = '';
     if (inputEditSubUnit) ensureSelectValue(inputEditSubUnit, '');
-    if (inputEditDiscipline) ensureSelectValue(inputEditDiscipline, '');
     if (inputEditDepartment) ensureSelectValue(inputEditDepartment, '');
     if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, '');
     if (inputEditOrganization) ensureSelectValue(inputEditOrganization, '');
@@ -2162,7 +2150,6 @@ function renderSelectedUser(user) {
   if (inputEditFirstName) inputEditFirstName.value = user.first_name || '';
   if (inputEditSurname) inputEditSurname.value = user.surname || '';
   if (inputEditSubUnit) ensureSelectValue(inputEditSubUnit, user.sub_unit ?? '');
-  if (inputEditDiscipline) ensureSelectValue(inputEditDiscipline, user.discipline ?? '');
   if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
   if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
@@ -2554,7 +2541,6 @@ formEdit.addEventListener('submit', async e => {
     first_name: getNullableField('firstName'),
     surname: getNullableField('surname'),
     sub_unit: getNullableField('subUnit'),
-    discipline: getNullableField('discipline'),
     department: getNullableField('department'),
     discipline_type: getNullableField('disciplineType')
   };
