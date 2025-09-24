@@ -2970,14 +2970,17 @@ function hydrateTemplateLibraryIndex() {
 }
 
 let templateAuditApiAvailable = true;
+
 let templateAuditApiAvailabilityState = 'unknown';
 let templateAuditApiAvailabilityPromise = null;
 let templateAuditUnavailableLogged = false;
+
 
 async function fetchTemplateAuditRecords(templateId) {
   if (!templateId) {
     return { records: [], info: null };
   }
+
   if (!templateAuditApiAvailable || templateAuditApiAvailabilityState === 'unavailable') {
     return { records: [], info: null };
   }
@@ -2991,6 +2994,7 @@ async function fetchTemplateAuditRecords(templateId) {
       return { records: [], info: null };
     }
   }
+
   const params = new URLSearchParams();
   params.set('table', TEMPLATE_AUDIT_TABLE_NAME);
   params.set('table_name', TEMPLATE_AUDIT_TABLE_NAME);
@@ -3006,6 +3010,7 @@ async function fetchTemplateAuditRecords(templateId) {
   params.set('operation', 'INSERT');
   const url = `${API}/api/audit?${params.toString()}`;
   let payload = null;
+
   const performFetch = async () => {
     try {
       const responsePayload = await fetchJson(url);
@@ -3046,6 +3051,7 @@ async function fetchTemplateAuditRecords(templateId) {
   }
   if (payload === null) {
     return { records: [], info: null };
+
   }
   const records = extractAuditEntriesFromPayload(payload, templateId);
   const candidate = findInsertAuditCandidate(records);
