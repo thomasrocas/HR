@@ -27,152 +27,6 @@ async function fetchJson(url, options = {}) {
 let cachedCurrentUser = null;
 let managerOrganizationScopeId = null;
 let hasManagerOrganizationScope = false;
-let managerManagedProgramIds = new Set();
-let managerManagedProgramsExplicit = false;
-const managerRestrictedProgramIds = new Set();
-
-function normalizeProgramIdentifier(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : null;
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return String(value);
-  }
-  return null;
-}
-
-function collectManagedProgramIdsFromSource(source, roleHint = null, visited = new WeakSet(), results = new Set()) {
-  if (!source) {
-    return { ids: results, explicit: results.size > 0 };
-  }
-
-  const inspect = (value, hint) => {
-    if (!value) return;
-    if (typeof value === 'string' || typeof value === 'number') {
-      if (hint === 'manager') {
-        const normalized = normalizeProgramIdentifier(value);
-        if (normalized) {
-          results.add(normalized);
-        }
-      }
-      return;
-    }
-    if (Array.isArray(value)) {
-      value.forEach(item => inspect(item, hint));
-      return;
-    }
-    if (typeof value === 'object') {
-      if (visited.has(value)) {
-        return;
-      }
-      visited.add(value);
-
-      const rawRole = value.role
-        ?? value.role_key
-        ?? value.roleKey
-        ?? value.type
-        ?? value.title
-        ?? value.permission
-        ?? null;
-      const normalizedRole = typeof rawRole === 'string' ? rawRole.trim().toLowerCase() : '';
-      const isManagerRole = normalizedRole.includes('manager');
-
-      const programIdCandidate = value.program_id
-        ?? value.programId
-        ?? value.program
-        ?? value.program_code
-        ?? value.programCode
-        ?? value.id
-        ?? value.slug
-        ?? value.value
-        ?? null;
-      const normalizedId = normalizeProgramIdentifier(programIdCandidate);
-      if (normalizedId && isManagerRole) {
-        results.add(normalizedId);
-      }
-
-      const nextHint = isManagerRole ? 'manager' : hint;
-      Object.entries(value).forEach(([key, child]) => {
-        let childHint = nextHint;
-        if (!childHint && typeof key === 'string') {
-          const lowerKey = key.toLowerCase();
-          if (lowerKey.includes('manager')) {
-            childHint = 'manager';
-          }
-        }
-        inspect(child, childHint);
-      });
-    }
-  };
-
-  inspect(source, roleHint);
-  return { ids: results, explicit: results.size > 0 };
-}
-
-function refreshManagerProgramMemberships(user) {
-  const results = new Set();
-  let explicit = false;
-
-  const sources = [
-    user?.program_memberships,
-    user?.programMemberships,
-    user?.memberships,
-    user?.managed_programs,
-    user?.managedPrograms,
-    window?.RBAC?.program_memberships,
-    window?.RBAC?.programMemberships,
-    window?.RBAC?.memberships,
-    window?.RBAC?.currentUser?.program_memberships,
-    window?.RBAC?.currentUser?.programMemberships,
-    window?.RBAC?.currentUser?.managed_programs,
-    window?.RBAC?.currentUser?.managedPrograms,
-  ];
-
-  sources.forEach(source => {
-    const { ids, explicit: hasExplicit } = collectManagedProgramIdsFromSource(source, null, new WeakSet(), new Set());
-    if (ids.size) {
-      ids.forEach(id => results.add(id));
-      if (hasExplicit) {
-        explicit = true;
-      }
-    }
-  });
-
-  managerManagedProgramIds = results;
-  managerManagedProgramsExplicit = explicit;
-}
-
-function registerManagedProgram(programId) {
-  const normalized = normalizeProgramIdentifier(programId);
-  if (!normalized) return;
-  managerManagedProgramIds.add(normalized);
-  managerRestrictedProgramIds.delete(normalized);
-  managerManagedProgramsExplicit = true;
-}
-
-function markProgramRestricted(programId) {
-  const normalized = normalizeProgramIdentifier(programId);
-  if (!normalized) return;
-  managerRestrictedProgramIds.add(normalized);
-  managerManagedProgramsExplicit = true;
-}
-
-function canCurrentUserManageProgram(programId) {
-  const normalized = normalizeProgramIdentifier(programId);
-  if (!normalized) return false;
-  if (typeof IS_ADMIN !== 'undefined' && IS_ADMIN) return true;
-  if (typeof IS_MANAGER !== 'undefined' && !IS_MANAGER) return false;
-  if (managerRestrictedProgramIds.has(normalized)) return false;
-  if (managerManagedProgramIds.size) {
-    return managerManagedProgramIds.has(normalized);
-  }
-  if (managerManagedProgramsExplicit) {
-    return managerManagedProgramIds.has(normalized);
-  }
-  return true;
-}
 
 function getEffectiveCurrentUser() {
   const rbacUser = window?.RBAC?.currentUser;
@@ -2632,7 +2486,6 @@ if (!meResponse.ok) {
 }
 const me = await meResponse.json();
 cachedCurrentUser = me;
-refreshManagerProgramMemberships(me);
 const userIsAdmin = isAdmin(me);
 const userIsManager = isManager(me);
 const managerOrgId = getUserOrganizationId(me);
@@ -4056,12 +3909,6 @@ function updateProgramEditorButtons(displayedPrograms = programs) {
     btnEditProgram.removeAttribute('data-program-id');
     return;
   }
-  if (!canCurrentUserManageProgram(targetId)) {
-    btnEditProgram.disabled = true;
-    btnEditProgram.title = 'You are not assigned to manage this program.';
-    btnEditProgram.removeAttribute('data-program-id');
-    return;
-  }
   btnEditProgram.disabled = false;
   btnEditProgram.title = '';
   btnEditProgram.dataset.programId = targetId;
@@ -4295,17 +4142,14 @@ function setTemplatePanelMessage(text, isError = false) {
 
 function updatePanelAddButtonState() {
   const hasProgram = Boolean(selectedProgramId);
-  const programManageable = hasProgram ? canCurrentUserManageProgram(selectedProgramId) : false;
-  const canManage = CAN_MANAGE_TEMPLATES && hasProgram && programManageable;
+  const canManage = CAN_MANAGE_TEMPLATES && hasProgram;
 
   if (templateAttachInput) {
     const placeholder = !CAN_MANAGE_TEMPLATES
       ? 'Read-only access — attachments disabled.'
-      : !hasProgram
-        ? 'Select a program to attach templates.'
-        : programManageable
-          ? 'Search templates to attach…'
-          : 'You are not assigned to manage this program.';
+      : hasProgram
+        ? 'Search templates to attach…'
+        : 'Select a program to attach templates.';
     templateAttachInput.setAttribute('placeholder', placeholder);
     templateAttachInput.disabled = !canManage;
     if (tagifyInstance) {
@@ -4320,9 +4164,6 @@ function updatePanelAddButtonState() {
     } else if (!hasProgram) {
       btnAttachTags.disabled = true;
       btnAttachTags.title = 'Select a program to attach templates.';
-    } else if (!programManageable) {
-      btnAttachTags.disabled = true;
-      btnAttachTags.title = 'You are not assigned to manage this program.';
     } else {
       btnAttachTags.disabled = pendingAttach.size === 0;
       btnAttachTags.title = pendingAttach.size === 0 ? 'Select templates to attach first.' : '';
@@ -4660,35 +4501,6 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
   }
 
   const perform = (async () => {
-    if (!canCurrentUserManageProgram(programId)) {
-      entries.forEach(({ id, state }) => {
-        if (state?.revert) {
-          try {
-            state.revert();
-          } catch (revertError) {
-            console.error(revertError);
-          }
-        }
-        if (tagifyInstance) {
-          withTagifySuppressed(() => {
-            if (typeof tagifyInstance.removeTags === 'function') {
-              tagifyInstance.removeTags(id, true);
-            } else if ((state?.tagData?.__tag || state?.tagData?.el) && typeof tagifyInstance.removeTag === 'function') {
-              const tagElement = state?.tagData?.__tag ?? state?.tagData?.el;
-              if (tagElement) {
-                tagifyInstance.removeTag(tagElement, true);
-              }
-            }
-          });
-        }
-      });
-      markProgramRestricted(programId);
-      if (selectedProgramId === programId) {
-        setTemplatePanelMessage('You are not assigned to manage this program.', true);
-        renderTemplates();
-      }
-      return false;
-    }
     try {
       const attachedStillSelected = selectedProgramId === programId;
       if (attachedStillSelected) {
@@ -4748,9 +4560,6 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
       }
 
       const hasSuccess = attachedCount > 0 || alreadyAttachedCount > 0;
-      if (hasSuccess) {
-        registerManagedProgram(programId);
-      }
 
       if (attachedStillSelected) {
         if (failureCount && !hasSuccess) {
@@ -4828,9 +4637,6 @@ async function flushPendingTemplateAttachments({ immediate = false } = {}) {
           : 'Unable to attach templates. Please try again.';
         setTemplatePanelMessage(message, true);
         renderTemplates();
-      }
-      if (error.status === 403) {
-        markProgramRestricted(programId);
       }
       return false;
     } finally {
@@ -5104,20 +4910,6 @@ function handleTagifyAdd(event) {
     }
     return;
   }
-  if (!canCurrentUserManageProgram(selectedProgramId)) {
-    setTemplatePanelMessage('You are not assigned to manage this program.', true);
-    if (tagifyInstance) {
-      withTagifySuppressed(() => {
-        if (typeof tagifyInstance.removeTags === 'function') {
-          tagifyInstance.removeTags(templateId, true);
-        } else if (event?.detail?.tag && typeof tagifyInstance.removeTag === 'function') {
-          tagifyInstance.removeTag(event.detail.tag, true);
-        }
-      });
-    }
-    markProgramRestricted(selectedProgramId);
-    return;
-  }
   if (pendingAttach.has(templateId)) {
     updatePanelAddButtonState();
     return;
@@ -5304,27 +5096,6 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
   }
 
   const programId = selectedProgramId;
-  if (!canCurrentUserManageProgram(programId)) {
-    if (typeof revert === 'function') {
-      try {
-        revert();
-      } catch (revertError) {
-        console.error(revertError);
-      }
-    }
-    if (tagifyInstance && tagData) {
-      withTagifySuppressed(() => {
-        if (typeof tagifyInstance.addTags === 'function') {
-          tagifyInstance.addTags([tagData]);
-        }
-      });
-    }
-    markProgramRestricted(programId);
-    setTemplatePanelMessage('You are not assigned to manage this program.', true);
-    renderTemplates();
-    updatePanelAddButtonState();
-    return;
-  }
   setTemplatePanelMessage('Removing template…');
   let deleteWasNoOp = false;
   let detachResult = { wasAttached: false };
@@ -5361,7 +5132,6 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
       }
     }, 2500);
     await loadProgramTemplateAssignments({ preserveSelection: true });
-    registerManagedProgram(programId);
   } catch (error) {
     console.error(error);
     if (typeof revert === 'function') {
@@ -5378,7 +5148,6 @@ async function detachTemplateAssociation(templateId, { revert, tagData } = {}) {
     }
     if (error.status === 403) {
       setTemplatePanelMessage('You do not have permission to remove templates from this program.', true);
-      markProgramRestricted(programId);
     } else {
       setTemplatePanelMessage('Unable to remove this template. Please try again.', true);
     }
@@ -5854,10 +5623,6 @@ function openProgramModal(mode = 'create', programId = null) {
       programMessage.textContent = 'Unable to locate the selected program.';
       return;
     }
-    if (!canCurrentUserManageProgram(targetId)) {
-      programMessage.textContent = 'You are not assigned to manage this program.';
-      return;
-    }
     if (programModalTitle) programModalTitle.textContent = 'Edit Program';
     if (programFormSubmit) programFormSubmit.textContent = 'Save Changes';
     if (programFormTitleInput) programFormTitleInput.value = getProgramTitle(program) || '';
@@ -6053,10 +5818,6 @@ async function submitProgramForm(event) {
     setProgramFormMessage('Select a program to edit first.', true);
     return;
   }
-  if (isEdit && !canCurrentUserManageProgram(targetId)) {
-    setProgramFormMessage('You are not assigned to manage this program.', true);
-    return;
-  }
   const initialSubmitLabel = programFormSubmit ? programFormSubmit.textContent : '';
   if (programFormSubmit) {
     programFormSubmit.disabled = true;
@@ -6120,10 +5881,6 @@ async function submitProgramForm(event) {
     });
     const makeActive = !isEdit;
     if (result && typeof result === 'object') {
-      const savedProgramId = getProgramId(result);
-      if (savedProgramId) {
-        registerManagedProgram(savedProgramId);
-      }
       upsertProgram(result, { makeActive });
     }
     renderPrograms();
@@ -6140,9 +5897,6 @@ async function submitProgramForm(event) {
     console.error(error);
     if (error.status === 403) {
       setProgramFormMessage('You do not have permission to save programs.', true);
-      if (isEdit && targetId) {
-        markProgramRestricted(targetId);
-      }
     } else if (error.status === 400) {
       setProgramFormMessage('Please review the form inputs and try again.', true);
     } else {
@@ -7167,17 +6921,6 @@ async function loadPrograms() {
     } else {
       programs = [];
     }
-    if (typeof IS_MANAGER !== 'undefined' && IS_MANAGER && (typeof IS_ADMIN === 'undefined' || !IS_ADMIN)) {
-      const currentUserId = normalizeProgramIdentifier(cachedCurrentUser?.id);
-      if (currentUserId) {
-        programs.forEach(program => {
-          const creatorId = normalizeProgramIdentifier(program?.created_by ?? program?.createdBy ?? program?.created_by_id);
-          if (creatorId && creatorId === currentUserId) {
-            registerManagedProgram(getProgramId(program));
-          }
-        });
-      }
-    }
     const validIds = programs.map(getProgramId).filter(Boolean);
     if (selectedProgramId && !validIds.includes(selectedProgramId)) {
       selectedProgramId = null;
@@ -7389,7 +7132,6 @@ async function loadProgramTemplateAssignments(options = {}) {
     updatePanelAddButtonState();
     return;
   }
-  const programManageable = canCurrentUserManageProgram(activeProgramId);
   try {
     if (!preserveSelection || activeProgramId !== lastLoadedTemplateProgramId) {
       if (activeProgramId !== lastLoadedTemplateProgramId) {
@@ -7484,17 +7226,11 @@ async function loadProgramTemplateAssignments(options = {}) {
       }
     }
 
-    renderTemplates();
-    if (!programManageable) {
-      setTemplatePanelMessage('You are not assigned to manage this program.', true);
-      markProgramRestricted(activeProgramId);
-    } else {
+      renderTemplates();
       setTemplatePanelMessage('');
-      registerManagedProgram(activeProgramId);
-    }
-    initTagifyForProgram(activeProgramId, {
-      preservePending: () => hasPendingAttachForProgram(activeProgramId),
-    });
+      initTagifyForProgram(activeProgramId, {
+        preservePending: () => hasPendingAttachForProgram(activeProgramId),
+      });
   } catch (error) {
     console.error(error);
     templates = [];
@@ -7552,11 +7288,6 @@ async function handleProgramAction(action) {
   let success = 0;
   let failure = 0;
   for (const id of ids) {
-    if (!canCurrentUserManageProgram(id)) {
-      failure += 1;
-      markProgramRestricted(id);
-      continue;
-    }
     const request = getProgramActionRequest(action, id);
     if (!request) continue;
     try {
