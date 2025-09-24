@@ -2971,13 +2971,30 @@ function hydrateTemplateLibraryIndex() {
 
 let templateAuditApiAvailable = true;
 
+let templateAuditApiAvailabilityState = 'unknown';
+let templateAuditApiAvailabilityPromise = null;
+let templateAuditUnavailableLogged = false;
+
+
 async function fetchTemplateAuditRecords(templateId) {
   if (!templateId) {
     return { records: [], info: null };
   }
-  if (!templateAuditApiAvailable) {
+
+  if (!templateAuditApiAvailable || templateAuditApiAvailabilityState === 'unavailable') {
     return { records: [], info: null };
   }
+  if (templateAuditApiAvailabilityState === 'checking' && templateAuditApiAvailabilityPromise) {
+    try {
+      await templateAuditApiAvailabilityPromise;
+    } catch (error) {
+      // the awaited promise already handled setting state and logging
+    }
+    if (!templateAuditApiAvailable || templateAuditApiAvailabilityState === 'unavailable') {
+      return { records: [], info: null };
+    }
+  }
+
   const params = new URLSearchParams();
   params.set('table', TEMPLATE_AUDIT_TABLE_NAME);
   params.set('table_name', TEMPLATE_AUDIT_TABLE_NAME);
@@ -2993,17 +3010,48 @@ async function fetchTemplateAuditRecords(templateId) {
   params.set('operation', 'INSERT');
   const url = `${API}/api/audit?${params.toString()}`;
   let payload = null;
-  try {
-    payload = await fetchJson(url);
-  } catch (error) {
-    if (error && error.status === 404) {
-      console.info('Template audit endpoint unavailable, continuing without audit records.');
 
-      templateAuditApiAvailable = false;
-
-      return { records: [], info: null };
+  const performFetch = async () => {
+    try {
+      const responsePayload = await fetchJson(url);
+      templateAuditApiAvailable = true;
+      templateAuditApiAvailabilityState = 'available';
+      return responsePayload;
+    } catch (error) {
+      if (error && error.status === 404) {
+        templateAuditApiAvailable = false;
+        templateAuditApiAvailabilityState = 'unavailable';
+        if (!templateAuditUnavailableLogged) {
+          console.info('Template audit endpoint unavailable, continuing without audit records.');
+          templateAuditUnavailableLogged = true;
+        }
+        return null;
+      }
+      templateAuditApiAvailabilityState = 'unknown';
+      throw error;
     }
-    throw error;
+  };
+
+  if (templateAuditApiAvailabilityState !== 'available') {
+    templateAuditApiAvailabilityState = 'checking';
+    const availabilityPromise = performFetch();
+    templateAuditApiAvailabilityPromise = availabilityPromise;
+    try {
+      payload = await availabilityPromise;
+    } finally {
+      if (templateAuditApiAvailabilityPromise === availabilityPromise) {
+        templateAuditApiAvailabilityPromise = null;
+        if (templateAuditApiAvailabilityState === 'checking') {
+          templateAuditApiAvailabilityState = templateAuditApiAvailable ? 'available' : 'unavailable';
+        }
+      }
+    }
+  } else {
+    payload = await performFetch();
+  }
+  if (payload === null) {
+    return { records: [], info: null };
+
   }
   const records = extractAuditEntriesFromPayload(payload, templateId);
   const candidate = findInsertAuditCandidate(records);
