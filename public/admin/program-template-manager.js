@@ -2969,8 +2969,13 @@ function hydrateTemplateLibraryIndex() {
   });
 }
 
+let templateAuditApiAvailable = true;
+
 async function fetchTemplateAuditRecords(templateId) {
   if (!templateId) {
+    return { records: [], info: null };
+  }
+  if (!templateAuditApiAvailable) {
     return { records: [], info: null };
   }
   const params = new URLSearchParams();
@@ -2993,6 +2998,9 @@ async function fetchTemplateAuditRecords(templateId) {
   } catch (error) {
     if (error && error.status === 404) {
       console.info('Template audit endpoint unavailable, continuing without audit records.');
+
+      templateAuditApiAvailable = false;
+
       return { records: [], info: null };
     }
     throw error;
@@ -3138,6 +3146,13 @@ function ensureTemplateAudit(template) {
       templateAuditState.set(templateId, readyState);
       applyTemplateAuditData(templateId, readyState.info, readyState.records);
     } catch (error) {
+      if (error && error.status === 404) {
+        const readyState = { status: 'ready', info: null, records: null };
+        templateAuditState.set(templateId, readyState);
+        applyTemplateAuditData(templateId, null, null);
+        templateAuditApiAvailable = false;
+        return;
+      }
       console.error('Failed to load template audit', error);
       templateAuditState.set(templateId, { status: 'error', info: null, records: null, error });
     } finally {
