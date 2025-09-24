@@ -966,7 +966,11 @@ function renderSelectedUser(user) {
   if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
   if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
-  if (inputEditEmail) inputEditEmail.value = user.username || '';
+  if (inputEditEmail) {
+    const email = typeof user.email === 'string' ? user.email : undefined;
+    const username = typeof user.username === 'string' ? user.username : '';
+    inputEditEmail.value = email ?? username;
+  }
   if (loadCalendarStatus) {
     loadCalendarStatus.textContent = '';
     loadCalendarStatus.classList.remove('text-emerald-600', 'text-rose-600');
