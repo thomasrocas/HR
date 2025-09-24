@@ -304,7 +304,8 @@
           <label class="block text-sm mb-1">Selected user</label>
           <div id="selectedUserSummary" class="text-sm font-medium">—</div>
         </div>
-        <div>
+        <div class="flex items-center gap-2">
+          <button id="btnExportUsers" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm">Export CSV</button>
           <button id="btnReloadUsers" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm">Refresh</button>
         </div>
       </div>
@@ -568,6 +569,170 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch] || ch);
 }
 
+const CSV_BOM = '\uFEFF';
+
+function normalizeCsvValue(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map(item => normalizeCsvValue(item))
+      .filter(part => part !== '');
+    return parts.join('; ');
+  }
+  if (typeof value === 'object') {
+    if (typeof value.toISOString === 'function') {
+      try {
+        return value.toISOString();
+      } catch (err) {
+        // continue to other fallbacks
+      }
+    }
+    if (typeof value.name === 'string' && value.name) {
+      const id = value.id ?? value.identifier ?? value.slug ?? '';
+      if (id && id !== value.name) {
+        return `${value.name} (${id})`;
+      }
+      return value.name;
+    }
+    if (typeof value.title === 'string' && value.title) {
+      const id = value.id ?? value.program_id ?? value.programId ?? '';
+      if (id && id !== value.title) {
+        return `${value.title} (${id})`;
+      }
+      return value.title;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch (err) {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function escapeCsvCell(value) {
+  const text = normalizeCsvValue(value).replace(/\r?\n/g, '\n');
+  if (text === '') {
+    return '';
+  }
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+const USER_FIELD_ALIASES = {
+  google_id: ['googleId', 'googleID'],
+  email: ['username'],
+  full_name: ['fullName', 'name'],
+  picture_url: ['pictureUrl'],
+  created_at: ['createdAt'],
+  updated_at: ['updatedAt'],
+  username: ['email'],
+  password_hash: ['passwordHash'],
+  provider: ['authProvider'],
+  last_login_at: ['lastLoginAt'],
+  organization: ['organization_name', 'organizationName'],
+  status: ['state'],
+  discipline_type: ['disciplineType', 'discipline'],
+  last_name: ['lastName'],
+  surname: ['maiden_name', 'maidenName'],
+  first_name: ['firstName'],
+  department: ['department_name', 'departmentName'],
+  sub_unit: ['subUnit'],
+};
+
+const USER_EXPORT_FIELDS = [
+  'id',
+  'google_id',
+  'email',
+  'full_name',
+  'picture_url',
+  'created_at',
+  'updated_at',
+  'username',
+  'password_hash',
+  'provider',
+  'last_login_at',
+  'organization',
+  'status',
+  'discipline_type',
+  'last_name',
+  'surname',
+  'first_name',
+  'department',
+  'sub_unit',
+];
+
+function getUserCsvRawValue(user, key) {
+  if (!user || typeof user !== 'object') {
+    return '';
+  }
+  const aliases = USER_FIELD_ALIASES[key] || [];
+  const keysToCheck = [key, ...aliases];
+  for (const candidateKey of keysToCheck) {
+    if (!Object.prototype.hasOwnProperty.call(user, candidateKey)) {
+      continue;
+    }
+    const rawValue = user[candidateKey];
+    if (rawValue === null || rawValue === undefined) {
+      continue;
+    }
+    if (typeof rawValue === 'string' && rawValue.trim() === '') {
+      continue;
+    }
+    if (Array.isArray(rawValue) && rawValue.length === 0) {
+      continue;
+    }
+    return rawValue;
+  }
+  return '';
+}
+
+function buildUsersCsv(users) {
+  const rows = [USER_EXPORT_FIELDS.map(escapeCsvCell).join(',')];
+  if (Array.isArray(users)) {
+    users.forEach(user => {
+      const cells = USER_EXPORT_FIELDS.map(field => {
+        const value = getUserCsvRawValue(user, field);
+        return escapeCsvCell(value);
+      });
+      rows.push(cells.join(','));
+    });
+  }
+  return `${CSV_BOM}${rows.join('\r\n')}`;
+}
+
+function downloadUsersCsv(users) {
+  try {
+    const csvText = buildUsersCsv(users);
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const timestamp = new Date().toISOString().replace(/[\.:]/g, '-');
+    link.download = `users-${timestamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    const cleanup = () => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(cleanup);
+    } else {
+      setTimeout(cleanup, 0);
+    }
+  } catch (error) {
+    console.error('Failed to export users', error);
+  }
+}
+
 function populateSelectOptions(selectElement, options) {
   if (!(selectElement instanceof HTMLSelectElement) || !Array.isArray(options)) {
     return;
@@ -783,6 +948,7 @@ const elSelectedOrganization = document.getElementById('selectedOrganization');
 const elSelectedStatus = document.getElementById('selectedStatus');
 const elSelectedRoles = document.getElementById('selectedRoles');
 const elBtnReloadUsers = document.getElementById('btnReloadUsers');
+const elBtnExportUsers = document.getElementById('btnExportUsers');
 const actionHint = document.getElementById('actionHint');
 
 const btnOpenCreate = document.getElementById('btnOpenCreate');
@@ -1128,6 +1294,13 @@ elUserList.addEventListener('click', e => {
 elBtnReloadUsers.addEventListener('click', async () => {
   await reloadUsers();
 });
+
+if (elBtnExportUsers) {
+  elBtnExportUsers.addEventListener('click', () => {
+    const usersToExport = Array.isArray(USERS) ? USERS : [];
+    downloadUsersCsv(usersToExport);
+  });
+}
 
 btnOpenCreate.addEventListener('click', () => {
   formCreate.reset();
