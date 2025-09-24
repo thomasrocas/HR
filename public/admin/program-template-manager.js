@@ -2998,7 +2998,9 @@ async function fetchTemplateAuditRecords(templateId) {
   } catch (error) {
     if (error && error.status === 404) {
       console.info('Template audit endpoint unavailable, continuing without audit records.');
+
       templateAuditApiAvailable = false;
+
       return { records: [], info: null };
     }
     throw error;
