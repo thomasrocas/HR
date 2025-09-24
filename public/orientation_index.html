@@ -222,6 +222,26 @@ const toDisplayString = (value) => {
   return String(ensured);
 };
 
+
+const TYPE_DELIVERY_META_LOOKUP = [
+  { keywords: ['in-person', 'in person', 'onsite', 'on-site'], icon: '👥', title: 'In-person' },
+  { keywords: ['virtual', 'remote', 'online', 'zoom', 'teams'], icon: '💻', title: 'Virtual' },
+  { keywords: ['hybrid', 'blended'], icon: '🔄', title: 'Hybrid' },
+  { keywords: ['self-paced', 'self paced', 'asynchronous', 'on-demand'], icon: '⏱️', title: 'Self-paced' },
+];
+
+const getTypeDeliveryMeta = (value) => {
+  const display = toDisplayString(value);
+  if (!display || display === '—') return null;
+  const normalized = display.trim().toLowerCase();
+  const match = TYPE_DELIVERY_META_LOOKUP.find((entry) => (
+    entry.keywords.some((keyword) => normalized.includes(keyword))
+  ));
+  const icon = match?.icon || '📌';
+  const title = match?.title || display;
+  return { icon, title, display };
+};
+
 const getProgramResults = (program = {}) => (
   program?.results
     ?? program?.program_results
@@ -229,12 +249,7 @@ const getProgramResults = (program = {}) => (
     ?? ''
 );
 
-const getProgramPurpose = (program = {}) => (
-  program?.purpose
-    ?? program?.program_purpose
-    ?? program?.programPurpose
-    ?? ''
-);
+
 
 const normalizeTimeValue = (value) => {
   const raw = typeof value === 'number' ? String(value) : (value || '');
@@ -2751,6 +2766,7 @@ useEffect(() => {
                     const itemClass = `relative text-[11px] pl-2 pr-4 py-1 rounded-md border focus-visible:ring-2 focus-visible:ring-anx-sky ${isTaskDone ? 'bg-emerald-50 border-emerald-300 cursor-not-allowed' : isAllView ? 'cursor-pointer' : 'bg-sky-50 border-sky-300 cursor-pointer'}`;
                     const tooltipResponsible = toDisplayString(it.responsible_person);
                     const tooltipJournal = toDisplayString(it.journal_entry);
+                    const typeDeliveryMeta = getTypeDeliveryMeta(it.type_delivery);
                     const tooltipEntries = [];
                     if (tooltipTime) {
                       tooltipEntries.push({ label: 'Time', value: tooltipTime });
@@ -2760,6 +2776,9 @@ useEffect(() => {
                     }
                     if (tooltipJournal && tooltipJournal !== '—') {
                       tooltipEntries.push({ label: 'Journal', value: tooltipJournal });
+                    }
+                    if (typeDeliveryMeta?.display && typeDeliveryMeta.display !== '—') {
+                      tooltipEntries.push({ label: 'Delivery', value: typeDeliveryMeta.display });
                     }
                     return (
                       <div key={i}
@@ -2814,6 +2833,15 @@ useEffect(() => {
                               </span>
                             ))}
                           </div>
+                        )}
+                        {typeDeliveryMeta && (
+                          <span
+                            className="pointer-events-none absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-slate-900/90 text-[10px] leading-none text-white shadow"
+                            title={typeDeliveryMeta.title}
+                          >
+                            <span aria-hidden="true">{typeDeliveryMeta.icon}</span>
+                            <span className="sr-only">{typeDeliveryMeta.display}</span>
+                          </span>
                         )}
                         {canManageAssignments && (
                           isTaskDone ? (
