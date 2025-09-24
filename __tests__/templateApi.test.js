@@ -53,7 +53,18 @@ describe('template api', () => {
         provider text,
         organization_id text,
         organization text,
+        discipline text,
+        discipline_type text,
+        last_name text,
+        surname text,
+        first_name text,
+        department text,
+        sub_unit text,
         role text,
+        google_id text,
+        picture_url text,
+        created_at timestamptz,
+        updated_at timestamptz,
         last_login_at timestamptz
       );
       create table public.session (

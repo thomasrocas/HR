@@ -1515,7 +1515,28 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       break;
     }
   }
-  if (!hasNameField && !hasEmailField && !organizationProvided) {
+  const additionalFieldConfigs = [
+    { column: 'last_name', keys: ['last_name', 'lastName'] },
+    { column: 'first_name', keys: ['first_name', 'firstName'] },
+    { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
+    { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
+    { column: 'discipline', keys: ['discipline'] },
+    { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
+    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType'] },
+  ];
+  const additionalFieldUpdates = [];
+  for (const config of additionalFieldConfigs) {
+    for (const key of config.keys) {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        additionalFieldUpdates.push({
+          column: config.column,
+          value: toNullableString(body[key])
+        });
+        break;
+      }
+    }
+  }
+  if (!hasNameField && !hasEmailField && !organizationProvided && additionalFieldUpdates.length === 0) {
     return res.status(400).json({ error: 'no_fields' });
   }
   try {
@@ -1553,6 +1574,10 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       values.push(normalizedOrganization);
       sets.push(`organization = $${values.length}`);
     }
+    for (const fieldUpdate of additionalFieldUpdates) {
+      values.push(fieldUpdate.value);
+      sets.push(`${fieldUpdate.column} = $${values.length}`);
+    }
     if (sets.length === 1) {
       return res.status(400).json({ error: 'no_fields' });
     }
@@ -1567,7 +1592,21 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       return res.status(404).json({ error: 'not_found' });
     }
     const { rows: userRows } = await pool.query(
-      'select id, email, full_name, username, organization from public.users where id=$1',
+      `select
+         id,
+         email,
+         full_name,
+         username,
+         organization,
+         last_name,
+         first_name,
+         surname,
+         sub_unit,
+         discipline,
+         department,
+         discipline_type
+       from public.users
+       where id=$1`,
       [id]
     );
     const user = userRows[0];
@@ -1582,6 +1621,13 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       name: user.full_name,
       username: user.username,
       organization: user.organization ?? null,
+      last_name: user.last_name ?? null,
+      first_name: user.first_name ?? null,
+      surname: user.surname ?? null,
+      sub_unit: user.sub_unit ?? null,
+      discipline: user.discipline ?? null,
+      department: user.department ?? null,
+      discipline_type: user.discipline_type ?? null,
       roles: roleRows.map(r => r.role_key),
     });
   } catch (err) {

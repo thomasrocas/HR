@@ -28,9 +28,19 @@ describe('rbac admin routes', () => {
         email text,
         full_name text,
         organization text,
+        discipline text,
+        discipline_type text,
+        last_name text,
+        surname text,
+        first_name text,
+        department text,
+        sub_unit text,
         status text default 'active' not null,
         password_hash text,
         provider text,
+        google_id text,
+        picture_url text,
+        created_at timestamptz,
         last_login_at timestamptz,
         updated_at timestamptz
       );
@@ -265,7 +275,18 @@ describe('rbac admin routes', () => {
 
     const updateRes = await adminAgent
       .patch(`/api/users/${targetId}`)
-      .send({ name: '  Updated User  ', email: '  updated@example.com  ', organization: '  Example Org  ' })
+      .send({
+        name: '  Updated User  ',
+        email: '  updated@example.com  ',
+        organization: '  Example Org  ',
+        lastName: '  Last  ',
+        firstName: '  First  ',
+        surname: '  Surname  ',
+        subUnit: '  Sub  ',
+        discipline: '  Disc  ',
+        department: '  Dept  ',
+        disciplineType: '  DiscType  ',
+      })
       .expect(200);
 
     expect(updateRes.body).toMatchObject({
@@ -274,14 +295,42 @@ describe('rbac admin routes', () => {
       name: 'Updated User',
       email: 'updated@example.com',
       organization: 'Example Org',
+      last_name: 'Last',
+      first_name: 'First',
+      surname: 'Surname',
+      sub_unit: 'Sub',
+      discipline: 'Disc',
+      department: 'Dept',
+      discipline_type: 'DiscType',
     });
     expect(Array.isArray(updateRes.body.roles)).toBe(true);
 
-    let { rows } = await pool.query('select email, full_name, organization from public.users where id=$1', [targetId]);
+    let { rows } = await pool.query(
+      `select
+         email,
+         full_name,
+         organization,
+         last_name,
+         first_name,
+         surname,
+         sub_unit,
+         discipline,
+         department,
+         discipline_type
+       from public.users where id=$1`,
+      [targetId]
+    );
     expect(rows[0]).toEqual({
       email: 'updated@example.com',
       full_name: 'Updated User',
       organization: 'Example Org',
+      last_name: 'Last',
+      first_name: 'First',
+      surname: 'Surname',
+      sub_unit: 'Sub',
+      discipline: 'Disc',
+      department: 'Dept',
+      discipline_type: 'DiscType',
     });
 
     await adminAgent

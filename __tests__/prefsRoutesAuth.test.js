@@ -30,9 +30,20 @@ describe('preferences routes', () => {
         username text unique,
         email text,
         full_name text,
+        organization text,
+        discipline text,
+        discipline_type text,
+        last_name text,
+        surname text,
+        first_name text,
+        department text,
+        sub_unit text,
         status text default 'active' not null,
         password_hash text,
         provider text,
+        google_id text,
+        picture_url text,
+        created_at timestamptz,
         last_login_at timestamptz
       );
       create table public.session (
