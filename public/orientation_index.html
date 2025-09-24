@@ -222,6 +222,20 @@ const toDisplayString = (value) => {
   return String(ensured);
 };
 
+const getProgramResults = (program = {}) => (
+  program?.results
+    ?? program?.program_results
+    ?? program?.programResults
+    ?? ''
+);
+
+const getProgramPurpose = (program = {}) => (
+  program?.purpose
+    ?? program?.program_purpose
+    ?? program?.programPurpose
+    ?? ''
+);
+
 const normalizeTimeValue = (value) => {
   const raw = typeof value === 'number' ? String(value) : (value || '');
   const trimmed = raw.trim();
@@ -867,7 +881,9 @@ function App({ me, onSignOut }){
       const weeksRaw = program.total_weeks ?? program.totalWeeks ?? program.duration ?? null;
       const weeksNormalized = normalizeWeekNumber(weeksRaw);
       const totalWeeks = (typeof weeksNormalized === 'number' && weeksNormalized > 0) ? weeksNormalized : null;
-      return { id: normalizedId, name, color, totalWeeks };
+      const results = getProgramResults(program);
+      const purpose = getProgramPurpose(program);
+      return { id: normalizedId, name, color, totalWeeks, results, purpose };
     };
     programs.forEach((program) => {
       const info = extract(program);
@@ -883,6 +899,40 @@ function App({ me, onSignOut }){
     });
     return map;
   }, [programs, userPrograms]);
+  const selectedProgramId = useMemo(() => {
+    if (calendarMode === 'all') return null;
+    if (calendarSelectValue && calendarSelectValue !== '__current__') {
+      return String(calendarSelectValue);
+    }
+    if (activeProgramId) {
+      return String(activeProgramId);
+    }
+    return null;
+  }, [calendarMode, calendarSelectValue, activeProgramId]);
+  const selectedProgramInfo = selectedProgramId
+    ? programInfoMap.get(String(selectedProgramId)) || null
+    : null;
+  const selectedProgramRecord = useMemo(() => {
+    if (!selectedProgramId) return null;
+    return programs.find((program) => {
+      const id = program?.program_id ?? program?.id ?? program?.uuid ?? null;
+      return id && sameId(id, selectedProgramId);
+    }) || null;
+  }, [programs, selectedProgramId]);
+  const programSummary = useMemo(() => {
+    if (!selectedProgramId) return null;
+    const info = selectedProgramInfo;
+    const record = selectedProgramRecord;
+    const result = info?.results ?? getProgramResults(record);
+    const purpose = info?.purpose ?? getProgramPurpose(record);
+    const name = info?.name
+      ?? record?.title
+      ?? record?.name
+      ?? record?.program_name
+      ?? record?.program_title
+      ?? '';
+    return { id: selectedProgramId, name, result, purpose };
+  }, [selectedProgramId, selectedProgramInfo, selectedProgramRecord]);
   const perms = useMemo(() => new Set(me?.perms || []), [me]);
   const hasPerm = (p) => perms.has(p);
   const isTrainee = (me?.roles || []).includes('trainee');
@@ -2795,6 +2845,32 @@ useEffect(() => {
             );
           })}
         </div>
+        {calendarMode !== 'all' && programSummary && (
+          <div className="mt-6">
+            <div className="card p-6 space-y-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Program Overview</div>
+                <div className="text-lg font-semibold text-slate-800 mt-1">
+                  {programSummary.name || 'Program'}
+                </div>
+              </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Result</div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+                    {toDisplayString(programSummary.result)}
+                  </p>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Purpose</div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+                    {toDisplayString(programSummary.purpose)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {assignPicker && hasPerm('task.assign') && isPrivileged && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
         {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
       </Section>
