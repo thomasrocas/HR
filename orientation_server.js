@@ -1632,7 +1632,7 @@ app.post('/api/users/:id/archive', ensureAuth, async (req, res) => {
   }
 });
 
-app.get('/rbac/users', async (req, res) => {
+app.get('/rbac/users', ensureAuth, async (req, res) => {
   try {
     const roles = Array.isArray(req.roles) ? req.roles : [];
     const isAdmin = roles.includes('admin');
@@ -1670,10 +1670,24 @@ app.get('/rbac/users', async (req, res) => {
     const sqlWithOrganization = `
       select
         u.id,
+        u.google_id,
+        u.email,
         u.full_name,
+        u.picture_url,
+        u.created_at,
+        u.updated_at,
         u.username,
+        u.password_hash,
+        u.provider,
+        u.last_login_at,
         u.organization,
         u.status,
+        u.discipline_type,
+        u.last_name,
+        u.surname,
+        u.first_name,
+        u.department,
+        u.sub_unit,
         coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
         coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
       from public.users u
@@ -1696,14 +1710,48 @@ app.get('/rbac/users', async (req, res) => {
         group by dedup.user_id
       ) assigned on assigned.user_id = u.id
       ${whereClause}
-      group by u.id, u.full_name, u.username, u.organization, u.status, assigned.program_pairs
+      group by
+        u.id,
+        u.google_id,
+        u.email,
+        u.full_name,
+        u.picture_url,
+        u.created_at,
+        u.updated_at,
+        u.username,
+        u.password_hash,
+        u.provider,
+        u.last_login_at,
+        u.organization,
+        u.status,
+        u.discipline_type,
+        u.last_name,
+        u.surname,
+        u.first_name,
+        u.department,
+        u.sub_unit,
+        assigned.program_pairs
       order by u.full_name`;
     const sqlWithoutOrganization = `
       select
         u.id,
+        u.google_id,
+        u.email,
         u.full_name,
+        u.picture_url,
+        u.created_at,
+        u.updated_at,
         u.username,
+        u.password_hash,
+        u.provider,
+        u.last_login_at,
         u.status,
+        u.discipline_type,
+        u.last_name,
+        u.surname,
+        u.first_name,
+        u.department,
+        u.sub_unit,
         coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
         coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
       from public.users u
@@ -1726,13 +1774,37 @@ app.get('/rbac/users', async (req, res) => {
         group by dedup.user_id
       ) assigned on assigned.user_id = u.id
       ${whereClause}
-      group by u.id, u.full_name, u.username, u.status, assigned.program_pairs
+      group by
+        u.id,
+        u.google_id,
+        u.email,
+        u.full_name,
+        u.picture_url,
+        u.created_at,
+        u.updated_at,
+        u.username,
+        u.password_hash,
+        u.provider,
+        u.last_login_at,
+        u.status,
+        u.discipline_type,
+        u.last_name,
+        u.surname,
+        u.first_name,
+        u.department,
+        u.sub_unit,
+        assigned.program_pairs
       order by u.full_name`;
     let resultRows;
     try {
       const { rows } = await pool.query(sqlWithOrganization, params);
       resultRows = rows.map(r => {
-        const { assigned_program_pairs: rawPairs, status, ...rest } = r;
+        const {
+          assigned_program_pairs: rawPairs,
+          roles,
+          organization,
+          ...userDetails
+        } = r;
         const assignments = Array.isArray(rawPairs) ? rawPairs : [];
         const assignedPrograms = assignments
           .map(value => {
@@ -1754,9 +1826,9 @@ app.get('/rbac/users', async (req, res) => {
           })
           .filter(Boolean);
         return {
-          ...rest,
-          status,
-          roles: rest.roles || [],
+          ...userDetails,
+          organization,
+          roles: Array.isArray(roles) ? roles : [],
           assigned_programs: assignedPrograms,
         };
       });
@@ -1768,7 +1840,11 @@ app.get('/rbac/users', async (req, res) => {
       ) {
         const { rows } = await pool.query(sqlWithoutOrganization, params);
         resultRows = rows.map(r => {
-          const { assigned_program_pairs: rawPairs, status, ...rest } = r;
+          const {
+            assigned_program_pairs: rawPairs,
+            roles,
+            ...userDetails
+          } = r;
           const assignments = Array.isArray(rawPairs) ? rawPairs : [];
           const assignedPrograms = assignments
             .map(value => {
@@ -1790,9 +1866,8 @@ app.get('/rbac/users', async (req, res) => {
             })
             .filter(Boolean);
           return {
-            ...rest,
-            status,
-            roles: rest.roles || [],
+            ...userDetails,
+            roles: Array.isArray(roles) ? roles : [],
             organization: restrictToOrganization ? organizationFilter : null,
             assigned_programs: assignedPrograms,
           };
