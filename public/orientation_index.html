@@ -222,6 +222,78 @@ const toDisplayString = (value) => {
   return String(ensured);
 };
 
+const createStrokeIcon = (paths = [], options = {}) => (props = {}) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={options.strokeWidth || 1.6}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    {paths.map((d, index) => (
+      <path key={index} d={d} />
+    ))}
+  </svg>
+);
+
+const DELIVERY_INDICATOR_MAP = [
+  {
+    match: /virtual|remote|online|zoom|teams|web|video/i,
+    bgClass: 'bg-sky-500',
+    icon: createStrokeIcon([
+      'M15.75 10.5V9.018a2.25 2.25 0 0 0-2.25-2.25h-6A2.25 2.25 0 0 0 5.25 9v6a2.25 2.25 0 0 0 2.25 2.25h6a2.25 2.25 0 0 0 2.25-2.25v-1.5l3 2.25v-9l-3 2.25Z',
+    ]),
+  },
+  {
+    match: /in[-\s]?person|onsite|on[-\s]?site|campus|classroom|office/i,
+    bgClass: 'bg-emerald-500',
+    icon: createStrokeIcon([
+      'M18 20v-2a2 2 0 0 0-2-2h-.75',
+      'M6 20v-2a2 2 0 0 1 2-2h.75',
+      'M12 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+      'M17.25 11.25a2.25 2.25 0 1 0 0-4.5',
+      'M6.75 11.25a2.25 2.25 0 1 1 0-4.5',
+    ]),
+  },
+  {
+    match: /hybrid|blended|mix(ed)?|combination/i,
+    bgClass: 'bg-violet-500',
+    icon: createStrokeIcon([
+      'M3.75 3.75h6.5v6.5h-6.5z',
+      'M13.75 3.75h6.5v6.5h-6.5z',
+      'M3.75 13.75h6.5v6.5h-6.5z',
+      'M13.75 13.75h6.5v6.5h-6.5z',
+    ], { strokeWidth: 1.4 }),
+  },
+  {
+    match: /self|async|on[-\s]?demand|recorded|asynchronous|self[-\s]?paced/i,
+    bgClass: 'bg-amber-500',
+    icon: createStrokeIcon([
+      'M12 6v6l3 3',
+      'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+    ]),
+  },
+];
+
+const DEFAULT_DELIVERY_INDICATOR = {
+  bgClass: 'bg-slate-500',
+  icon: createStrokeIcon([
+    'M9 5.25h6l3 3v9.5A1.75 1.75 0 0 1 16.25 19.5h-8.5A1.75 1.75 0 0 1 6 17.75V7A1.75 1.75 0 0 1 7.75 5.25Z',
+    'M15 5.25v4h4',
+  ]),
+};
+
+const getDeliveryIndicator = (value) => {
+  const label = toDisplayString(value);
+  if (!label || label === '—') return null;
+  const normalized = label.toLowerCase();
+  const found = DELIVERY_INDICATOR_MAP.find((item) => item.match.test(normalized));
+  return { ...(found || DEFAULT_DELIVERY_INDICATOR), title: label };
+};
+
 const getProgramResults = (program = {}) => (
   program?.results
     ?? program?.program_results
@@ -2755,6 +2827,11 @@ useEffect(() => {
                     if (tooltipTime) {
                       tooltipEntries.push({ label: 'Time', value: tooltipTime });
                     }
+                    const deliveryDisplay = toDisplayString(it.type_delivery);
+                    const deliveryIndicator = getDeliveryIndicator(it.type_delivery);
+                    if (deliveryDisplay && deliveryDisplay !== '—') {
+                      tooltipEntries.push({ label: 'Delivery', value: deliveryDisplay });
+                    }
                     if (tooltipResponsible && tooltipResponsible !== '—') {
                       tooltipEntries.push({ label: 'Responsible', value: tooltipResponsible });
                     }
@@ -2814,6 +2891,16 @@ useEffect(() => {
                               </span>
                             ))}
                           </div>
+                        )}
+                        {deliveryIndicator && (
+                          <span
+                            className={`pointer-events-none absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border border-white shadow-sm text-white ${deliveryIndicator.bgClass}`}
+                            role="img"
+                            aria-label={deliveryIndicator.title}
+                            title={deliveryIndicator.title}
+                          >
+                            {deliveryIndicator.icon({ className: 'h-3.5 w-3.5' })}
+                          </span>
                         )}
                         {canManageAssignments && (
                           isTaskDone ? (
