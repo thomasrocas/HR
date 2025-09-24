@@ -915,6 +915,7 @@ function App({ me, onSignOut }){
   const [allCalendarEvents, setAllCalendarEvents] = useState([]);
   const [allCalendarPrograms, setAllCalendarPrograms] = useState([]);
   const [programVisibility, setProgramVisibility] = useState({});
+  const [collapsedWeekKeys, setCollapsedWeekKeys] = useState(() => new Set());
   const [rangeOverride, setRangeOverride] = useState({ single: false, all: false });
   const [programModal, setProgramModal] = useState({ show:false, program:null });
   const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
@@ -929,6 +930,19 @@ function App({ me, onSignOut }){
   const calendarCacheRef = useRef(new Map());
   const programColorCache = useRef(new Map());
   const rangeOverrideRef = useRef(rangeOverride);
+  const getWeekKey = useCallback((mode, week) => {
+    const raw = week.id || (week.wk === null ? 'unscheduled' : String(week.wk));
+    return `${mode}::${raw}`;
+  }, []);
+  const toggleWeekCollapse = useCallback((key) => setCollapsedWeekKeys((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    return next;
+  }), []);
   useEffect(() => {
     rangeOverrideRef.current = rangeOverride;
   }, [rangeOverride]);
@@ -2980,6 +2994,8 @@ useEffect(() => {
             ) : (
               combinedWeeksView.length ? (
                 combinedWeeksView.map((week, weekIndex) => {
+                  const collapseKey = getWeekKey('all', week);
+                  const isCollapsed = collapsedWeekKeys.has(collapseKey);
                   const total = week.tasks.length || 1;
                   const complete = week.tasks.filter((task) => {
                     if (typeof task.done === 'boolean') return task.done;
@@ -2989,17 +3005,47 @@ useEffect(() => {
                   const weekLabel = week.wk === null ? 'Unscheduled Tasks' : `Week ${week.wk}`;
                   return (
                     <div key={week.id} className="card p-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-4">
                         <div>
                           <div className="text-lg font-semibold">{weekLabel}</div>
                           <div className="text-sm text-slate-500">Combined from all programs</div>
                         </div>
-                        <div className="w-48">
-                          <ProgressBar value={pct} />
-                          <div className="text-xs text-right mt-1">{pct}%</div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            className="btn btn-ghost text-sm font-medium"
+                            onClick={() => toggleWeekCollapse(collapseKey)}
+                            aria-expanded={!isCollapsed}
+                            aria-controls={collapseKey}
+                          >
+                            <span className="flex items-center gap-2">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className={`w-4 h-4 transform transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
+                                aria-hidden="true"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                              {isCollapsed ? 'Show Tasks' : 'Hide Tasks'}
+                            </span>
+                          </button>
+                          <div className="w-48">
+                            <ProgressBar value={pct} />
+                            <div className="text-xs text-right mt-1">{pct}%</div>
+                          </div>
                         </div>
                       </div>
-                      <div className="space-y-3 mt-4">
+                      <div
+                        id={collapseKey}
+                        className={`space-y-3 mt-4 ${isCollapsed ? 'hidden' : ''}`}
+                        aria-hidden={isCollapsed}
+                      >
                         {week.tasks.map((task, taskIndex) => {
                           const taskId = task.task_id || task.id;
                           const programId = task.programId ? String(task.programId) : '';
@@ -3119,17 +3165,49 @@ useEffect(() => {
             )
           ) : (
             weeks.map((w, wi)=>{
+              const collapseKey = getWeekKey('single', w);
+              const isCollapsed = collapsedWeekKeys.has(collapseKey);
               const pct = Math.round(100*((w.tasks||[]).filter(t=>t.completed).length / ((w.tasks||[]).length||1)));
               return (
                 <div key={w.id} className="card p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-lg font-semibold">Week {w.wk}: {w.title}</div>
                       <div className="text-sm text-slate-500">{w.theme}</div>
                     </div>
-                    <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="btn btn-ghost text-sm font-medium"
+                        onClick={() => toggleWeekCollapse(collapseKey)}
+                        aria-expanded={!isCollapsed}
+                        aria-controls={collapseKey}
+                      >
+                        <span className="flex items-center gap-2">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            className={`w-4 h-4 transform transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
+                            aria-hidden="true"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          {isCollapsed ? 'Show Tasks' : 'Hide Tasks'}
+                        </span>
+                      </button>
+                      <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
+                    </div>
                   </div>
-                  <div className="grid md:grid-cols-2 gap-3 mt-4">
+                  <div
+                    id={collapseKey}
+                    className={`grid md:grid-cols-2 gap-3 mt-4 ${isCollapsed ? 'hidden' : ''}`}
+                    aria-hidden={isCollapsed}
+                  >
                     {(w.tasks||[]).map((t,ti)=> {
                       const taskTimeDisplay = deriveTimeFromTask(t);
                       const doneAttr = typeof t.completed === 'boolean' ? String(t.completed) : toDisplayString(t.completed);
