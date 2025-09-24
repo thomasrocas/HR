@@ -1175,7 +1175,33 @@ function isKnownProgram(programId) {
   return PROGRAMS.some(program => extractProgramId(program) === id);
 }
 
+function extractRecordIdValue(record) {
+  if (!record || !('id' in record)) {
+    return '';
+  }
+  const rawId = record.id;
+  if (rawId === null || rawId === undefined) {
+    return '';
+  }
+  return (typeof rawId === 'string' ? rawId : String(rawId)).trim();
+}
+
 function findUserMatchForRecord(record, programId) {
+  const recordId = extractRecordIdValue(record);
+  if (recordId) {
+    const matchedById = USERS.find(user => {
+      if (!user || user.id === null || user.id === undefined) {
+        return false;
+      }
+      const userId = (typeof user.id === 'string' ? user.id : String(user.id)).trim();
+      return userId && userId === recordId;
+    });
+    if (matchedById) {
+      return matchedById;
+    }
+    return null;
+  }
+
   if (programId) {
     const byProgram = USERS.find(user => {
       if (!user || !Array.isArray(user.assigned_programs)) return false;
@@ -1289,7 +1315,8 @@ async function handleUserImportSelection(event) {
       const programIds = collectProgramIds(record);
       const primaryProgramId = programIds[0] || '';
       const roles = parseRolesFromRecord(record);
-      const targetUser = findUserMatchForRecord(record, primaryProgramId);
+      const hasRecordId = Boolean(extractRecordIdValue(record));
+      const targetUser = hasRecordId ? findUserMatchForRecord(record, primaryProgramId) : null;
       try {
         if (targetUser && targetUser.id) {
           const payload = buildUserProfilePayload(record);
@@ -1548,12 +1575,35 @@ async function deleteProgramForUser(userId, programId) {
   });
 }
 async function createUser(payload) {
-  return fetch(`${API}/api/users`, {
+  const body = JSON.stringify(payload);
+  const requestInit = {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+    body
+  };
+  const candidateEndpoints = [`${API}/api/users`, `${API}/rbac/users`];
+  let lastResponse = null;
+  let lastError = null;
+  for (const endpoint of candidateEndpoints) {
+    try {
+      const response = await fetch(endpoint, { ...requestInit });
+      if (response.status === 404 || response.status === 405) {
+        lastResponse = response;
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastResponse) {
+    return lastResponse;
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error('Unable to reach user creation endpoint.');
 }
 async function updateUserProfile(userId, payload) {
   return fetch(`${API}/api/users/${userId}`, {
