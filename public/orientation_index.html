@@ -107,20 +107,61 @@ const { useEffect, useMemo, useState, useRef, useCallback } = React;
 const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
 
 const rangeUtils = window.orientationRangeUtils || {};
-const deriveProgramRangeSafe = (rows, options = {}) => {
-  if (typeof rangeUtils.deriveProgramRange === 'function') {
-    return rangeUtils.deriveProgramRange(rows, options);
+const normalizeDateInputValue = (value, fallback = '') => {
+  const fallbackString = typeof fallback === 'string' ? fallback : '';
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const normalizedItem = normalizeDateInputValue(item, '');
+      if (normalizedItem) return normalizedItem;
+    }
+    return fallbackString;
   }
-  const fallbackStart = options.fallbackStartDate || dayjs().format('YYYY-MM-DD');
+  if (value && typeof value === 'object' && typeof value.isValid === 'function') {
+    const parsed = dayjs(value);
+    const formatted = parsed.isValid() ? parsed.format('YYYY-MM-DD') : '';
+    return formatted || fallbackString;
+  }
+  if (value instanceof Date || typeof value === 'number') {
+    const parsed = dayjs(value);
+    const formatted = parsed.isValid() ? parsed.format('YYYY-MM-DD') : '';
+    return formatted || fallbackString;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === '—') return fallbackString;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = dayjs(trimmed);
+    const formatted = parsed.isValid() ? parsed.format('YYYY-MM-DD') : '';
+    return formatted || fallbackString;
+  }
+  return fallbackString;
+};
+const deriveProgramRangeSafe = (rows, options = {}) => {
+  const today = dayjs().format('YYYY-MM-DD');
+  const fallbackStart = normalizeDateInputValue(options.fallbackStartDate, today) || today;
   const fallbackWeeks = options.fallbackWeeks || 6;
+  if (typeof rangeUtils.deriveProgramRange === 'function') {
+    const result = rangeUtils.deriveProgramRange(rows, options) || {};
+    return {
+      ...result,
+      startDate: normalizeDateInputValue(result.startDate, fallbackStart),
+      numWeeks: Number.isFinite(result.numWeeks) ? result.numWeeks : fallbackWeeks,
+    };
+  }
   return { startDate: fallbackStart, numWeeks: fallbackWeeks };
 };
 const deriveAllProgramsRangeSafe = (rows, options = {}) => {
-  if (typeof rangeUtils.deriveAllProgramsRange === 'function') {
-    return rangeUtils.deriveAllProgramsRange(rows, options);
-  }
-  const fallbackStart = options.fallbackStartDate || dayjs().format('YYYY-MM-DD');
+  const today = dayjs().format('YYYY-MM-DD');
+  const fallbackStart = normalizeDateInputValue(options.fallbackStartDate, today) || today;
   const fallbackWeeks = options.fallbackWeeks || 6;
+  if (typeof rangeUtils.deriveAllProgramsRange === 'function') {
+    const result = rangeUtils.deriveAllProgramsRange(rows, options) || {};
+    return {
+      ...result,
+      startDate: normalizeDateInputValue(result.startDate, fallbackStart),
+      numWeeks: Number.isFinite(result.numWeeks) ? result.numWeeks : fallbackWeeks,
+    };
+  }
   return { startDate: fallbackStart, numWeeks: fallbackWeeks };
 };
 
@@ -1506,7 +1547,8 @@ function App({ me, onSignOut }){
         programInfo,
       });
       if (derivedRange && derivedRange.startDate) {
-        setStartDate(derivedRange.startDate);
+        const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
+        setStartDate(normalizedStart);
       }
       if (derivedRange && Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
         setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
@@ -1907,7 +1949,8 @@ useEffect(() => {
         let filterStart = calendarRange.start;
         let filterEnd = calendarRange.end;
         if (derivedRange && derivedRange.startDate && Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
-          const derivedStart = dayjs(derivedRange.startDate).startOf('day');
+          const derivedStartValue = normalizeDateInputValue(derivedRange.startDate);
+          const derivedStart = dayjs(derivedStartValue).startOf('day');
           if (derivedStart.isValid()) {
             const totalDays = Math.max(1, Math.trunc(derivedRange.numWeeks)) * 7;
             const derivedEnd = derivedStart.add(totalDays - 1, 'day');
@@ -1915,12 +1958,14 @@ useEffect(() => {
             filterEnd = derivedEnd;
           }
           if (!rangeOverrideRef.current.all) {
-            setStartDate(derivedRange.startDate);
+            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
+            setStartDate(normalizedStart);
             setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
           }
         } else if (derivedRange && !rangeOverrideRef.current.all) {
           if (derivedRange.startDate) {
-            setStartDate(derivedRange.startDate);
+            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
+            setStartDate(normalizedStart);
           }
           if (Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
             setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
@@ -2854,7 +2899,7 @@ useEffect(() => {
   const controlBar = (
     <div className="flex items-center gap-3">
       <label className="text-sm text-slate-600">Start</label>
-      <input type="date" className="input w-[160px]" value={startDate} onChange={(e)=> handleStartDateInput(e.target.value)} />
+      <input type="date" className="input w-[160px]" value={normalizeDateInputValue(startDate)} onChange={(e)=> handleStartDateInput(e.target.value)} />
       <div className="h-6 w-px bg-slate-200" />
       <label className="text-sm text-slate-600">Weeks</label>
       <div className="flex items-center gap-1">
@@ -3427,7 +3472,7 @@ useEffect(() => {
                           {showAssignedMeta && (
                             <div className="mt-2 flex items-center gap-2 text-sm">
                               <span className="text-slate-600">Assigned{taskTimeDisplay ? ` • ${taskTimeDisplay}` : ''}:</span>
-                              <input type="date" className="input w-auto" value={t.scheduled_for||''}
+                              <input type="date" className="input w-auto" value={normalizeDateInputValue(t.scheduled_for)}
                                      onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
                             </div>
                           )}
