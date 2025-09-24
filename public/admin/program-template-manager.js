@@ -154,6 +154,100 @@ async function fetchProgramTemplates(params = {}) {
   return fetchJson(url);
 }
 
+function extractTemplatesFromResponse(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return Array.isArray(payload) ? payload : [];
+  }
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.results)) return payload.results;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.templates)) return payload.templates;
+  if (Array.isArray(payload.records)) return payload.records;
+  if (Array.isArray(payload.rows)) return payload.rows;
+  if (Array.isArray(payload.list)) return payload.list;
+  return [];
+}
+
+function parsePositiveInteger(value) {
+  if (value === Infinity) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return null;
+}
+
+async function fetchAllProgramTemplates(params = {}, options = {}) {
+  const baseParams = params && typeof params === 'object' ? { ...params } : {};
+  const { batchSize = 100, maxRequests = 20 } = options || {};
+  let offset = parsePositiveInteger(baseParams.offset);
+  if (!Number.isFinite(offset) || offset < 0) {
+    offset = 0;
+  }
+  delete baseParams.offset;
+  let limit = parsePositiveInteger(baseParams.limit);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    const defaultBatch = parsePositiveInteger(batchSize);
+    limit = Number.isFinite(defaultBatch) && defaultBatch > 0 ? defaultBatch : 100;
+  }
+  delete baseParams.limit;
+
+  const aggregated = [];
+  let totalFromMeta = null;
+
+  for (let requestIndex = 0; requestIndex < maxRequests; requestIndex += 1) {
+    const requestParams = { ...baseParams };
+    if (Number.isFinite(limit) && limit > 0) {
+      requestParams.limit = limit;
+    }
+    if (offset) {
+      requestParams.offset = offset;
+    } else {
+      requestParams.offset = 0;
+    }
+
+    const response = await fetchProgramTemplates(requestParams);
+    const batch = extractTemplatesFromResponse(response);
+    if (batch.length) {
+      aggregated.push(...batch);
+    }
+
+    const meta = response && typeof response === 'object' ? response.meta : undefined;
+    const totalCandidate = meta?.total;
+    const parsedTotal = parsePositiveInteger(totalCandidate);
+    if (parsedTotal !== null) {
+      totalFromMeta = parsedTotal;
+    }
+
+    const limitCandidate = meta?.limit;
+    const parsedLimit = parsePositiveInteger(limitCandidate);
+    const effectiveLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : limit;
+    const offsetCandidate = Number.parseInt(meta?.offset, 10);
+
+    const reachedTotal = Number.isFinite(totalFromMeta) && aggregated.length >= totalFromMeta;
+    if (!batch.length || !Number.isFinite(effectiveLimit) || effectiveLimit <= 0) {
+      break;
+    }
+    if (batch.length < effectiveLimit) {
+      break;
+    }
+    if (reachedTotal) {
+      break;
+    }
+
+    if (Number.isFinite(offsetCandidate) && offsetCandidate >= 0) {
+      offset = offsetCandidate + effectiveLimit;
+    } else {
+      offset += effectiveLimit;
+    }
+  }
+
+  if (Number.isFinite(totalFromMeta) && aggregated.length >= totalFromMeta) {
+    return aggregated.slice(0, totalFromMeta);
+  }
+  return aggregated;
+}
+
 function createStatusBadge(status) {
   const normalized = (status || '').toLowerCase();
   const badgeClass = {
@@ -5789,25 +5883,16 @@ function openDeleteTemplateModal(templateId) {
     return;
   }
   deleteTargetTemplateId = templateId;
-  const status = getTemplateStatus(template);
-  const normalizedStatus = (status || '').toLowerCase();
-  const isArchived = normalizedStatus === 'archived';
   if (deleteTemplateModalDescription) {
     const name = getTemplateName(template) || 'this template';
-    deleteTemplateModalDescription.textContent = isArchived
-      ? `“${name}” has already been archived.`
-      : `This will permanently delete “${name}”.`;
+    deleteTemplateModalDescription.textContent = `This will permanently delete “${name}”.`;
   }
   if (confirmDeleteTemplateButton) {
-    confirmDeleteTemplateButton.disabled = isArchived;
-    confirmDeleteTemplateButton.title = isArchived ? 'Archived templates cannot be deleted.' : '';
-    confirmDeleteTemplateButton.setAttribute('aria-disabled', isArchived ? 'true' : 'false');
+    confirmDeleteTemplateButton.disabled = false;
+    confirmDeleteTemplateButton.title = '';
+    confirmDeleteTemplateButton.setAttribute('aria-disabled', 'false');
   }
-  if (isArchived) {
-    setModalMessage(deleteTemplateModalMessage, 'This template has already been archived and cannot be deleted again.');
-  } else {
-    setModalMessage(deleteTemplateModalMessage, '');
-  }
+  setModalMessage(deleteTemplateModalMessage, '');
   openModal(deleteTemplateModal);
 }
 
@@ -5833,13 +5918,6 @@ async function confirmDeleteTemplate() {
   }
   if (!deleteTargetTemplateId) return;
   const targetId = deleteTargetTemplateId;
-  const template = getTemplateById(targetId);
-  const templateStatus = template ? getTemplateStatus(template) : '';
-  const isArchived = (templateStatus || '').toLowerCase() === 'archived';
-  if (isArchived) {
-    setModalMessage(deleteTemplateModalMessage, 'This template has already been archived and cannot be deleted again.');
-    return;
-  }
   await flushPendingTemplateAssociationChanges();
   const originalLabel = confirmDeleteTemplateButton ? confirmDeleteTemplateButton.textContent : '';
   if (confirmDeleteTemplateButton) {
@@ -6556,19 +6634,7 @@ async function loadTemplates(options = {}) {
       params.status = status;
     }
     params.include_deleted = 'true';
-    const data = await fetchProgramTemplates(params);
-    let fetched = [];
-    if (Array.isArray(data?.data)) {
-      fetched = data.data;
-    } else if (Array.isArray(data?.results)) {
-      fetched = data.results;
-    } else if (Array.isArray(data?.items)) {
-      fetched = data.items;
-    } else if (Array.isArray(data)) {
-      fetched = data;
-    } else if (Array.isArray(data?.templates)) {
-      fetched = data.templates;
-    }
+    const fetched = await fetchAllProgramTemplates(params);
     globalTemplates = Array.isArray(fetched) ? fetched : [];
     if (typeof hydrateTemplatesWithAudit === 'function') {
       hydrateTemplatesWithAudit(globalTemplates);
