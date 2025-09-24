@@ -991,6 +991,10 @@ function getProgramCreatedAt(program) {
   return program?.created_at ?? program?.createdAt ?? program?.updated_at ?? program?.updatedAt ?? null;
 }
 
+function getProgramCreatedBy(program) {
+  return program?.created_by ?? program?.createdBy ?? '';
+}
+
 function getProgramTotalWeeks(program) {
   const raw = program?.total_weeks ?? program?.totalWeeks ?? null;
   if (raw === null || raw === undefined || raw === '') return null;
@@ -1216,19 +1220,45 @@ function getProgramLifecycleLabel(program) {
 }
 
 const PROGRAM_CSV_ACCESSORS = {
-  title: program => getProgramTitle(program) || '—',
-  lifecycle: program => getProgramLifecycleLabel(program),
-  weeks: program => {
+  program_id: program => getProgramId(program) || '',
+  title: program => getProgramTitle(program) || '',
+  total_weeks: program => {
     const totalWeeks = getProgramTotalWeeks(program);
-    return Number.isFinite(totalWeeks) ? String(totalWeeks) : '—';
+    return Number.isFinite(totalWeeks) ? String(totalWeeks) : '';
   },
-  description: program => {
-    const description = getProgramDescription(program);
-    return description ? description : '—';
+  description: program => getProgramDescription(program) || '',
+  created_by: program => getProgramCreatedBy(program) || '',
+  created_at: program => {
+    const createdAt = program?.created_at ?? program?.createdAt ?? null;
+    return createdAt ? String(createdAt) : '';
   },
-  createdAt: program => formatDate(getProgramCreatedAt(program)),
-  archivedAt: program => formatDate(getProgramArchivedAt(program)),
+  deleted_at: program => {
+    const archivedAt = getProgramArchivedAt(program);
+    return archivedAt ? String(archivedAt) : '';
+  },
+  results: program => getProgramResults(program) || '',
+  purpose: program => getProgramPurpose(program) || '',
+  organization: program => getProgramOrganization(program) || '',
+  sub_unit: program => getProgramSubUnit(program) || '',
+  discipline_type: program => getProgramDiscipline(program) || '',
+  department: program => getProgramDepartment(program) || '',
 };
+
+const PROGRAM_EXPORT_FIELDS = [
+  'program_id',
+  'title',
+  'total_weeks',
+  'description',
+  'created_by',
+  'created_at',
+  'deleted_at',
+  'results',
+  'purpose',
+  'organization',
+  'sub_unit',
+  'discipline_type',
+  'department',
+];
 
 const TEMPLATE_EXPORT_FIELDS = [
   'template_id',
@@ -1266,21 +1296,10 @@ const TEMPLATE_CSV_ACCESSORS = {
 
 function toCSV() {
   if (!programTable) return '';
-  const headerCells = Array.from(programTable.querySelectorAll('thead th')).filter(isElementVisible);
-  if (!headerCells.length) return '';
-  const headerLabels = headerCells.map(cell => {
-    const clone = cell.cloneNode(true);
-    const redundantElements = clone.querySelectorAll('input, [data-sort-indicator]');
-    redundantElements.forEach(el => el.remove());
-    const label = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-    return label;
-  });
-  const headerKeys = headerCells.map(cell => cell.dataset.key || null);
-  const rows = [headerLabels.map(escapeCsvCell).join(',')];
+  const rows = [PROGRAM_EXPORT_FIELDS.map(escapeCsvCell).join(',')];
   const programsToExport = getFilteredSortedPrograms();
   programsToExport.forEach(program => {
-    const cells = headerKeys.map(key => {
-      if (!key) return '';
+    const cells = PROGRAM_EXPORT_FIELDS.map(key => {
       const accessor = PROGRAM_CSV_ACCESSORS[key];
       const rawValue = typeof accessor === 'function' ? accessor(program) : program?.[key];
       if (rawValue === null || rawValue === undefined) return '';
