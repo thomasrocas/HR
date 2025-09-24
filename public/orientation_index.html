@@ -1598,12 +1598,8 @@ function App({ me, onSignOut }){
       try {
         // 1) Always ask the server first for the current user's preference
         const prefs = await apiGetPrefs(); // NOTE: server /prefs returns current user's prefs by default
-
-        const serverProgramId = normalizeProgramId(prefs.program_id);
-        let pid = serverProgramId;
+        let pid = normalizeProgramId(prefs.program_id);
         let usedFallback = false;
-        let fallbackSource = null;
-
 
         // 2) If the server has no preference yet, fall back to URL/localStorage
         if (!pid) {
@@ -1611,9 +1607,6 @@ function App({ me, onSignOut }){
           if (queryProgramId) {
             pid = queryProgramId;
             usedFallback = true;
-
-            fallbackSource = 'query';
-
           }
         }
 
@@ -1623,9 +1616,6 @@ function App({ me, onSignOut }){
             if (storedProgramId) {
               pid = storedProgramId;
               usedFallback = true;
-
-              fallbackSource = 'storage';
-
             }
           } catch (storageErr) {
             pid = pid || null;
@@ -1648,14 +1638,6 @@ function App({ me, onSignOut }){
             pid = null;
           }
         }
-
-
-        if (pid && usedFallback && !serverProgramId && isPrivileged) {
-          if (fallbackSource === 'storage' || fallbackSource === 'query') {
-            pid = null;
-          }
-        }
-
 
         if (pid) {
           // 3) Persist + tell server so future logins restore correctly
@@ -2064,15 +2046,9 @@ function App({ me, onSignOut }){
           return candidateId ? sameId(candidateId, QS_PROGRAM_ID) : false;
         });
         if(!hasMatch){
-
-          if (isPrivileged) {
-            QS_PROGRAM_ID = null;
-          } else {
-            const fallbackProgram = Array.isArray(list) && list.length ? list[0] : null;
-            const fallbackId = fallbackProgram ? normalizeProgramId(fallbackProgram.program_id ?? fallbackProgram.id ?? fallbackProgram.uuid) : null;
-            QS_PROGRAM_ID = fallbackId;
-          }
-
+          const fallbackProgram = Array.isArray(list) && list.length ? list[0] : null;
+          const fallbackId = fallbackProgram ? normalizeProgramId(fallbackProgram.program_id ?? fallbackProgram.id ?? fallbackProgram.uuid) : null;
+          QS_PROGRAM_ID = fallbackId;
         }
       }
       if(!QS_PROGRAM_ID){
