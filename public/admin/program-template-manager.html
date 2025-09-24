@@ -370,10 +370,45 @@
       </div>
 
       <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-        <label class="space-y-1">
-          <span class="label-text">Search programs</span>
-          <input id="programSearch" class="input" placeholder="Search by title, lifecycle, or description…">
-        </label>
+        <div class="space-y-3">
+          <label class="space-y-1">
+            <span class="label-text">Search programs</span>
+            <input id="programSearch" class="input" placeholder="Search by title, lifecycle, or description…">
+          </label>
+          <!-- Programs facet filters -->
+          <div class="grid gap-3 md:grid-cols-5">
+            <label class="space-y-1">
+              <span class="label-text">Organization</span>
+              <select id="progFilterOrg" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Sub-unit</span>
+              <select id="progFilterSub" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Discipline</span>
+              <select id="progFilterDiscipline" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Delivery Type</span>
+              <select id="progFilterDelivery" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="label-text">Department</span>
+              <select id="progFilterDept" class="input">
+                <option value="">All</option>
+              </select>
+            </label>
+          </div>
+        </div>
         <div id="programSelectionSummary" class="text-xs text-slate-500 md:text-right">No programs selected.</div>
       </div>
 

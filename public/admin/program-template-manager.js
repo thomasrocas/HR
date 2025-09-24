@@ -1289,33 +1289,60 @@ function getProgramPurpose(program) {
 }
 
 function getProgramOrganization(program) {
-  return program?.organization
+  return (
+    program?.organization
     ?? program?.org
     ?? program?.organization_name
     ?? program?.organizationName
-    ?? '';
+    ?? program?.meta?.organization
+    ?? ''
+  ) || '';
 }
 
 function getProgramSubUnit(program) {
-  return program?.sub_unit
+  return (
+    program?.sub_unit
     ?? program?.subUnit
     ?? program?.subunit
-    ?? '';
+    ?? program?.meta?.sub_unit
+    ?? ''
+  ) || '';
+}
+
+function getProgramDisciplineType(program) {
+  return (
+    program?.discipline_type
+    ?? program?.disciplineType
+    ?? program?.discipline
+    ?? program?.meta?.discipline_type
+    ?? ''
+  ) || '';
+}
+
+function getProgramDeliveryType(program) {
+  return (
+    program?.type_delivery
+    ?? program?.typeDelivery
+    ?? program?.delivery_type
+    ?? program?.deliveryType
+    ?? program?.meta?.type_delivery
+    ?? ''
+  ) || '';
 }
 
 function getProgramDepartment(program) {
-  return program?.department
+  return (
+    program?.department
     ?? program?.dept
     ?? program?.department_name
     ?? program?.departmentName
-    ?? '';
+    ?? program?.meta?.department
+    ?? ''
+  ) || '';
 }
 
 function getProgramDiscipline(program) {
-  return program?.discipline
-    ?? program?.discipline_type
-    ?? program?.disciplineType
-    ?? '';
+  return getProgramDisciplineType(program);
 }
 
 function getProgramArchivedAt(program) {
@@ -2368,6 +2395,12 @@ const tmplFilterSub = document.getElementById('tmplFilterSub');
 const tmplFilterDiscipline = document.getElementById('tmplFilterDiscipline');
 const tmplFilterDelivery = document.getElementById('tmplFilterDelivery');
 const tmplFilterDept = document.getElementById('tmplFilterDept');
+// Programs facet filter elements
+const progFilterOrg = document.getElementById('progFilterOrg');
+const progFilterSub = document.getElementById('progFilterSub');
+const progFilterDiscipline = document.getElementById('progFilterDiscipline');
+const progFilterDelivery = document.getElementById('progFilterDelivery');
+const progFilterDept = document.getElementById('progFilterDept');
 const programMessage = document.getElementById('programMessage');
 const templateMessage = document.getElementById('templateMessage');
 const programSelectionSummary = document.getElementById('programSelectionSummary');
@@ -2471,6 +2504,11 @@ if (tmplFilterSub) populateSelectOptions(tmplFilterSub, SUB_UNIT_OPTIONS);
 if (tmplFilterDiscipline) populateSelectOptions(tmplFilterDiscipline, DISCIPLINE_TYPE_OPTIONS);
 if (tmplFilterDelivery) populateSelectOptions(tmplFilterDelivery, DELIVERY_TYPE_OPTIONS);
 if (tmplFilterDept) populateSelectOptions(tmplFilterDept, DEPARTMENT_OPTIONS);
+if (progFilterOrg) populateSelectOptions(progFilterOrg, ORGANIZATION_OPTIONS);
+if (progFilterSub) populateSelectOptions(progFilterSub, SUB_UNIT_OPTIONS);
+if (progFilterDiscipline) populateSelectOptions(progFilterDiscipline, DISCIPLINE_TYPE_OPTIONS);
+if (progFilterDelivery) populateSelectOptions(progFilterDelivery, DELIVERY_TYPE_OPTIONS);
+if (progFilterDept) populateSelectOptions(progFilterDept, DEPARTMENT_OPTIONS);
 
 if (tmplFilterOrg instanceof HTMLSelectElement && hasManagerOrganizationScope && managerOrganizationScopeId) {
   ensureSelectValue(tmplFilterOrg, managerOrganizationScopeId);
@@ -2483,6 +2521,13 @@ if (tmplFilterOrg instanceof HTMLSelectElement && hasManagerOrganizationScope &&
   .forEach(el => el.addEventListener('change', () => {
     templateCurrentPage = 1;
     renderTemplates();
+  }));
+
+[progFilterOrg, progFilterSub, progFilterDiscipline, progFilterDelivery, progFilterDept]
+  .filter(Boolean)
+  .forEach(el => el.addEventListener('change', () => {
+    programCurrentPage = 1;
+    renderPrograms();
   }));
 
 if (!programTableBody || !templateTableBody || !programActionsContainer || !templateActionsContainer) {
@@ -3139,11 +3184,38 @@ function getSortedPrograms(source = programs) {
     .map(entry => entry.program);
 }
 
+function programMatchesFacetFilters(program) {
+  const want = el => (el && typeof el.value === 'string') ? el.value.trim() : '';
+
+  const wOrg = want(progFilterOrg);
+  const wSub = want(progFilterSub);
+  const wDisc = want(progFilterDiscipline);
+  const wDeliv = want(progFilterDelivery);
+  const wDept = want(progFilterDept);
+
+  const haveOrg = getProgramOrganization(program).trim();
+  const haveSub = getProgramSubUnit(program).trim();
+  const haveDisc = getProgramDisciplineType(program).trim();
+  const haveDeliv = getProgramDeliveryType(program).trim();
+  const haveDept = getProgramDepartment(program).trim();
+
+  if (wOrg && haveOrg !== wOrg) return false;
+  if (wSub && haveSub !== wSub) return false;
+  if (wDisc && haveDisc !== wDisc) return false;
+  if (wDeliv && haveDeliv !== wDeliv) return false;
+  if (wDept && haveDept !== wDept) return false;
+
+  return true;
+}
+
 function getFilteredPrograms(source = programs) {
   let list = Array.isArray(source) ? source.slice() : [];
   if (hideArchivedPrograms) {
     list = list.filter(program => !isProgramArchived(program));
   }
+
+  list = list.filter(programMatchesFacetFilters);
+
   const term = (programSearchInput?.value || '').trim().toLowerCase();
   if (!term) return list;
   return list.filter(p => {
@@ -3152,6 +3224,11 @@ function getFilteredPrograms(source = programs) {
       getProgramLifecycle(p),
       getProgramDescription(p),
       getProgramId(p),
+      getProgramOrganization(p),
+      getProgramSubUnit(p),
+      getProgramDisciplineType(p),
+      getProgramDeliveryType(p),
+      getProgramDepartment(p),
     ];
     const totalWeeks = getProgramTotalWeeks(p);
     if (Number.isFinite(totalWeeks)) values.push(String(totalWeeks));
