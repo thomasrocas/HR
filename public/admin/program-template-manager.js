@@ -451,18 +451,6 @@ function toNullableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-const toInt = value => {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (trimmed === '') return null;
-    return Number(trimmed);
-  }
-  if (value === '') return null;
-  return Number(value);
-};
-const toStr = value => (value === null || value === undefined ? '' : String(value).trim());
-
 function toNullableBoolean(value) {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'boolean') return value;
@@ -749,7 +737,7 @@ function normalizeProgramImportRecord(record) {
       case 'focus_area':
       case 'track': {
         if (!isEmpty) {
-          normalized.discipline_type = stringValue;
+          normalized.discipline = stringValue;
           hasValue = true;
         }
         break;
@@ -852,173 +840,6 @@ function buildProgramImportOperation(record, index) {
   }
 
   return operation;
-}
-
-function formatBulkUpsertError(status, payload, fallback = 'Program import failed.') {
-  const parts = [];
-  if (status) {
-    parts.push(`HTTP ${status}`);
-  }
-  if (payload && typeof payload === 'object') {
-    if (payload.error) {
-      parts.push(typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error));
-    }
-    if (payload.message && payload.message !== payload.error) {
-      parts.push(typeof payload.message === 'string' ? payload.message : JSON.stringify(payload.message));
-    }
-    if (payload.detail) {
-      const detailText = typeof payload.detail === 'string'
-        ? payload.detail
-        : JSON.stringify(payload.detail);
-      parts.push(`Detail: ${detailText}`);
-    }
-    if (payload.hint) {
-      const hintText = typeof payload.hint === 'string' ? payload.hint : JSON.stringify(payload.hint);
-      parts.push(`Hint: ${hintText}`);
-    }
-    if (payload.code) {
-      parts.push(`Code: ${payload.code}`);
-    }
-  } else if (typeof payload === 'string') {
-    parts.push(payload);
-  }
-  if (!parts.length && fallback) {
-    parts.push(fallback);
-  }
-  return parts.join(' • ');
-}
-
-function buildProgramBulkRows(operations, records) {
-  const rows = [];
-  const errors = [];
-  const normalizedRecords = Array.isArray(records) ? records : [];
-  const seenIndexes = new Set();
-
-  (Array.isArray(operations) ? operations : []).forEach(operation => {
-    if (!operation || typeof operation !== 'object') {
-      return;
-    }
-    if (operation.error) {
-      return;
-    }
-    const index = typeof operation.index === 'number' ? operation.index : null;
-    if (index === null || index < 0 || !Number.isInteger(index)) {
-      return;
-    }
-    if (seenIndexes.has(index)) {
-      return;
-    }
-    seenIndexes.add(index);
-
-    const record = normalizedRecords[index] && typeof normalizedRecords[index] === 'object'
-      ? { ...normalizedRecords[index] }
-      : {};
-    const payload = operation.payload && typeof operation.payload === 'object'
-      ? operation.payload
-      : {};
-    const combined = { ...record, ...payload };
-    if (operation.programId !== null && operation.programId !== undefined) {
-      combined.program_id = operation.programId;
-    }
-
-    const row = {};
-
-    const rawProgramId = combined.program_id;
-    const programIdValue = toInt(rawProgramId);
-    if (programIdValue !== null) {
-      if (!Number.isFinite(programIdValue)) {
-        errors.push(`Program record ${index + 1}: program_id must be a number.`);
-        return;
-      }
-      row.program_id = programIdValue;
-    }
-
-    const hasTitleField = Object.prototype.hasOwnProperty.call(combined, 'title');
-    const titleValue = toStr(combined.title);
-    if (!row.program_id && !titleValue) {
-      errors.push(`Program record ${index + 1}: Program title is required.`);
-      return;
-    }
-    if (hasTitleField || (!row.program_id && titleValue)) {
-      row.title = titleValue;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(combined, 'total_weeks')) {
-      const weeksValue = toInt(combined.total_weeks);
-      if (weeksValue !== null && !Number.isFinite(weeksValue)) {
-        errors.push(`Program record ${index + 1}: total_weeks must be a number.`);
-        return;
-      }
-      row.total_weeks = weeksValue;
-    }
-
-    const stringFields = [
-      'description',
-      'results',
-      'purpose',
-      'organization',
-      'sub_unit',
-      'discipline_type',
-      'department',
-    ];
-    stringFields.forEach(field => {
-      if (Object.prototype.hasOwnProperty.call(combined, field)) {
-        row[field] = toStr(combined[field]);
-      }
-    });
-
-    Object.keys(row).forEach(key => {
-      if (!PROGRAM_BULK_ALLOWED_FIELD_SET.has(key) || row[key] === undefined) {
-        delete row[key];
-      }
-    });
-
-    const keys = Object.keys(row);
-    const nonIdKeys = keys.filter(key => key !== 'program_id');
-    if (!nonIdKeys.length) {
-      errors.push(`Program record ${index + 1}: No fields provided for import.`);
-      return;
-    }
-
-    rows.push(row);
-  });
-
-  return { rows, errors };
-}
-
-async function bulkUpsertPrograms(rows) {
-  const response = await fetch('/api/programs/bulk_upsert', {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({ rows }),
-  });
-  let payload = null;
-  let text = '';
-  try {
-    text = await response.text();
-    if (text) {
-      payload = JSON.parse(text);
-    }
-  } catch (_error) {
-    payload = text;
-  }
-
-  if (!response.ok) {
-    const errorPayload = payload && typeof payload === 'object' ? payload : { error: payload };
-    const message = formatBulkUpsertError(response.status, errorPayload);
-    const error = new Error(message || 'Program import failed.');
-    error.status = response.status;
-    error.payload = errorPayload;
-    throw error;
-  }
-
-  const data = payload && typeof payload === 'object' ? payload : {};
-  const upserted = Number.isFinite(Number(data.upserted)) ? Number(data.upserted) : rows.length;
-  return { upserted };
 }
 
 function isValidHttpUrl(value) {
@@ -2031,20 +1852,6 @@ function parseImportJson(text, keys = []) {
 const PROGRAM_IMPORT_RECORD_KEYS = ['programs'];
 const TEMPLATE_IMPORT_RECORD_KEYS = ['templates'];
 
-const PROGRAM_BULK_ALLOWED_FIELDS = [
-  'program_id',
-  'title',
-  'total_weeks',
-  'description',
-  'results',
-  'purpose',
-  'organization',
-  'sub_unit',
-  'discipline_type',
-  'department',
-];
-const PROGRAM_BULK_ALLOWED_FIELD_SET = new Set(PROGRAM_BULK_ALLOWED_FIELDS);
-
 const TEMPLATE_IMPORT_IGNORED_KEYS = new Set([
   'id',
   'template_id',
@@ -2435,7 +2242,6 @@ async function handleProgramImportFile(file) {
     let success = 0;
     let failure = 0;
     let errors = [];
-    let displayedErrorMessage = null;
     if (blockedOperations.length) {
       failure += blockedOperations.length;
       blockedOperations.forEach(operation => {
@@ -2450,38 +2256,14 @@ async function handleProgramImportFile(file) {
         console.warn('[Program Import] Skipping program updates with errors.', blockedUpdates);
       }
     }
-    let preparedRows = [];
     if (actionableOperations.length) {
-      const preparation = buildProgramBulkRows(actionableOperations, normalizedRecords);
-      if (Array.isArray(preparation.errors) && preparation.errors.length) {
-        failure += preparation.errors.length;
-        errors = errors.concat(preparation.errors);
-      }
-      preparedRows = Array.isArray(preparation.rows) ? preparation.rows : [];
-      if (preparedRows.length) {
-        try {
-          const result = await bulkUpsertPrograms(preparedRows);
-          const processed = Number.isFinite(Number(result?.upserted))
-            ? Number(result.upserted)
-            : preparedRows.length;
-          success += processed;
-        } catch (error) {
-          failure += preparedRows.length;
-          console.error('Program bulk import failed.', error);
-          const message = error?.payload
-            ? formatBulkUpsertError(error.status, error.payload, error.message)
-            : (error?.message || 'Program import failed.');
-          if (message) {
-            showToast(message, { type: 'error', duration: 8000 });
-            errors.push(message);
-            if (!displayedErrorMessage) {
-              displayedErrorMessage = message;
-            }
-          }
-        }
+      const sequentialResult = await importProgramsSequentially(actionableOperations);
+      success += sequentialResult.success;
+      failure += sequentialResult.failure;
+      if (Array.isArray(sequentialResult.errors) && sequentialResult.errors.length) {
+        errors = errors.concat(sequentialResult.errors);
       }
     }
-
     if (success > 0) {
       await loadPrograms();
       if (selectedProgramId !== previousSelectedProgramId) {
@@ -2502,10 +2284,7 @@ async function handleProgramImportFile(file) {
       showToast(summary, { type: 'error' });
       programMessage.textContent = summary;
       if (errors.length) {
-        const detailMessage = errors[0];
-        if (!displayedErrorMessage || displayedErrorMessage !== detailMessage) {
-          showToast(detailMessage, { type: 'error' });
-        }
+        showToast(errors[0], { type: 'error' });
       }
       return;
     }
@@ -2516,10 +2295,7 @@ async function handleProgramImportFile(file) {
       programMessage.textContent = summary;
       showToast(summary, { type: 'error' });
       if (errors.length) {
-        const detailMessage = errors[0];
-        if (!displayedErrorMessage || displayedErrorMessage !== detailMessage) {
-          showToast(detailMessage, { type: 'error' });
-        }
+        showToast(errors[0], { type: 'error' });
       }
       return;
     }
