@@ -1957,16 +1957,13 @@ useEffect(() => {
           const programId = programIdRaw ? String(programIdRaw) : '';
           const date = dayjs(row.scheduled_for);
           if (!date.isValid()) return;
+          if (date.isBefore(filterStart, 'day') || date.isAfter(filterEnd, 'day')) return;
           const info = programInfoMap.get(programId) || null;
           const fallbackName = row.program_name || row.program_title || row.program || 'Program';
           const fallbackColor = row.program_color || row.color || null;
           const programName = info?.name || fallbackName;
           const programColor = info?.color || fallbackColor;
           const palette = getProgramPalette(programId, programColor);
-          if (programId && !programMap.has(programId)) {
-            programMap.set(programId, { programId, programName, palette });
-          }
-          if (date.isBefore(filterStart, 'day') || date.isAfter(filterEnd, 'day')) return;
           const weekValue = typeof row.week_number === 'number' ? row.week_number : ensureDisplayValue(row.week_number);
           const title = row.label || row.title || 'Untitled Task';
           const label = weekValue && weekValue !== '—' ? `W${weekValue}: ${title}` : title;
@@ -1993,6 +1990,9 @@ useEffect(() => {
             palette,
             source: 'all'
           });
+          if (programId && !programMap.has(programId)) {
+            programMap.set(programId, { programId, programName, palette });
+          }
         });
         const programsList = Array.from(programMap.values()).sort((a, b) => (a.programName || '').localeCompare(b.programName || ''));
         const payload = { events, programs: programsList };
