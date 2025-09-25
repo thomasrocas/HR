@@ -1179,6 +1179,7 @@ apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.up
       'department',
     ];
     const allowed = new Set(allowedColumns);
+
     const stringColumns = new Set([
       'title',
       'description',
@@ -1309,12 +1310,15 @@ apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.up
       }
 
       return sanitized;
+
     });
 
     const colSet = new Set();
     cleaned.forEach(record => {
       Object.keys(record).forEach(key => {
+
         if (allowed.has(key) && !(key === 'program_id' && record[key] === undefined)) {
+
           colSet.add(key);
         }
       });
@@ -1366,6 +1370,7 @@ apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.up
     res.json({ upserted: result.rowCount });
   } catch (err) {
     console.error('POST /api/programs/bulk_upsert error', err);
+
     if (err && err.code === '22001') {
       return res.status(400).json({
         error: 'value_too_long',
@@ -1385,6 +1390,7 @@ apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.up
       row: err.row,
       max: err.max,
     });
+
   }
 });
 
