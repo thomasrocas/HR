@@ -1957,7 +1957,11 @@ useEffect(() => {
           const programId = programIdRaw ? String(programIdRaw) : '';
           const date = dayjs(row.scheduled_for);
           if (!date.isValid()) return;
-          if (date.isBefore(filterStart, 'day') || date.isAfter(filterEnd, 'day')) return;
+          
+      // Do not drop events outside the window; the grid limits visibility by days.
+		// This ensures past-dated badges still load in All Programs view.
+		// (Was: if (date.isBefore(filterStart, 'day') || date.isAfter(filterEnd, 'day')) return;)
+
           const info = programInfoMap.get(programId) || null;
           const fallbackName = row.program_name || row.program_title || row.program || 'Program';
           const fallbackColor = row.program_color || row.color || null;
