@@ -267,23 +267,12 @@ const normalizeWeekNumber = (value) => {
   return Number.isNaN(parsed) ? null : parsed;
 };
 const uid = () => Math.random().toString(36).slice(2);
-const withUser = (url, options = {}) => {
-  const { force = false } = options || {};
-  if (!url) return url;
-  const normalizedTarget = TARGET_USER_ID ? String(TARGET_USER_ID) : null;
-  const normalizedCurrent = CURRENT_USER_ID ? String(CURRENT_USER_ID) : null;
-  if (!normalizedTarget) return url;
-  if (!force && normalizedCurrent && normalizedTarget === normalizedCurrent) {
-    return url;
+const withUser = (url) => {
+  if (TARGET_USER_ID && CURRENT_USER_ID && TARGET_USER_ID !== CURRENT_USER_ID) {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}user_id=${encodeURIComponent(TARGET_USER_ID)}`;
   }
-  if (url.includes('user_id=')) {
-    return url;
-  }
-  const hasQuery = url.includes('?');
-  const needsAmpersand = hasQuery && !/[?&]$/.test(url);
-  const base = hasQuery ? url : `${url}?`;
-  const connector = needsAmpersand ? '&' : '';
-  return `${base}${connector}user_id=${encodeURIComponent(normalizedTarget)}`;
+  return url;
 };
 const withUserBody = (data = {}) => (
   (TARGET_USER_ID && CURRENT_USER_ID && TARGET_USER_ID !== CURRENT_USER_ID)
@@ -1918,12 +1907,7 @@ useEffect(() => {
     }
     (async () => {
       try {
-        const requestedUserId = targetUserId ? String(targetUserId) : null;
-        const taskParams = { include_deleted: false };
-        if (requestedUserId) {
-          taskParams.user_id = requestedUserId;
-        }
-        const rows = await apiGetTasks(taskParams);
+        const rows = await apiGetTasks({ include_deleted: false });
         if (cancelled) return;
         const dedupe = new Map();
         (Array.isArray(rows) ? rows : []).forEach((row) => {
