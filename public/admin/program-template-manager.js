@@ -451,6 +451,10 @@ function toNullableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+
+const PROGRAM_STRING_MAX_LENGTH = 255;
+
+
 const toInt = value => {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string') {
@@ -866,6 +870,17 @@ function formatBulkUpsertError(status, payload, fallback = 'Program import faile
     if (payload.message && payload.message !== payload.error) {
       parts.push(typeof payload.message === 'string' ? payload.message : JSON.stringify(payload.message));
     }
+
+    if (typeof payload.row === 'number') {
+      parts.push(`Row: ${payload.row}`);
+    }
+    if (payload.column) {
+      parts.push(`Field: ${payload.column}`);
+    }
+    if (typeof payload.max === 'number') {
+      parts.push(`Max length: ${payload.max}`);
+    }
+
     if (payload.detail) {
       const detailText = typeof payload.detail === 'string'
         ? payload.detail
@@ -939,8 +954,16 @@ function buildProgramBulkRows(operations, records) {
       errors.push(`Program record ${index + 1}: Program title is required.`);
       return;
     }
+
+    let hasValidationError = false;
+
     if (hasTitleField || (!row.program_id && titleValue)) {
       row.title = titleValue;
+      if (typeof row.title === 'string' && row.title.length > PROGRAM_STRING_MAX_LENGTH) {
+        errors.push(`Program record ${index + 1}: title must be ${PROGRAM_STRING_MAX_LENGTH} characters or fewer.`);
+        hasValidationError = true;
+      }
+
     }
 
     if (Object.prototype.hasOwnProperty.call(combined, 'total_weeks')) {
@@ -964,8 +987,18 @@ function buildProgramBulkRows(operations, records) {
     stringFields.forEach(field => {
       if (Object.prototype.hasOwnProperty.call(combined, field)) {
         row[field] = toStr(combined[field]);
+
+        if (typeof row[field] === 'string' && row[field].length > PROGRAM_STRING_MAX_LENGTH) {
+          const label = field.replace(/_/g, ' ');
+          errors.push(`Program record ${index + 1}: ${label} must be ${PROGRAM_STRING_MAX_LENGTH} characters or fewer.`);
+          hasValidationError = true;
+        }
       }
     });
+
+    if (hasValidationError) {
+      return;
+    }
 
     Object.keys(row).forEach(key => {
       if (!PROGRAM_BULK_ALLOWED_FIELD_SET.has(key) || row[key] === undefined) {
