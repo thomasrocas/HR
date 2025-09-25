@@ -1180,145 +1180,83 @@ apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.up
     ];
     const allowed = new Set(allowedColumns);
 
-    const stringColumns = new Set([
-      'title',
-      'description',
-      'results',
-      'purpose',
-      'organization',
-      'sub_unit',
-      'discipline_type',
-      'department',
-    ]);
-    const maxLengths = {
-      title: 255,
-      description: 255,
-      results: 255,
-      purpose: 255,
-      organization: 255,
-      sub_unit: 255,
-      discipline_type: 255,
-      department: 255,
-    };
-
     const cleaned = rows.map((row, index) => {
       const source = row && typeof row === 'object' ? row : {};
-      const sanitized = {};
+      const filtered = {};
+      Object.entries(source).forEach(([key, value]) => {
+        if (!allowed.has(key)) return;
+        filtered[key] = value;
+      });
 
-      for (const [key, value] of Object.entries(source)) {
-        if (!allowed.has(key)) continue;
-
-        if (key === 'program_id') {
-          try {
-            const parsed = toNullableInteger(value);
-            if (parsed !== null && Number.isFinite(parsed)) {
-              sanitized.program_id = parsed;
-            }
-          } catch (error) {
+      if (Object.prototype.hasOwnProperty.call(filtered, 'program_id')) {
+        const raw = filtered.program_id;
+        if (raw === null || raw === undefined || raw === '') {
+          delete filtered.program_id;
+        } else {
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed)) {
+            const error = new Error(`Invalid program_id value at row ${index + 1}`);
             error.status = 400;
-            error.message = `Invalid program_id value at row ${index + 1}`;
-            error.column = 'program_id';
-            error.row = index + 1;
+            error.detail = { row: index, field: 'program_id' };
             throw error;
           }
-          continue;
+          filtered.program_id = parsed;
         }
+      }
 
-        if (key === 'total_weeks') {
-          try {
-            const parsed = toNullableInteger(value);
-            sanitized.total_weeks = parsed;
-          } catch (error) {
+      if (Object.prototype.hasOwnProperty.call(filtered, 'total_weeks')) {
+        const raw = filtered.total_weeks;
+        if (raw === null || raw === undefined || raw === '') {
+          filtered.total_weeks = null;
+        } else {
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed)) {
+            const error = new Error(`Invalid total_weeks value at row ${index + 1}`);
             error.status = 400;
-            error.message = `Invalid total_weeks value at row ${index + 1}`;
-            error.column = 'total_weeks';
-            error.row = index + 1;
+            error.detail = { row: index, field: 'total_weeks' };
             throw error;
           }
-          continue;
-        }
-
-        if (key === 'title') {
-          if (value === null || value === undefined) {
-            sanitized.title = null;
-          } else {
-            const normalized = String(value).trim();
-            const limit = maxLengths.title;
-            if (limit && normalized.length > limit) {
-              const error = createValidationError('value_too_long');
-              error.status = 400;
-              error.message = `title exceeds ${limit} characters at row ${index + 1}`;
-              error.column = 'title';
-              error.row = index + 1;
-              error.max = limit;
-              throw error;
-            }
-            sanitized.title = normalized;
-          }
-          continue;
-        }
-
-        if (stringColumns.has(key)) {
-          const normalized = toNullableString(value);
-          const limit = maxLengths[key];
-          if (normalized !== null && limit && normalized.length > limit) {
-            const error = createValidationError('value_too_long');
-            error.status = 400;
-            error.message = `${key} exceeds ${limit} characters at row ${index + 1}`;
-            error.column = key;
-            error.row = index + 1;
-            error.max = limit;
-            throw error;
-          }
-          if (normalized !== null) {
-            sanitized[key] = normalized;
-          } else {
-            sanitized[key] = null;
-          }
+          filtered.total_weeks = parsed;
         }
       }
 
-      const hasProgramId = Object.prototype.hasOwnProperty.call(sanitized, 'program_id');
-      const hasTitleField = Object.prototype.hasOwnProperty.call(sanitized, 'title');
-      const titleValue = hasTitleField ? sanitized.title : '';
-      if (!hasProgramId && (!titleValue || titleValue === null)) {
-        const error = createValidationError('missing_title');
-        error.status = 400;
-        error.message = `Title is required for create (row ${index + 1})`;
-        error.column = 'title';
-        error.row = index + 1;
-        throw error;
-      }
-      if (hasTitleField && sanitized.title === null) {
-        const error = createValidationError('invalid_title');
-        error.status = 400;
-        error.message = `Title cannot be null (row ${index + 1})`;
-        error.column = 'title';
-        error.row = index + 1;
-        throw error;
-      }
-      if (hasProgramId && sanitized.program_id === null) {
-        delete sanitized.program_id;
-      }
-      const nonIdKeys = Object.keys(sanitized).filter(column => column !== 'program_id');
-      if (!nonIdKeys.length) {
-        const error = createValidationError('no_columns');
-        error.status = 400;
-        error.message = `No fields provided for row ${index + 1}`;
-        error.row = index + 1;
-        throw error;
-      }
+      allowedColumns.forEach(column => {
+        if (column === 'program_id' || column === 'total_weeks') return;
+        if (Object.prototype.hasOwnProperty.call(filtered, column)) {
+          const raw = filtered[column];
+          filtered[column] = raw === null || raw === undefined ? '' : String(raw).trim();
+        }
+      });
 
-      return sanitized;
+      return filtered;
+    });
 
+    cleaned.forEach((record, index) => {
+      const hasProgramId = Object.prototype.hasOwnProperty.call(record, 'program_id');
+      const hasTitleField = Object.prototype.hasOwnProperty.call(record, 'title');
+      const normalizedTitle = hasTitleField ? String(record.title || '').trim() : '';
+      if (!hasProgramId && !normalizedTitle) {
+        throw Object.assign(new Error(`Title is required for create (row ${index + 1})`), {
+          status: 400,
+          detail: { row: index, field: 'title' },
+        });
+      }
+      if (hasTitleField) {
+        record.title = normalizedTitle;
+      }
+      const fieldKeys = Object.keys(record).filter(key => key !== 'program_id');
+      if (!fieldKeys.length) {
+        throw Object.assign(new Error(`No fields provided for row ${index + 1}`), {
+          status: 400,
+          detail: { row: index },
+        });
+      }
     });
 
     const colSet = new Set();
     cleaned.forEach(record => {
       Object.keys(record).forEach(key => {
-
-        if (allowed.has(key) && !(key === 'program_id' && record[key] === undefined)) {
-
+        if (allowed.has(key)) {
           colSet.add(key);
         }
       });
@@ -1370,27 +1308,8 @@ apiRouter.post('/programs/bulk_upsert', ensurePerm('program.create', 'program.up
     res.json({ upserted: result.rowCount });
   } catch (err) {
     console.error('POST /api/programs/bulk_upsert error', err);
-
-    if (err && err.code === '22001') {
-      return res.status(400).json({
-        error: 'value_too_long',
-        message: err.message,
-        detail: err.detail,
-        hint: err.hint,
-        code: err.code,
-      });
-    }
     const status = err?.status && err.status >= 400 && err.status < 500 ? err.status : 500;
-    res.status(status).json({
-      error: err.message,
-      detail: err.detail,
-      hint: err.hint,
-      code: err.code,
-      column: err.column,
-      row: err.row,
-      max: err.max,
-    });
-
+    res.status(status).json({ error: err.message, detail: err.detail, hint: err.hint, code: err.code });
   }
 });
 
