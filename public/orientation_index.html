@@ -25,22 +25,52 @@
     .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:brightness-95; }
     .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700; }
     .input{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+    .input-error{ border-color: var(--auth-input-error-border); background-color: var(--auth-input-error-bg); }
+    .input-error:focus{ border-color: var(--auth-input-error-border); box-shadow: 0 0 0 1px var(--auth-input-error-border); }
     .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
     .outline-dashed{ outline-style: dashed; }
 
     :root {
       --auth-gradient-start: #f8fafc;
       --auth-gradient-end: #e2e8f0;
+      --auth-input-error-border: #f87171;
+      --auth-input-error-bg: rgba(248, 113, 113, 0.12);
+      --auth-input-error-text: #b91c1c;
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
         --auth-gradient-start: #0f172a;
         --auth-gradient-end: #1e293b;
+        --auth-input-error-border: #fca5a5;
+        --auth-input-error-bg: rgba(248, 113, 113, 0.16);
+        --auth-input-error-text: #fecaca;
       }
       body {
         color: #e2e8f0;
       }
+    }
+
+    .auth-error-alert{
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: var(--auth-input-error-text);
+      background-color: var(--auth-input-error-bg);
+      border: 1px solid var(--auth-input-error-border);
+      border-radius: 0.75rem;
+      padding: 0.75rem 0.875rem;
+    }
+
+    .auth-error-icon{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      line-height: 1;
+      margin-top: 0.1rem;
     }
 
     .auth-screen {
@@ -606,30 +636,32 @@ function AuthPanel({ onAuthed }){
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [err, setErr] = useState('');
+  const [error, setError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
 
+  const errorFields = useMemo(() => new Set(error?.fields || []), [error]);
+
   async function doLogin(e){
-    e.preventDefault(); setErr('');
+    e.preventDefault(); setError(null);
     const r = await fetch(`${API}/auth/local/login`, {
       method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
       body: JSON.stringify({ username: u.trim(), password: p })
     });
-    if(!r.ok){ setErr('Login failed.'); return; }
+    if(!r.ok){ setError({ message: 'Login failed.', fields: ['username', 'password'] }); return; }
     onAuthed();
   }
   async function doRegister(e){
     e.preventDefault();
     if (p !== confirmPassword) {
-      setErr('Passwords do not match.');
+      setError({ message: 'Passwords do not match.', fields: ['password', 'confirmPassword'] });
       return;
     }
-    setErr('');
+    setError(null);
     const r = await fetch(`${API}/auth/local/register`, {
       method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
       body: JSON.stringify({ username: u.trim(), password: p, full_name: name.trim(), email: email.trim() })
     });
-    if(!r.ok){ setErr('Registration failed (username taken?).'); return; }
+    if(!r.ok){ setError({ message: 'Registration failed (username taken?).', fields: ['username'] }); return; }
     onAuthed();
   }
   function doGoogle(){
@@ -675,7 +707,7 @@ function AuthPanel({ onAuthed }){
                     </label>
                     <input
                       id="fullName"
-                      className="input"
+                      className={`input${errorFields.has('fullName') ? ' input-error' : ''}`}
                       value={name}
                       onChange={e=>setName(e.target.value)}
                       placeholder="Your name"
@@ -687,7 +719,7 @@ function AuthPanel({ onAuthed }){
                     </label>
                     <input
                       id="email"
-                      className="input"
+                      className={`input${errorFields.has('email') ? ' input-error' : ''}`}
                       value={email}
                       onChange={e=>setEmail(e.target.value)}
                       placeholder="you@anx.com"
@@ -701,7 +733,7 @@ function AuthPanel({ onAuthed }){
                 </label>
                 <input
                   id="username"
-                  className="input"
+                  className={`input${errorFields.has('username') ? ' input-error' : ''}`}
                   value={u}
                   onChange={e=>setU(e.target.value)}
                   placeholder="e.g., halle"
@@ -714,7 +746,7 @@ function AuthPanel({ onAuthed }){
                 <div className="relative">
                   <input
                     id="password"
-                    className="input pr-10"
+                    className={`input pr-10${errorFields.has('password') ? ' input-error' : ''}`}
                     type={showPassword ? 'text' : 'password'}
                     value={p}
                     onChange={e=>setP(e.target.value)}
@@ -737,7 +769,7 @@ function AuthPanel({ onAuthed }){
                   </label>
                   <input
                     id="confirmPassword"
-                    className="input"
+                    className={`input${errorFields.has('confirmPassword') ? ' input-error' : ''}`}
                     type={showPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={e=>setConfirmPassword(e.target.value)}
@@ -745,9 +777,10 @@ function AuthPanel({ onAuthed }){
                   />
                 </div>
               )}
-              {err && (
-                <p className="text-sm text-red-600" role="alert">
-                  {err}
+              {error && (
+                <p className="auth-error-alert" role="alert">
+                  <span className="auth-error-icon" aria-hidden="true">⚠️</span>
+                  <span>{error.message}</span>
                 </p>
               )}
               <div className="flex flex-col items-center space-y-3">
@@ -763,7 +796,10 @@ function AuthPanel({ onAuthed }){
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full text-sm">
                   <button
                     className="btn btn-ghost flex-1 justify-center"
-                    onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                    onClick={() => {
+                      setError(null);
+                      setMode(mode === 'login' ? 'register' : 'login');
+                    }}
                   >
                     {mode === 'login'
                       ? 'Need an account? Register'
