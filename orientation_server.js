@@ -207,7 +207,7 @@ passport.deserializeUser(async (id, done) => {
 passport.use(new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID || '80329949703-haj7aludbp14ma3fbg4h97rna0ngbn28.apps.googleusercontent.com',
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'ZHhm_oFXdv7C9FELx-bSdsmt',
-  callbackURL:  process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3002/auth/google/callback'
+  callbackURL:  process.env.GOOGLE_CALLBACK_URL || '/auth/google/callback'
 }, async (_at, _rt, profile, done) => {
   try {
     const email   = profile.emails?.[0]?.value || null;
