@@ -637,98 +637,184 @@ function AuthPanel({ onAuthed }){
   }
 
   return (
-    <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
-      <div className="card p-6">
-        <h2 className="text-xl font-semibold mb-4">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
-        <p className="text-sm text-slate-500 mb-4">Use a local account as an alternate to Google SSO.</p>
-        {mode === 'register' && (
-          <>
-            <div className="mb-4">
-              <label htmlFor="fullName" className="text-sm block mb-1">Full name</label>
-              <input id="fullName" className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" />
+    <div className="max-w-5xl mx-auto">
+      <div className="card overflow-hidden">
+        <div className="grid md:grid-cols-2">
+          <div className="p-8 sm:p-10 lg:p-12">
+            <div className="flex items-center gap-3 mb-8">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 32 32"
+                className="h-9 w-9 text-anx-sky"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect x="2" y="2" width="28" height="28" rx="8" className="fill-current opacity-10"></rect>
+                <path
+                  className="fill-current"
+                  d="M22.92 21.75h-3.22l-1.25-3.36h-4.97l-1.28 3.36H9.04L15.02 9h1.97l5.93 12.75Zm-5.58-5.58-1.67-4.39-1.67 4.39h3.34Zm3.91-4.1c0-1.36.97-2.32 2.27-2.32 1.31 0 2.28.96 2.28 2.32 0 1.35-.97 2.3-2.28 2.3-1.3 0-2.27-.95-2.27-2.3Zm0 8.38c0-1.35.97-2.3 2.27-2.3 1.31 0 2.28.95 2.28 2.3 0 1.36-.97 2.32-2.28 2.32-1.3 0-2.27-.96-2.27-2.32Z"
+                ></path>
+              </svg>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-anx-slate">Orientation</p>
+                <p className="text-sm text-slate-500">Account access</p>
+              </div>
             </div>
-            <div className="mb-4">
-              <label htmlFor="email" className="text-sm block mb-1">Email</label>
-              <input id="email" className="input" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@anx.com" />
+            <h1 className="text-3xl font-semibold text-slate-900 mb-2">
+              {mode === 'login' ? 'Welcome back' : 'Join the ANX crew'}
+            </h1>
+            <p className="text-sm text-slate-500 mb-8">
+              Use your ANX credentials to stay in sync with onboarding tasks, training, and upcoming sessions.
+            </p>
+            <div className="space-y-5">
+              {mode === 'register' && (
+                <>
+                  <div>
+                    <label htmlFor="fullName" className="text-sm font-medium block mb-1">
+                      Full name
+                    </label>
+                    <input
+                      id="fullName"
+                      className="input"
+                      value={name}
+                      onChange={e=>setName(e.target.value)}
+                      placeholder="Your name"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="email" className="text-sm font-medium block mb-1">
+                      Email
+                    </label>
+                    <input
+                      id="email"
+                      className="input"
+                      value={email}
+                      onChange={e=>setEmail(e.target.value)}
+                      placeholder="you@anx.com"
+                    />
+                  </div>
+                </>
+              )}
+              <div>
+                <label htmlFor="username" className="text-sm font-medium block mb-1">
+                  Username
+                </label>
+                <input
+                  id="username"
+                  className="input"
+                  value={u}
+                  onChange={e=>setU(e.target.value)}
+                  placeholder="e.g., halle"
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="text-sm font-medium block mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    className="input pr-10"
+                    type={showPassword ? 'text' : 'password'}
+                    value={p}
+                    onChange={e=>setP(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-700"
+                    onClick={()=>setShowPassword(v=>!v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <span aria-hidden="true">{showPassword ? '🙈' : '👁️'}</span>
+                  </button>
+                </div>
+              </div>
+              {mode === 'register' && (
+                <div>
+                  <label htmlFor="confirmPassword" className="text-sm font-medium block mb-1">
+                    Confirm password
+                  </label>
+                  <input
+                    id="confirmPassword"
+                    className="input"
+                    type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e=>setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </div>
+              )}
+              {err && (
+                <p className="text-sm text-red-600" role="alert">
+                  {err}
+                </p>
+              )}
+              <div className="flex flex-col items-center space-y-3">
+                {mode === 'login' ? (
+                  <button className="btn btn-primary w-full" onClick={doLogin}>
+                    Sign in
+                  </button>
+                ) : (
+                  <button className="btn btn-primary w-full" onClick={doRegister}>
+                    Create account
+                  </button>
+                )}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full text-sm">
+                  <button
+                    className="btn btn-ghost flex-1 justify-center"
+                    onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                  >
+                    {mode === 'login'
+                      ? 'Need an account? Register'
+                      : 'Already have an account? Sign in'}
+                  </button>
+                  <a href="/reset.html" className="btn btn-ghost flex-1 justify-center">
+                    Reset Password
+                  </a>
+                </div>
+                <div className="h-px bg-slate-200 w-full"></div>
+                <button className="btn btn-outline w-full" onClick={doGoogle}>
+                  Continue with Google
+                </button>
+              </div>
             </div>
-          </>
-        )}
-        <div className="mb-4">
-          <label htmlFor="username" className="text-sm block mb-1">Username</label>
-          <input id="username" className="input" value={u} onChange={e=>setU(e.target.value)} placeholder="e.g., halle" />
-        </div>
-        <div className="mb-4">
-          <label htmlFor="password" className="text-sm block mb-1">Password</label>
-          <div className="relative">
-            <input
-              id="password"
-              className="input pr-10"
-              type={showPassword ? 'text' : 'password'}
-              value={p}
-              onChange={e=>setP(e.target.value)}
-              placeholder="••••••••"
-            />
-            <button
-              type="button"
-              className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-700"
-              onClick={()=>setShowPassword(v=>!v)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              <span aria-hidden="true">{showPassword ? '🙈' : '👁️'}</span>
-            </button>
+          </div>
+          <div className="bg-slate-900/95 text-slate-100 p-8 sm:p-10 lg:p-12 flex flex-col justify-between gap-8">
+            <div className="space-y-4">
+              <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-anx-mint/80">
+                <span className="h-1 w-6 rounded-full bg-anx-mint"></span>
+                Your launchpad
+              </p>
+              <h2 className="text-3xl font-semibold leading-tight">
+                Orientation built to onboard teams at velocity.
+              </h2>
+              <p className="text-sm text-slate-200/80">
+                Track milestones, coordinate sessions, and keep every new teammate aligned from day one with guided checklists and smart scheduling tools.
+              </p>
+              <ul className="space-y-3 text-sm text-slate-200/90">
+                <li className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-2 w-2 rounded-full bg-anx-sky"></span>
+                  Real-time calendar sync with training programs.
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-2 w-2 rounded-full bg-anx-mint"></span>
+                  Personalized onboarding checklist per role.
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-2 w-2 rounded-full bg-white/70"></span>
+                  Works beautifully in FileMaker Web Viewer.
+                </li>
+              </ul>
+            </div>
+            <div className="relative h-36 sm:h-44 lg:h-52">
+              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-anx-sky/40 via-anx-mint/30 to-white/10 border border-white/10 backdrop-blur-sm"></div>
+              <div className="absolute inset-4 rounded-2xl border border-dashed border-white/20 flex items-center justify-center text-xs uppercase tracking-[0.35em] text-white/60">
+                Onboarding Illustration
+              </div>
+            </div>
           </div>
         </div>
-        {mode === 'register' && (
-          <div className="mb-4">
-            <label htmlFor="confirmPassword" className="text-sm block mb-1">Confirm password</label>
-            <input
-              id="confirmPassword"
-              className="input"
-              type={showPassword ? 'text' : 'password'}
-              value={confirmPassword}
-              onChange={e=>setConfirmPassword(e.target.value)}
-              placeholder="••••••••"
-            />
-          </div>
-        )}
-        {err && (
-          <p className="text-sm text-red-600 mb-4" role="alert">{err}</p>
-        )}
-              <div className="flex flex-col items-center space-y-2 mt-2">
-  {mode === 'login' ? (
-    <button className="btn btn-primary w-full" onClick={doLogin}>Sign in</button>
-  ) : (
-    <button className="btn btn-primary w-full" onClick={doRegister}>Create account</button>
-  )}
-
-  <div className="flex justify-between w-full text-sm text-center">
-    <button
-      className="btn btn-ghost flex-1"
-      onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-    >
-      {mode === 'login'
-        ? 'Need an account? Register'
-        : 'Already have an account? Sign in'}
-    </button>
-
-    <a href="/reset.html" className="btn btn-ghost flex-1">
-      Reset Password
-    </a>
-  </div>
-</div>
-        <div className="h-px bg-slate-200 my-4"></div>
-        <button className="btn btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
-      </div>
-      <div className="card p-6">
-        <h3 className="text-lg font-semibold mb-4">Welcome to ANX Orientation</h3>
-        <p className="text-sm text-slate-600 mb-4">
-          Sign in to load your calendar, tasks, and preferences. Your session is stored securely and restores your last view.
-        </p>
-        <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
-          <li>Use <strong>local username/password</strong> or <strong>Google SSO</strong>.</li>
-          <li>Your tasks are tied to your account and won’t mix with others.</li>
-          <li>Safe for FileMaker Web Viewer (cookies: SameSite=Lax).</li>
-        </ul>
       </div>
     </div>
   );
