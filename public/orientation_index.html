@@ -638,6 +638,11 @@ function AuthPanel({ onAuthed }){
   const [email, setEmail] = useState('');
   const [error, setError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    setIsReady(true);
+  }, []);
 
   const errorFields = useMemo(() => new Set(error?.fields || []), [error]);
 
@@ -670,7 +675,7 @@ function AuthPanel({ onAuthed }){
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="card overflow-hidden">
+      <div className={`card overflow-hidden ${isReady ? 'auth-card-animate' : ''}`}>
         <div className="grid md:grid-cols-2">
           <div className="p-8 sm:p-10 lg:p-12">
             <div className="flex items-center gap-3 mb-8">
@@ -3976,6 +3981,22 @@ ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 </script>
 
 <style>
+  @media (prefers-reduced-motion: no-preference) {
+    .auth-card-animate {
+      animation: authCardFadeIn 240ms ease-out forwards;
+    }
+
+    @keyframes authCardFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+  }
   #orientationTaskModal {
     border: none;
     border-radius: 1rem;
