@@ -3710,6 +3710,21 @@ useEffect(() => {
   );
 }
 
+function LandingNav(){
+  return (
+    <header className="bg-slate-50/90 border-b border-slate-200/60 backdrop-blur">
+      <nav
+        className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-start lg:justify-end"
+        aria-label="Primary"
+      >
+        <a href="/signin.html" className="btn btn-primary">
+          Sign In
+        </a>
+      </nav>
+    </header>
+  );
+}
+
 function LandingHero(){
   const handleGetStarted = useCallback(() => {
     const el = document.getElementById('auth-start');
@@ -3861,6 +3876,7 @@ function Root(){
   if (!me){
     return (
       <div className="min-h-screen bg-slate-50">
+        <LandingNav />
         <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-16">
           <LandingHero />
           <EnterpriseFeatures />
