@@ -119,6 +119,15 @@ app.get('/', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'orientation_index.html'));
 });
 
+// Normalized callback URL so Google OAuth redirect URIs match exactly.
+const GOOGLE_CALLBACK_PATH = '/auth/google/callback';
+const DEFAULT_CALLBACK_BASE = (process.env.PUBLIC_URL
+  || process.env.SERVER_PUBLIC_URL
+  || process.env.APP_BASE_URL
+  || 'https://localhost:3002').replace(/\/$/, '');
+const GOOGLE_CALLBACK_URL = (process.env.GOOGLE_CALLBACK_URL
+  || `${DEFAULT_CALLBACK_BASE}${GOOGLE_CALLBACK_PATH}`);
+
 // ==== 4) Sessions (stored in Postgres) + Passport ====
 // Use env override so local HTTP works but prod can require HTTPS.
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true';
@@ -207,7 +216,7 @@ passport.deserializeUser(async (id, done) => {
 passport.use(new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID || '80329949703-haj7aludbp14ma3fbg4h97rna0ngbn28.apps.googleusercontent.com',
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'ZHhm_oFXdv7C9FELx-bSdsmt',
-  callbackURL:  process.env.GOOGLE_CALLBACK_URL || '/auth/google/callback',
+  callbackURL:  GOOGLE_CALLBACK_URL,
   proxy: true
 }, async (_at, _rt, profile, done) => {
   try {
