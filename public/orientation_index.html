@@ -3710,76 +3710,6 @@ useEffect(() => {
   );
 }
 
-function LandingHero(){
-  const handleGetStarted = useCallback(() => {
-    const el = document.getElementById('auth-start');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-  const handleEnterprise = useCallback(() => {
-    const el = document.getElementById('enterprise-features');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-  return (
-    <section className="py-12 sm:py-20 lg:py-24">
-      <div className="max-w-4xl mx-auto text-center space-y-6">
-        <span className="tag text-slate-600">Orientation Platform</span>
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-slate-900">
-          Launch every new hire with clarity and confidence.
-        </h1>
-        <p className="text-lg sm:text-xl text-slate-600 leading-relaxed">
-          ANX Orientation centralizes schedules, communication, and onboarding tasks so distributed teams can deliver a polished first-week experience at scale.
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-          <button className="btn btn-primary px-5 py-3 text-base" onClick={handleGetStarted}>
-            Get Started
-          </button>
-          <button className="btn btn-outline px-5 py-3 text-base" onClick={handleEnterprise}>
-            Explore Enterprise
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function EnterpriseFeatures(){
-  const features = [
-    {
-      title: 'Enterprise-grade privacy',
-      description:
-        'Granular role controls, SSO integrations, and compliance-friendly audit trails keep onboarding data safe and discoverable.',
-    },
-    {
-      title: 'Automation-ready scheduling',
-      description:
-        'Sync with HRIS systems, import cohorts, and share live calendars to eliminate manual prep for every orientation cycle.',
-    },
-    {
-      title: 'Guided coordinator workflows',
-      description:
-        'Templates, reminders, and real-time progress insights help coordinators support trainees without missing a beat.',
-    },
-  ];
-  return (
-    <section id="enterprise-features" className="py-12 sm:py-16">
-      <div className="max-w-5xl mx-auto text-center space-y-6">
-        <h2 className="text-3xl sm:text-4xl font-semibold text-slate-900">Built for enterprise onboarding teams</h2>
-        <p className="text-base sm:text-lg text-slate-600 max-w-3xl mx-auto">
-          Empower HR, IT, and functional leads with a shared command center that adapts to multi-location programs and evolving compliance needs.
-        </p>
-      </div>
-      <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {features.map((feature) => (
-          <div key={feature.title} className="card h-full p-6 text-left space-y-3">
-            <h3 className="text-lg font-semibold text-slate-900">{feature.title}</h3>
-            <p className="text-sm text-slate-600 leading-relaxed">{feature.description}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 /* ---- ROOT: checks /me; shows AuthPanel or App ---- */
 function Root(){
   const [me, setMe] = useState(null);
@@ -3860,20 +3790,12 @@ function Root(){
   }
   if (!me){
     return (
-      <div className="min-h-screen bg-slate-50">
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-16">
-          <LandingHero />
-          <EnterpriseFeatures />
-          <section id="auth-start" className="card p-6 sm:p-10">
-            <AuthPanel
-              onAuthed={async ()=> {
-                localStorage.removeItem('anx_program_id');
-                setChecked(false);
-                await loadUserAndPrefs();
-              }}
-            />
-          </section>
-        </main>
+      <div className="min-h-screen flex items-center justify-center w-full">
+        <AuthPanel onAuthed={async ()=> {
+          localStorage.removeItem('anx_program_id');
+          setChecked(false);
+          await loadUserAndPrefs();
+        }} />
       </div>
     );
   }
