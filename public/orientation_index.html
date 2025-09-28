@@ -1397,7 +1397,7 @@ function App({ me, onSignOut }){
       QS_PROGRAM_ID = prefs.program_id || null;
       setActiveProgramId(QS_PROGRAM_ID);
       if (QS_PROGRAM_ID) {
-        const count = await reloadTasks();
+        const count = await reloadTasks({ forceAutoRange: true });
         setNeedsInstantiate(count === 0);
       } else {
         setWeeks([]);
@@ -1701,7 +1701,7 @@ function App({ me, onSignOut }){
   }
 
   async function reloadTasks(options = {}){
-    const { resetRange = false } = options;
+    const { resetRange = false, forceAutoRange = false } = options;
     if(!QS_PROGRAM_ID){
       setActiveProgramId(null);
       return 0;
@@ -1714,7 +1714,8 @@ function App({ me, onSignOut }){
     const active = rows.filter(r => !r.deleted);
     setWeeks(buildWeeks(active));
     setDeletedTasks(rows.filter(r => r.deleted));
-    if (!rangeOverrideRef.current.single) {
+    const shouldApplyDerivedRange = forceAutoRange || !rangeOverrideRef.current.single;
+    if (shouldApplyDerivedRange) {
       const programInfo = programInfoMap.get(String(QS_PROGRAM_ID)) || null;
       const derivedRange = deriveProgramRangeSafe(active, {
         fallbackStartDate: dayjs().format('YYYY-MM-DD'),
@@ -1796,7 +1797,7 @@ useEffect(() => {
         try { await apiPatchPrefs({ program_id: pid }); } catch (e) {}
 
         // 4) Load tasks
-        const count = await reloadTasks();
+        const count = await reloadTasks({ forceAutoRange: true });
         setNeedsInstantiate(count === 0);
       } else {
         // No program selected yet: clear UI
@@ -1825,7 +1826,7 @@ useEffect(() => {
     try {
       const res = await apiInstantiateProgram(QS_PROGRAM_ID);
       if(!res) return;
-      await reloadTasks();
+      await reloadTasks({ forceAutoRange: true });
       await updateUserPrograms();
       setNeedsInstantiate(false);
     } catch(err){
@@ -2205,7 +2206,7 @@ useEffect(() => {
         if (changedProgram) {
           resetRangeOverrideForMode('single');
         }
-        const count = await reloadTasks({ resetRange: changedProgram });
+        const count = await reloadTasks({ resetRange: changedProgram, forceAutoRange: true });
         if(!count){ setNeedsInstantiate(true); }
         else { setNeedsInstantiate(false); }
       } else {
