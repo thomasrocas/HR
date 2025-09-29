@@ -496,4 +496,43 @@ describe('rbac admin routes', () => {
     expect(refreshed.organization).toBeNull();
     expect(refreshed.hireDate).toBe('2024-05-20');
   });
+
+  test('lists users when discipline column is missing by falling back to discipline_type', async () => {
+    const adminId = crypto.randomUUID();
+    const userId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+
+    await pool.query('alter table public.users drop column if exists discipline');
+
+    try {
+      await pool.query(
+        'insert into public.users(id, username, email, full_name, password_hash, provider, hire_date, discipline_type) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [adminId, 'admin', 'admin@example.com', 'Admin', hash, 'local', DEFAULT_HIRE_DATE, 'AdminType']
+      );
+      await pool.query(
+        'insert into public.users(id, username, email, full_name, password_hash, provider, hire_date, discipline_type) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [userId, 'user', 'user@example.com', 'User', hash, 'local', DEFAULT_HIRE_DATE, 'UserType']
+      );
+      await pool.query(
+        'insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2',
+        [adminId, 'admin']
+      );
+
+      const adminAgent = request.agent(app);
+      await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+      const firstRes = await adminAgent.get('/rbac/users').expect(200);
+      const firstUser = firstRes.body.find(entry => entry.id === userId);
+      expect(firstUser).toBeTruthy();
+      expect(firstUser.discipline_type).toBe('UserType');
+      expect(firstUser.discipline).toBe('UserType');
+
+      const secondRes = await adminAgent.get('/rbac/users').expect(200);
+      const secondUser = secondRes.body.find(entry => entry.id === userId);
+      expect(secondUser).toBeTruthy();
+      expect(secondUser.discipline).toBe('UserType');
+    } finally {
+      await pool.query('alter table public.users add column if not exists discipline text');
+    }
+  });
 });
