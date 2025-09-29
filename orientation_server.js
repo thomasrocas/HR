@@ -728,6 +728,8 @@ const createHttpError = (status, code) => {
 const USER_STATUS_VALUES = new Set(['active', 'pending', 'suspended', 'archived']);
 let userStatusReasonColumnChecked = false;
 let userStatusReasonColumnExists = false;
+let userDisciplineColumnChecked = false;
+let userDisciplineColumnExists = false;
 
 async function hasUserStatusReasonColumn() {
   if (userStatusReasonColumnChecked) {
@@ -749,6 +751,28 @@ async function hasUserStatusReasonColumn() {
   }
   userStatusReasonColumnChecked = true;
   return userStatusReasonColumnExists;
+}
+
+async function hasUserDisciplineColumn() {
+  if (userDisciplineColumnChecked) {
+    return userDisciplineColumnExists;
+  }
+  try {
+    const { rowCount } = await pool.query(
+      `select 1
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'users'
+          and column_name = 'discipline'
+        limit 1`,
+    );
+    userDisciplineColumnExists = rowCount > 0;
+  } catch (err) {
+    console.error('Failed to detect users.discipline column', err);
+    userDisciplineColumnExists = false;
+  }
+  userDisciplineColumnChecked = true;
+  return userDisciplineColumnExists;
 }
 
 async function updateUserStatus(req, userId, status, reason) {
@@ -2194,6 +2218,14 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
       }
     }
 
+    const includeDisciplineColumn = await hasUserDisciplineColumn();
+    const disciplineSelect = includeDisciplineColumn
+      ? '        u.discipline,\n'
+      : "        NULL::text as discipline,\n";
+    const disciplineGroupBy = includeDisciplineColumn
+      ? '        u.discipline,\n'
+      : '';
+
     const params = [];
     let whereClause = '';
     const organizationSentinel = '__NULL_ORG__';
@@ -2219,8 +2251,7 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.hire_date,
         u.status,
         u.discipline_type,
-        u.discipline,
-        u.last_name,
+${disciplineSelect}        u.last_name,
         u.surname,
         u.first_name,
         u.department,
@@ -2263,8 +2294,7 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.hire_date,
         u.status,
         u.discipline_type,
-        u.discipline,
-        u.last_name,
+${disciplineGroupBy}        u.last_name,
         u.surname,
         u.first_name,
         u.department,
@@ -2287,8 +2317,7 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.hire_date,
         u.status,
         u.discipline_type,
-        u.discipline,
-        u.last_name,
+${disciplineSelect}        u.last_name,
         u.surname,
         u.first_name,
         u.department,
@@ -2330,8 +2359,7 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.hire_date,
         u.status,
         u.discipline_type,
-        u.discipline,
-        u.last_name,
+${disciplineGroupBy}        u.last_name,
         u.surname,
         u.first_name,
         u.department,
@@ -2346,6 +2374,8 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
           assigned_program_pairs: rawPairs,
           roles,
           organization,
+          discipline_type,
+          discipline,
           ...userDetails
         } = r;
         const assignments = Array.isArray(rawPairs) ? rawPairs : [];
@@ -2369,8 +2399,11 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
           })
           .filter(Boolean);
         const hireDateValue = normalizeDateOutput(userDetails.hire_date ?? null);
+        const normalizedDiscipline = discipline ?? discipline_type ?? null;
         return {
           ...userDetails,
+          discipline_type,
+          discipline: normalizedDiscipline,
           organization,
           hire_date: hireDateValue,
           hireDate: hireDateValue,
@@ -2389,6 +2422,8 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
           const {
             assigned_program_pairs: rawPairs,
             roles,
+            discipline_type,
+            discipline,
             ...userDetails
           } = r;
           const assignments = Array.isArray(rawPairs) ? rawPairs : [];
@@ -2412,8 +2447,11 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
             })
             .filter(Boolean);
           const hireDateValue = normalizeDateOutput(userDetails.hire_date ?? null);
+          const normalizedDiscipline = discipline ?? discipline_type ?? null;
           return {
             ...userDetails,
+            discipline_type,
+            discipline: normalizedDiscipline,
             roles: Array.isArray(roles) ? roles : [],
             hire_date: hireDateValue,
             hireDate: hireDateValue,
