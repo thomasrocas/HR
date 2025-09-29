@@ -2660,11 +2660,11 @@ formEdit.addEventListener('submit', async e => {
     return value ? value : null;
   };
   const rawHireDate = (formData.get('hireDate') || '').toString().trim();
-  if (rawHireDate && !isValidDateInput(rawHireDate)) {
+  const normalizedHireDate = rawHireDate ? toDateInputValue(rawHireDate) : null;
+  if (rawHireDate && !normalizedHireDate) {
     editMsg.textContent = 'Hire date must be a valid date (YYYY-MM-DD).';
     return;
   }
-  const hireDateValue = rawHireDate ? rawHireDate : null;
   const payload = {
     full_name: (formData.get('fullName') || '').toString().trim(),
     email: (formData.get('email') || '').toString().trim(),
@@ -2675,8 +2675,7 @@ formEdit.addEventListener('submit', async e => {
     sub_unit: getNullableField('subUnit'),
     department: getNullableField('department'),
     discipline_type: getNullableField('disciplineType'),
-    hire_date: hireDateValue,
-    hireDate: hireDateValue
+    hire_date: normalizedHireDate
   };
   if (!payload.email) {
     editMsg.textContent = 'Email is required.';
