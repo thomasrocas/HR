@@ -1713,9 +1713,19 @@ function persistSelectedTraineeSession(trainee) {
       sessionStorage.removeItem('anx_selected_trainee');
       return;
     }
+    const hireDateValue = toDateInputValue(
+      trainee.hireDate ??
+      trainee.hire_date ??
+      trainee.hired_at ??
+      trainee.hiredAt ??
+      trainee.date_hired ??
+      trainee.dateHired ??
+      ''
+    );
     const payload = {
       id: trainee.id,
-      name: trainee.name || ''
+      name: trainee.name || '',
+      hireDate: hireDateValue || null
     };
     sessionStorage.setItem('anx_selected_trainee', JSON.stringify(payload));
   } catch (error) {
@@ -2436,7 +2446,8 @@ if (btnLoadCalendar) {
     }
     const trainee = {
       id: selectedUser.id,
-      name: selectedUser.full_name || selectedUser.username || ''
+      name: selectedUser.full_name || selectedUser.username || '',
+      hireDate: selectedUser.hire_date ?? selectedUser.hireDate ?? selectedUser.hired_at ?? selectedUser.hiredAt ?? selectedUser.date_hired ?? selectedUser.dateHired ?? ''
     };
     try {
       persistSelectedTraineeSession(trainee);
