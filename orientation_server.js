@@ -2219,6 +2219,12 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
     }
 
     const includeDisciplineColumn = await hasUserDisciplineColumn();
+    const disciplineSelect = includeDisciplineColumn
+      ? '        u.discipline,\n'
+      : "        NULL::text as discipline,\n";
+    const disciplineGroupBy = includeDisciplineColumn
+      ? '        u.discipline,\n'
+      : '';
 
     const params = [];
     let whereClause = '';
@@ -2228,20 +2234,7 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
       whereClause = `where coalesce(u.organization, '${organizationSentinel}') = coalesce($${params.length}, '${organizationSentinel}')`;
     }
 
-    const buildUserListQuery = ({ includeOrganization, includeDiscipline }) => {
-      const disciplineSelect = includeDiscipline
-        ? '        u.discipline,\n'
-        : "        NULL::text as discipline,\n";
-      const disciplineGroupBy = includeDiscipline
-        ? '        u.discipline,\n'
-        : '';
-      const organizationSelect = includeOrganization
-        ? '        u.organization,\n'
-        : '';
-      const organizationGroupBy = includeOrganization
-        ? '        u.organization,\n'
-        : '';
-      return `
+    const sqlWithOrganization = `
       select
         u.id,
         u.google_id,
@@ -2254,7 +2247,8 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.password_hash,
         u.provider,
         u.last_login_at,
-${organizationSelect}        u.hire_date,
+        u.organization,
+        u.hire_date,
         u.status,
         u.discipline_type,
 ${disciplineSelect}        u.last_name,
@@ -2296,7 +2290,8 @@ ${disciplineSelect}        u.last_name,
         u.password_hash,
         u.provider,
         u.last_login_at,
-${organizationGroupBy}        u.hire_date,
+        u.organization,
+        u.hire_date,
         u.status,
         u.discipline_type,
 ${disciplineGroupBy}        u.last_name,
@@ -2306,110 +2301,164 @@ ${disciplineGroupBy}        u.last_name,
         u.sub_unit,
         assigned.program_pairs
       order by u.full_name`;
-    };
-    const sqlWithOrganization = buildUserListQuery({ includeOrganization: true, includeDiscipline: includeDisciplineColumn });
-    const sqlWithoutOrganization = buildUserListQuery({ includeOrganization: false, includeDiscipline: includeDisciplineColumn });
-
-    const mapUserRow = (row, { organizationOverride } = {}) => {
-      const {
-        assigned_program_pairs: rawPairs,
-        roles,
-        organization,
-        discipline_type,
-        discipline,
-        hire_date,
-        ...userDetails
-      } = row;
-      const assignments = Array.isArray(rawPairs) ? rawPairs : [];
-      const assignedPrograms = assignments
-        .map(value => {
-          if (typeof value !== 'string') return null;
-          const parts = value.split('|~|');
-          const idRaw = parts.shift() ?? '';
-          const nameRaw = parts.join('|~|');
-          const trimmedId = idRaw.trim();
-          const trimmedName = nameRaw.trim();
-          if (!trimmedId && !trimmedName) return null;
-          const finalId = trimmedId || trimmedName;
-          const finalName = trimmedName || trimmedId;
-          return {
-            id: finalId,
-            name: finalName,
-            program_id: finalId,
-            title: finalName,
-          };
-        })
-        .filter(Boolean);
-      const hireDateValue = normalizeDateOutput(hire_date ?? null);
-      const normalizedDiscipline = discipline ?? discipline_type ?? null;
-      const resolvedOrganization = organizationOverride !== undefined
-        ? organizationOverride
-        : organization;
-      return {
-        ...userDetails,
-        discipline_type,
-        discipline: normalizedDiscipline,
-        organization: resolvedOrganization,
-        hire_date: hireDateValue,
-        hireDate: hireDateValue,
-        roles: Array.isArray(roles) ? roles : [],
-        assigned_programs: assignedPrograms,
-      };
-    };
+    const sqlWithoutOrganization = `
+      select
+        u.id,
+        u.google_id,
+        u.email,
+        u.full_name,
+        u.picture_url,
+        u.created_at,
+        u.updated_at,
+        u.username,
+        u.password_hash,
+        u.provider,
+        u.last_login_at,
+        u.hire_date,
+        u.status,
+        u.discipline_type,
+${disciplineSelect}        u.last_name,
+        u.surname,
+        u.first_name,
+        u.department,
+        u.sub_unit,
+        coalesce(array_agg(r.role_key) filter (where r.role_key is not null), '{}') as roles,
+        coalesce(assigned.program_pairs, '{}'::text[]) as assigned_program_pairs
+      from public.users u
+      left join public.user_roles ur on ur.user_id = u.id
+      left join roles r on r.role_id = ur.role_id
+      left join (
+        select
+          dedup.user_id,
+          array_agg(dedup.program_id::text || '|~|' || dedup.display order by dedup.display) as program_pairs
+        from (
+          select distinct
+            ot.user_id,
+            ot.program_id,
+            coalesce(p.title, ot.program_id::text) as display
+          from public.orientation_tasks ot
+          left join public.programs p on p.program_id = ot.program_id
+          where coalesce(ot.deleted, false) = false
+            and ot.program_id is not null
+        ) dedup
+        group by dedup.user_id
+      ) assigned on assigned.user_id = u.id
+      ${whereClause}
+      group by
+        u.id,
+        u.google_id,
+        u.email,
+        u.full_name,
+        u.picture_url,
+        u.created_at,
+        u.updated_at,
+        u.username,
+        u.password_hash,
+        u.provider,
+        u.last_login_at,
+        u.hire_date,
+        u.status,
+        u.discipline_type,
+${disciplineGroupBy}        u.last_name,
+        u.surname,
+        u.first_name,
+        u.department,
+        u.sub_unit,
+        assigned.program_pairs
+      order by u.full_name`;
     let resultRows;
     try {
       const { rows } = await pool.query(sqlWithOrganization, params);
-      resultRows = rows.map(row => mapUserRow(row));
+      resultRows = rows.map(r => {
+        const {
+          assigned_program_pairs: rawPairs,
+          roles,
+          organization,
+          discipline_type,
+          discipline,
+          ...userDetails
+        } = r;
+        const assignments = Array.isArray(rawPairs) ? rawPairs : [];
+        const assignedPrograms = assignments
+          .map(value => {
+            if (typeof value !== 'string') return null;
+            const parts = value.split('|~|');
+            const idRaw = parts.shift() ?? '';
+            const nameRaw = parts.join('|~|');
+            const trimmedId = idRaw.trim();
+            const trimmedName = nameRaw.trim();
+            if (!trimmedId && !trimmedName) return null;
+            const finalId = trimmedId || trimmedName;
+            const finalName = trimmedName || trimmedId;
+            return {
+              id: finalId,
+              name: finalName,
+              program_id: finalId,
+              title: finalName,
+            };
+          })
+          .filter(Boolean);
+        const hireDateValue = normalizeDateOutput(userDetails.hire_date ?? null);
+        const normalizedDiscipline = discipline ?? discipline_type ?? null;
+        return {
+          ...userDetails,
+          discipline_type,
+          discipline: normalizedDiscipline,
+          organization,
+          hire_date: hireDateValue,
+          hireDate: hireDateValue,
+          roles: Array.isArray(roles) ? roles : [],
+          assigned_programs: assignedPrograms,
+        };
+      });
     } catch (queryError) {
-      const normalizedMessage = typeof queryError?.message === 'string'
-        ? queryError.message.toLowerCase()
-        : '';
-      const mentionsDisciplineColumn = normalizedMessage.includes('u.discipline')
-        || normalizedMessage.includes('users.discipline')
-        || normalizedMessage.includes('"u.discipline"')
-        || (normalizedMessage.includes('column') && normalizedMessage.includes('"discipline"'));
-      const mentionsOrganizationColumn = normalizedMessage.includes('u.organization')
-        || normalizedMessage.includes('users.organization')
-        || normalizedMessage.includes('"u.organization"')
-        || (normalizedMessage.includes('column') && normalizedMessage.includes('"organization"'));
-      if (mentionsDisciplineColumn) {
-        userDisciplineColumnExists = false;
-        userDisciplineColumnChecked = true;
-        const sqlWithoutDiscipline = buildUserListQuery({ includeOrganization: true, includeDiscipline: false });
-        try {
-          const { rows } = await pool.query(sqlWithoutDiscipline, params);
-          resultRows = rows.map(row => mapUserRow(row));
-        } catch (retryErr) {
-          const retryMessage = typeof retryErr?.message === 'string'
-            ? retryErr.message.toLowerCase()
-            : '';
-          const retryMentionsOrganization = retryMessage.includes('u.organization')
-            || retryMessage.includes('users.organization')
-            || retryMessage.includes('"u.organization"')
-            || (retryMessage.includes('column') && retryMessage.includes('"organization"'));
-          if (retryMentionsOrganization) {
-            const sqlWithoutDisciplineOrOrganization = buildUserListQuery({ includeOrganization: false, includeDiscipline: false });
-            const { rows } = await pool.query(sqlWithoutDisciplineOrOrganization, params);
-            resultRows = rows.map(row => mapUserRow(row, {
-              organizationOverride: restrictToOrganization ? organizationFilter : null,
-            }));
-            if (restrictToOrganization) {
-              const { rows: allowed } = await pool.query(
-                `select id from public.users where coalesce(organization, '${organizationSentinel}') = coalesce($1, '${organizationSentinel}')`,
-                [organizationFilter]
-              );
-              const allowedIds = new Set(allowed.map(entry => entry.id));
-              resultRows = resultRows.filter(entry => allowedIds.has(entry.id));
-            }
-          } else {
-            throw retryErr;
-          }
-        }
-      } else if (mentionsOrganizationColumn) {
+      if (
+        queryError &&
+        typeof queryError.message === 'string' &&
+        queryError.message.toLowerCase().includes('u.organization')
+      ) {
         const { rows } = await pool.query(sqlWithoutOrganization, params);
-        resultRows = rows.map(row => mapUserRow(row, {
-          organizationOverride: restrictToOrganization ? organizationFilter : null,
-        }));
+        resultRows = rows.map(r => {
+          const {
+            assigned_program_pairs: rawPairs,
+            roles,
+            discipline_type,
+            discipline,
+            ...userDetails
+          } = r;
+          const assignments = Array.isArray(rawPairs) ? rawPairs : [];
+          const assignedPrograms = assignments
+            .map(value => {
+              if (typeof value !== 'string') return null;
+              const parts = value.split('|~|');
+              const idRaw = parts.shift() ?? '';
+              const nameRaw = parts.join('|~|');
+              const trimmedId = idRaw.trim();
+              const trimmedName = nameRaw.trim();
+              if (!trimmedId && !trimmedName) return null;
+              const finalId = trimmedId || trimmedName;
+              const finalName = trimmedName || trimmedId;
+              return {
+                id: finalId,
+                name: finalName,
+                program_id: finalId,
+                title: finalName,
+              };
+            })
+            .filter(Boolean);
+          const hireDateValue = normalizeDateOutput(userDetails.hire_date ?? null);
+          const normalizedDiscipline = discipline ?? discipline_type ?? null;
+          return {
+            ...userDetails,
+            discipline_type,
+            discipline: normalizedDiscipline,
+            roles: Array.isArray(roles) ? roles : [],
+            hire_date: hireDateValue,
+            hireDate: hireDateValue,
+            organization: restrictToOrganization ? organizationFilter : null,
+            assigned_programs: assignedPrograms,
+          };
+        });
         if (restrictToOrganization) {
           const { rows: allowed } = await pool.query(
             `select id from public.users where coalesce(organization, '${organizationSentinel}') = coalesce($1, '${organizationSentinel}')`,
