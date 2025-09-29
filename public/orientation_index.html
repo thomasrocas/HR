@@ -217,23 +217,6 @@ const sameId = (a, b) => String(a ?? '') === String(b ?? '');
 
 const HIDDEN_PROGRAMS_PREF_KEY = 'anx_hidden_programs';
 
-const extractHireDate = (entity = {}) => {
-  if (!entity || typeof entity !== 'object') return undefined;
-  const raw =
-    entity.hireDate ??
-    entity.hire_date ??
-    entity.hired_at ??
-    entity.hiredAt ??
-    entity.date_hired ??
-    entity.dateHired ??
-    entity.start_date ??
-    entity.startDate;
-  if (typeof raw === 'undefined') return undefined;
-  if (raw === null) return null;
-  const normalized = normalizeDateInputValue(raw, '');
-  return normalized || null;
-};
-
 function readHiddenProgramsMap(){
   if (typeof sessionStorage === 'undefined') return {};
   try {
@@ -287,40 +270,19 @@ function readStoredTrainee(){
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !parsed.id) return null;
-    const storedHireDate = extractHireDate(parsed);
-    return {
-      id: String(parsed.id),
-      name: parsed.name || '',
-      hireDate: typeof storedHireDate === 'undefined' ? null : storedHireDate,
-    };
+    return { id: String(parsed.id), name: parsed.name || '' };
   } catch (err) {
     return null;
   }
 }
 
-function writeStoredTrainee(id, name = '', hireDate){
+function writeStoredTrainee(id, name = ''){
   if (typeof sessionStorage === 'undefined') return;
   try {
     if (!id) {
       sessionStorage.removeItem(TRAINEE_PREF_KEY);
     } else {
-      const payload = { id: String(id), name: name || '' };
-      if (typeof hireDate !== 'undefined') {
-        if (hireDate === null) {
-          payload.hireDate = null;
-        } else {
-          const normalized = normalizeDateInputValue(hireDate, '');
-          payload.hireDate = normalized || null;
-        }
-      } else {
-        const existing = readStoredTrainee();
-        if (existing && sameId(existing.id, id)) {
-          if (typeof existing.hireDate !== 'undefined') {
-            payload.hireDate = existing.hireDate;
-          }
-        }
-      }
-      sessionStorage.setItem(TRAINEE_PREF_KEY, JSON.stringify(payload));
+      sessionStorage.setItem(TRAINEE_PREF_KEY, JSON.stringify({ id: String(id), name: name || '' }));
     }
   } catch (err) {
     // Ignore storage errors (e.g., private browsing)
@@ -1195,19 +1157,7 @@ function App({ me, onSignOut }){
     }
     return me?.name || 'Halle Angeles';
   });
-  const [targetHireDate, setTargetHireDate] = useState(() => {
-    const stored = readStoredTrainee();
-    const hire = extractHireDate(stored || {});
-    return typeof hire === 'undefined' ? null : hire;
-  });
-  const [startDate, setStartDate] = useState(() => {
-    const stored = readStoredTrainee();
-    const hire = extractHireDate(stored || {});
-    if (hire) {
-      return hire;
-    }
-    return dayjs().format('YYYY-MM-DD');
-  });
+  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
   const [activeProgramId, setActiveProgramId] = useState(QS_PROGRAM_ID);
@@ -1238,20 +1188,6 @@ function App({ me, onSignOut }){
   const calendarCacheRef = useRef(new Map());
   const programColorCache = useRef(new Map());
   const rangeOverrideRef = useRef(rangeOverride);
-  const fallbackStartDate = useMemo(() => {
-    if (targetHireDate) {
-      return targetHireDate;
-    }
-    if (targetHireDate === null) {
-      return dayjs().format('YYYY-MM-DD');
-    }
-    const stored = readStoredTrainee();
-    const storedHire = extractHireDate(stored || {});
-    if (storedHire) {
-      return storedHire;
-    }
-    return dayjs().format('YYYY-MM-DD');
-  }, [targetHireDate]);
   const hiddenProgramIds = useMemo(() => getHiddenProgramsForView(me?.id, targetUserId), [me?.id, targetUserId]);
   const getWeekKey = useCallback((mode, week) => {
     const raw = week.id || (week.wk === null ? 'unscheduled' : String(week.wk));
@@ -1269,16 +1205,6 @@ function App({ me, onSignOut }){
   useEffect(() => {
     rangeOverrideRef.current = rangeOverride;
   }, [rangeOverride]);
-  useEffect(() => {
-    if (!targetHireDate) return;
-    if (rangeOverrideRef.current.single || rangeOverrideRef.current.all) return;
-    if (Array.isArray(weeks) && weeks.length > 0) return;
-    setStartDate((prev) => {
-      const normalizedPrev = normalizeDateInputValue(prev, '');
-      if (normalizedPrev === targetHireDate) return prev;
-      return targetHireDate;
-    });
-  }, [targetHireDate, weeks]);
 
   const markRangeOverrideForCurrentMode = useCallback(() => {
     const key = calendarMode === 'all' ? 'all' : 'single';
@@ -1448,19 +1374,12 @@ function App({ me, onSignOut }){
     const uid = e.target.value; // keep UUID as string
     const sel = userList.find(u => String(u.id) === String(uid)) || {};
     const selectedName = sel.full_name || '';
-    const selectedHire = extractHireDate(sel);
     setTargetUserId(uid);
     setTargetUserName(selectedName);
-    setTargetHireDate(typeof selectedHire === 'undefined' ? null : selectedHire);
     TARGET_USER_ID = uid;
     TARGET_USER_NAME = selectedName;
-    writeStoredTrainee(uid, selectedName, typeof selectedHire === 'undefined' ? null : selectedHire);
+    writeStoredTrainee(uid, selectedName);
     resetAllRangeOverrides();
-    if (typeof selectedHire !== 'undefined') {
-      setStartDate(selectedHire || dayjs().format('YYYY-MM-DD'));
-    } else {
-      setStartDate(dayjs().format('YYYY-MM-DD'));
-    }
     try {
       await apiPatchPrefs({ trainee: uid }, { skipUser: true });
     } catch (err) {
@@ -1719,17 +1638,11 @@ function App({ me, onSignOut }){
   useEffect(() => {
     if (!targetUserId) return;
     const match = userList.find(u => String(u.id) === String(targetUserId));
-    if (!match) return;
-    if (match.full_name && match.full_name !== targetUserName) {
+    if (match && match.full_name && match.full_name !== targetUserName) {
       setTargetUserName(match.full_name);
+      writeStoredTrainee(targetUserId, match.full_name);
     }
-    const hire = extractHireDate(match);
-    if (typeof hire !== 'undefined' && hire !== targetHireDate) {
-      setTargetHireDate(hire);
-    }
-    const nameForStore = match.full_name || match.name || targetUserName || '';
-    writeStoredTrainee(targetUserId, nameForStore, typeof hire !== 'undefined' ? hire : undefined);
-  }, [targetUserId, targetUserName, targetHireDate, userList]);
+  }, [targetUserId, targetUserName, userList]);
 
   useEffect(() => {
     if (!panelOpen) return;
@@ -1798,12 +1711,12 @@ function App({ me, onSignOut }){
     if (shouldApplyDerivedRange) {
       const programInfo = programInfoMap.get(String(QS_PROGRAM_ID)) || null;
       const derivedRange = deriveProgramRangeSafe(active, {
-        fallbackStartDate,
+        fallbackStartDate: dayjs().format('YYYY-MM-DD'),
         fallbackWeeks: 6,
         programInfo,
       });
       if (derivedRange && derivedRange.startDate) {
-        const normalizedStart = normalizeDateInputValue(derivedRange.startDate, fallbackStartDate);
+        const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
         setStartDate(normalizedStart);
       }
       if (derivedRange && Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
@@ -2177,7 +2090,7 @@ useEffect(() => {
         });
         const dedupedRows = Array.from(dedupe.values());
         const derivedRange = deriveAllProgramsRangeSafe(dedupedRows, {
-          fallbackStartDate,
+          fallbackStartDate: dayjs().format('YYYY-MM-DD'),
           fallbackWeeks: 6,
           programInfoMap,
         });
@@ -2193,13 +2106,13 @@ useEffect(() => {
             filterEnd = derivedEnd;
           }
           if (!rangeOverrideRef.current.all) {
-            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, fallbackStartDate);
+            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
             setStartDate(normalizedStart);
             setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
           }
         } else if (derivedRange && !rangeOverrideRef.current.all) {
           if (derivedRange.startDate) {
-            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, fallbackStartDate);
+            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
             setStartDate(normalizedStart);
           }
           if (Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
@@ -4014,10 +3927,7 @@ function Root(){
         const normalizedId = targetId ? String(targetId) : targetId;
         TARGET_USER_ID = normalizedId;
         TARGET_USER_NAME = targetName;
-        const storedHire = stored && sameId(stored.id, normalizedId) ? stored.hireDate : undefined;
-        const userHire = sameId(normalizedId, user.id) ? extractHireDate(user) : undefined;
-        const hireForStorage = typeof storedHire !== 'undefined' ? storedHire : userHire;
-        writeStoredTrainee(normalizedId, targetName, hireForStorage);
+        writeStoredTrainee(normalizedId, targetName);
       } else {
         setMe(null);
         CURRENT_USER_ID = null;
