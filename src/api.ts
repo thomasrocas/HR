@@ -14,8 +14,6 @@ export interface Program {
   assignedCount: number;
   organization: string | null;
   subUnit: string | null;
-  disciplineType?: string | null;
-  department?: string | null;
 }
 
 export interface Template {
@@ -280,8 +278,6 @@ const normalizeProgram = (raw: any): Program => {
       assignedCount: 0,
       organization: null,
       subUnit: null,
-      disciplineType: null,
-      department: null,
     };
   }
 
@@ -346,29 +342,6 @@ const normalizeProgram = (raw: any): Program => {
     subUnit = null;
   }
 
-  const disciplineSource =
-    raw.disciplineType ??
-    raw.discipline_type ??
-    raw.discipline ??
-    raw.programDiscipline ??
-    null;
-  let disciplineType: string | null = null;
-  if (typeof disciplineSource === 'string') {
-    const trimmed = disciplineSource.trim();
-    disciplineType = trimmed ? trimmed : null;
-  } else if (disciplineSource === null) {
-    disciplineType = null;
-  }
-
-  const departmentSource = raw.department ?? raw.dept ?? raw.departmentName ?? raw.department_name ?? null;
-  let department: string | null = null;
-  if (typeof departmentSource === 'string') {
-    const trimmed = departmentSource.trim();
-    department = trimmed ? trimmed : null;
-  } else if (departmentSource === null) {
-    department = null;
-  }
-
   return {
     id: String(idCandidate ?? ''),
     name:
@@ -385,8 +358,6 @@ const normalizeProgram = (raw: any): Program => {
     assignedCount,
     organization,
     subUnit,
-    disciplineType,
-    department,
   };
 };
 
@@ -561,14 +532,8 @@ const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unk
     assignedCount: _assignedCount,
     organization,
     subUnit,
-    disciplineType,
-    department,
-    ...restWithExtras
-  } = payload as Partial<Program> & { dept?: string | null; discipline?: string | null };
-  const { dept: _dept, discipline: _discipline, ...rest } = restWithExtras as typeof restWithExtras & {
-    dept?: unknown;
-    discipline?: unknown;
-  };
+    ...rest
+  } = payload;
   const body: Record<string, unknown> = { ...rest };
   if (payload.name && !body.title) {
     body.title = payload.name;
@@ -593,35 +558,6 @@ const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unk
       body.sub_unit = trimmed ? trimmed : null;
     } else if (subUnit === null) {
       body.sub_unit = null;
-    }
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(payload, 'disciplineType') ||
-    Object.prototype.hasOwnProperty.call(payload as any, 'discipline_type') ||
-    Object.prototype.hasOwnProperty.call(payload as any, 'discipline')
-  ) {
-    const disciplineCandidate = Object.prototype.hasOwnProperty.call(payload, 'disciplineType')
-      ? disciplineType
-      : (payload as any).discipline_type ?? (payload as any).discipline;
-    if (typeof disciplineCandidate === 'string') {
-      const trimmed = disciplineCandidate.trim();
-      body.discipline_type = trimmed ? trimmed : null;
-    } else if (disciplineCandidate === null) {
-      body.discipline_type = null;
-    }
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(payload, 'department') ||
-    Object.prototype.hasOwnProperty.call(payload as any, 'dept')
-  ) {
-    const departmentCandidate = Object.prototype.hasOwnProperty.call(payload, 'department')
-      ? department
-      : (payload as any).dept;
-    if (typeof departmentCandidate === 'string') {
-      const trimmed = departmentCandidate.trim();
-      body.department = trimmed ? trimmed : null;
-    } else if (departmentCandidate === null) {
-      body.department = null;
     }
   }
   return body;
@@ -1213,8 +1149,6 @@ export const seed = {
       assignedCount: 3,
       organization: 'People Ops',
       subUnit: 'New Hires',
-      disciplineType: 'Technical',
-      department: 'Engineering',
     },
     {
       id: 'p2',
@@ -1226,8 +1160,6 @@ export const seed = {
       assignedCount: 1,
       organization: 'People Ops',
       subUnit: 'Leadership',
-      disciplineType: 'Leadership',
-      department: 'People Ops',
     },
   ] as Program[],
   templates: [
