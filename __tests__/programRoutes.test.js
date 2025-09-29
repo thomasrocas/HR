@@ -79,8 +79,6 @@ describe('program routes', () => {
         purpose text,
         organization text,
         sub_unit text,
-        department text,
-        discipline_type text,
         created_by uuid,
         created_at timestamptz default now(),
         deleted_at timestamp
@@ -343,105 +341,6 @@ describe('program routes', () => {
     ]);
     expect(rows[0].organization).toBe('Org');
     expect(rows[0].sub_unit).toBe('Team');
-  });
-
-  test('creates program with department and discipline metadata', async () => {
-    const adminId = crypto.randomUUID();
-    const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
-      adminId,
-      'admin-metadata',
-      hash,
-      'local'
-    ]);
-    await pool.query(
-      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='admin'",
-      [adminId]
-    );
-
-    const agent = request.agent(app);
-    await agent.post('/auth/local/login').send({ username: 'admin-metadata', password: 'passpass' }).expect(200);
-
-    const res = await agent
-      .post('/programs')
-      .send({
-        title: 'Metadata Program',
-        total_weeks: 5,
-        department: '  Research  ',
-        discipline: '  STEM  '
-      })
-      .expect(201);
-
-    expect(res.body.department).toBe('Research');
-    expect(res.body.discipline_type).toBe('STEM');
-
-    const { rows } = await pool.query('select department, discipline_type from public.programs where program_id=$1', [
-      res.body.program_id
-    ]);
-    expect(rows[0]).toEqual({ department: 'Research', discipline_type: 'STEM' });
-
-    const listRes = await agent.get('/programs').expect(200);
-    const saved = listRes.body.find(program => program.program_id === res.body.program_id);
-    expect(saved.department).toBe('Research');
-    expect(saved.discipline_type).toBe('STEM');
-  });
-
-  test('updates program department and discipline metadata via aliases', async () => {
-    const adminId = crypto.randomUUID();
-    const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, password_hash, provider) values ($1,$2,$3,$4)', [
-      adminId,
-      'admin-alias',
-      hash,
-      'local'
-    ]);
-    await pool.query(
-      "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='admin'",
-      [adminId]
-    );
-
-    const programId = 'alias-program';
-    await pool.query('insert into public.programs(program_id, title, total_weeks, created_by) values ($1,$2,$3,$4)', [
-      programId,
-      'Alias Program',
-      6,
-      adminId
-    ]);
-
-    const agent = request.agent(app);
-    await agent.post('/auth/local/login').send({ username: 'admin-alias', password: 'passpass' }).expect(200);
-
-    let res = await agent
-      .patch(`/programs/${programId}`)
-      .send({
-        dept: '  Sales  ',
-        discipline: '  Soft Skills  '
-      })
-      .expect(200);
-
-    expect(res.body.department).toBe('Sales');
-    expect(res.body.discipline_type).toBe('Soft Skills');
-
-    res = await agent
-      .patch(`/programs/${programId}`)
-      .send({
-        department: '  Support  ',
-        discipline_type: '  Customer  '
-      })
-      .expect(200);
-
-    expect(res.body.department).toBe('Support');
-    expect(res.body.discipline_type).toBe('Customer');
-
-    const { rows } = await pool.query('select department, discipline_type from public.programs where program_id=$1', [
-      programId
-    ]);
-    expect(rows[0]).toEqual({ department: 'Support', discipline_type: 'Customer' });
-
-    const listRes = await agent.get('/programs').expect(200);
-    const saved = listRes.body.find(program => program.program_id === programId);
-    expect(saved.department).toBe('Support');
-    expect(saved.discipline_type).toBe('Customer');
   });
 
   test('rejects invalid total_weeks when updating a program', async () => {
