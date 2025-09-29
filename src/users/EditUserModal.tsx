@@ -5,28 +5,52 @@ import UserModal from './UserModal';
 
 export interface EditUserModalProps {
   open: boolean;
-  user: Pick<User, 'name' | 'email' | 'organization'> | null;
+  user: Pick<User, 'name' | 'email' | 'organization' | 'hireDate'> | null;
   onClose: () => void;
-  onSave: (values: { name: string; email: string; organization: string }) => Promise<void>;
+  onSave: (values: {
+    name: string;
+    email: string;
+    organization: string;
+    hireDate: string | null;
+  }) => Promise<void>;
 }
 
 export default function EditUserModal({ open, user, onClose, onSave }: EditUserModalProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [organization, setOrganization] = useState('');
+  const [hireDate, setHireDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const isValidDate = (value: string) => {
+    if (!value) return true;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return false;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  };
+
+  const trimmedHireDate = hireDate.trim();
+  const isHireDateValid = isValidDate(trimmedHireDate);
 
   useEffect(() => {
     if (open && user) {
       setName(user.name);
       setEmail(user.email);
       setOrganization(user.organization ?? '');
+      setHireDate(user.hireDate ?? '');
     }
     if (!open) {
       setName('');
       setEmail('');
       setOrganization('');
+      setHireDate('');
       setError('');
       setSubmitting(false);
     }
@@ -35,10 +59,19 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!user) return;
+    if (!isHireDateValid) {
+      setError('Hire date must be a valid date (YYYY-MM-DD).');
+      return;
+    }
     try {
       setSubmitting(true);
       setError('');
-      await onSave({ name: name.trim(), email: email.trim(), organization: organization.trim() });
+      await onSave({
+        name: name.trim(),
+        email: email.trim(),
+        organization: organization.trim(),
+        hireDate: trimmedHireDate ? trimmedHireDate : null,
+      });
       onClose();
     } catch (_err) {
       setError('Unable to update the profile. Please try again.');
@@ -66,7 +99,7 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
             type="submit"
             form="edit-user-form"
             className="px-4 py-2 text-sm font-medium rounded-md bg-[var(--brand-primary)] text-white disabled:opacity-60"
-            disabled={!name.trim() || !email.trim() || submitting}
+            disabled={!name.trim() || !email.trim() || !isHireDateValid || submitting}
           >
             {submitting ? 'Saving…' : 'Save changes'}
           </button>
@@ -101,6 +134,27 @@ export default function EditUserModal({ open, user, onClose, onSave }: EditUserM
               </option>
             ))}
           </select>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            Hire date
+          </label>
+          <input
+            className="w-full border border-[var(--border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+            type="date"
+            value={hireDate}
+            onChange={event => {
+              const nextValue = event.target.value;
+              setHireDate(nextValue);
+              const trimmed = nextValue.trim();
+              if (trimmed && !isValidDate(trimmed)) {
+                setError('Hire date must be a valid date (YYYY-MM-DD).');
+              } else if (error) {
+                setError('');
+              }
+            }}
+            placeholder="YYYY-MM-DD"
+          />
         </div>
         <div className="space-y-1">
           <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">

@@ -457,6 +457,10 @@
                 </div>
             </div>
             <div>
+                <label class="block text-sm mb-1" for="editHireDate">Hire date</label>
+                <input id="editHireDate" name="hireDate" type="date" class="input">
+            </div>
+            <div>
                 <label class="block text-sm mb-1" for="editEmail">Email</label>
                 <input id="editEmail" name="email" type="email" class="input" placeholder="name@example.com" required>
             </div>
@@ -1028,6 +1032,8 @@ const USER_PROFILE_MUTABLE_FIELDS = new Set([
   'sub_unit',
   'discipline_type',
   'department',
+  'hire_date',
+  'hireDate',
   'status',
   'username',
   'picture_url',
@@ -1489,6 +1495,46 @@ function ensureSelectValue(selectElement, value) {
   selectElement.value = stringValue;
 }
 
+function toDateInputValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const stringValue = String(value).trim();
+  if (!stringValue) {
+    return '';
+  }
+  const match = stringValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return '';
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || !month || !day) {
+    return '';
+  }
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return '';
+  }
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function isValidDateInput(value) {
+  if (!value) {
+    return true;
+  }
+  const normalized = toDateInputValue(value);
+  return Boolean(normalized);
+}
+
 function createSearchParams(params) {
   if (!params) {
     return new URLSearchParams();
@@ -1850,6 +1896,7 @@ const inputEditDepartment = document.getElementById('editDepartment');
 const inputEditDisciplineType = document.getElementById('editDisciplineType');
 const inputEditOrganization = document.getElementById('editOrganization');
 const inputEditEmail = document.getElementById('editEmail');
+const inputEditHireDate = document.getElementById('editHireDate');
 const inputCreateRoles = document.getElementById('createRoles');
 const textareaDeactivateReason = document.getElementById('deactivateReason');
 const provisionUsernameInput = document.getElementById('provisionUsername');
@@ -1939,6 +1986,24 @@ function mergeUserProfilePayload(baseUser, payload) {
   }
   if ('discipline_type' in payload) {
     merged.discipline_type = payload.discipline_type;
+  }
+  const assignHireDate = value => {
+    if (value === null || value === undefined || value === '') {
+      merged.hire_date = null;
+      merged.hireDate = null;
+      return;
+    }
+    const normalized = toDateInputValue(value);
+    if (normalized) {
+      merged.hire_date = normalized;
+      merged.hireDate = normalized;
+    }
+  };
+  if ('hire_date' in payload) {
+    assignHireDate(payload.hire_date);
+  }
+  if ('hireDate' in payload) {
+    assignHireDate(payload.hireDate);
   }
   return merged;
 }
@@ -2158,6 +2223,7 @@ function renderSelectedUser(user) {
     if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, '');
     if (inputEditOrganization) ensureSelectValue(inputEditOrganization, '');
     if (inputEditEmail) inputEditEmail.value = '';
+    if (inputEditHireDate) inputEditHireDate.value = '';
     updateAccessDrawerContext(null);
     return;
   }
@@ -2198,6 +2264,10 @@ function renderSelectedUser(user) {
   if (inputEditDepartment) ensureSelectValue(inputEditDepartment, user.department ?? '');
   if (inputEditDisciplineType) ensureSelectValue(inputEditDisciplineType, user.discipline_type ?? '');
   if (inputEditOrganization) ensureSelectValue(inputEditOrganization, user.organization ?? '');
+  if (inputEditHireDate) {
+    const hireDateValue = toDateInputValue(user.hire_date ?? user.hireDate ?? '');
+    inputEditHireDate.value = hireDateValue;
+  }
 
   if (inputEditEmail) inputEditEmail.value = user.email || user.username || '';
 
@@ -2578,6 +2648,12 @@ formEdit.addEventListener('submit', async e => {
     const value = (formData.get(name) || '').toString().trim();
     return value ? value : null;
   };
+  const rawHireDate = (formData.get('hireDate') || '').toString().trim();
+  if (rawHireDate && !isValidDateInput(rawHireDate)) {
+    editMsg.textContent = 'Hire date must be a valid date (YYYY-MM-DD).';
+    return;
+  }
+  const hireDateValue = rawHireDate ? rawHireDate : null;
   const payload = {
     full_name: (formData.get('fullName') || '').toString().trim(),
     email: (formData.get('email') || '').toString().trim(),
@@ -2587,7 +2663,9 @@ formEdit.addEventListener('submit', async e => {
     surname: getNullableField('surname'),
     sub_unit: getNullableField('subUnit'),
     department: getNullableField('department'),
-    discipline_type: getNullableField('disciplineType')
+    discipline_type: getNullableField('disciplineType'),
+    hire_date: hireDateValue,
+    hireDate: hireDateValue
   };
   if (!payload.email) {
     editMsg.textContent = 'Email is required.';

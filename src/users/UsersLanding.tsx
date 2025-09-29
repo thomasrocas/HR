@@ -120,13 +120,17 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
     setEditingUser(user);
   };
 
-  const handleSaveProfile = async (values: { name: string; email: string; organization: string }) => {
+  const handleSaveProfile = async (
+    values: { name: string; email: string; organization: string; hireDate: string | null },
+  ) => {
     if (!editingUser || !globalActions.canEdit) return;
     const trimmedOrganization = values.organization.trim();
+    const normalizedHireDate = values.hireDate && values.hireDate.trim() ? values.hireDate.trim() : null;
     const payload = {
       name: values.name,
       email: values.email,
       organization: trimmedOrganization ? trimmedOrganization : null,
+      hireDate: normalizedHireDate,
     };
     const updated = await updateUser(editingUser.id, payload);
     setUsers(prev => prev.map(u => (u.id === updated.id ? { ...u, ...updated } : u)));
