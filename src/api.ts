@@ -87,6 +87,30 @@ const toDateString = (value: unknown): string => {
   return date.toISOString();
 };
 
+const toDateOnlyString = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+  }
+  const asString = String(value);
+  if (!asString) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(asString)) return asString;
+  const parsed = new Date(asString);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+};
+
 const USER_STATUSES = new Set<User['status']>(['active', 'pending', 'suspended', 'archived']);
 const PROGRAM_STATUSES = new Set<Program['status']>(['draft', 'published', 'deprecated', 'archived']);
 const TEMPLATE_STATUS_SET = new Set<NonNullable<Template['status']>>(['draft', 'published', 'deprecated']);
@@ -186,7 +210,24 @@ const normalizeUser = (raw: any): User => {
     organization,
     roles,
     status,
+    hireDate: null,
   };
+
+  const rawHireDate =
+    raw.hire_date ??
+    raw.hireDate ??
+    raw.hired_at ??
+    raw.hiredAt ??
+    raw.date_hired ??
+    raw.dateHired ??
+    null;
+  const normalizedHireDate = toDateOnlyString(rawHireDate);
+  if (normalizedHireDate !== null) {
+    user.hireDate = normalizedHireDate;
+  } else if (rawHireDate === null) {
+    user.hireDate = null;
+  }
+  (user as any).hire_date = user.hireDate;
 
   const programs = normalizeUserPrograms(
     raw.programs ??

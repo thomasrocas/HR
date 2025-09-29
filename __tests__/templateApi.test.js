@@ -53,6 +53,7 @@ describe('template api', () => {
         provider text,
         organization_id text,
         organization text,
+        hire_date date,
         discipline text,
         discipline_type text,
         last_name text,
