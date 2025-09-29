@@ -43,6 +43,7 @@ describe('program routes', () => {
         email text,
         full_name text,
         organization text,
+        hire_date date,
         discipline text,
         discipline_type text,
         last_name text,

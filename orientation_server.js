@@ -71,6 +71,22 @@ const toNullableDateString = value => {
   }
   return normalized;
 };
+const normalizeDateOutput = value => {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = new Date(`${trimmed}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+  }
+  return normalizeDateOutput(String(value));
+};
 const isAccountDisabled = status => typeof status === 'string'
   && ['suspended', 'archived'].includes(status.trim().toLowerCase());
 let transporter;
@@ -1544,7 +1560,8 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
     { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
     { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
     { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
-    { column: 'discipline_type', keys: ['discipline', 'discipline_type', 'disciplineType'] },
+    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType'] },
+    { column: 'discipline', keys: ['discipline'] },
   ];
   const additionalFields = [];
   for (const config of additionalFieldConfigs) {
@@ -1553,6 +1570,24 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
         additionalFields.push({ column: config.column, value: toNullableString(body[key]) });
         break;
       }
+    }
+  }
+
+  const hireDateKeys = ['hire_date', 'hireDate'];
+  let hireDateProvided = false;
+  let normalizedHireDate = null;
+  for (const key of hireDateKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      hireDateProvided = true;
+      try {
+        normalizedHireDate = toNullableDateString(body[key]);
+      } catch (dateError) {
+        if (dateError?.code === 'invalid_date') {
+          return res.status(400).json({ error: 'invalid_hire_date' });
+        }
+        throw dateError;
+      }
+      break;
     }
   }
 
@@ -1615,6 +1650,10 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       columns.push(field.column);
       values.push(field.value);
     }
+    if (hireDateProvided) {
+      columns.push('hire_date');
+      values.push(normalizedHireDate);
+    }
 
     const includeStatusReason = normalizedStatusReason !== null && (await hasUserStatusReasonColumn());
     if (includeStatusReason) {
@@ -1636,8 +1675,12 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       'surname',
       'sub_unit',
       'department',
-      'discipline_type'
+      'discipline_type',
+      'discipline'
     ];
+    if (hireDateProvided) {
+      returningColumns.push('hire_date');
+    }
     if (includeStatusReason) {
       returningColumns.push('status_reason');
     }
@@ -1672,6 +1715,7 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
       [userId]
     );
+    const responseHireDate = normalizeDateOutput(user.hire_date ?? normalizedHireDate);
 
     res.status(201).json({
       id: user.id,
@@ -1688,7 +1732,9 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       sub_unit: user.sub_unit ?? null,
       department: user.department ?? null,
       discipline_type: user.discipline_type ?? null,
-      discipline: user.discipline_type ?? null,
+      discipline: user.discipline ?? user.discipline_type ?? null,
+      hire_date: responseHireDate,
+      hireDate: responseHireDate,
       roles: roleRows.map(r => r.role_key),
       status_reason: includeStatusReason ? user.status_reason ?? null : undefined,
     });
@@ -1769,7 +1815,8 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
     { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
     { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
     { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
-    { column: 'discipline_type', keys: ['discipline', 'discipline_type', 'disciplineType'] },
+    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType'] },
+    { column: 'discipline', keys: ['discipline'] },
   ];
   const additionalFieldUpdates = [];
   for (const config of additionalFieldConfigs) {
@@ -1781,6 +1828,23 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
         });
         break;
       }
+    }
+  }
+  const hireDateKeys = ['hire_date', 'hireDate'];
+  let hireDateProvided = false;
+  let normalizedHireDate = null;
+  for (const key of hireDateKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      hireDateProvided = true;
+      try {
+        normalizedHireDate = toNullableDateString(body[key]);
+      } catch (dateError) {
+        if (dateError?.code === 'invalid_date') {
+          return res.status(400).json({ error: 'invalid_hire_date' });
+        }
+        throw dateError;
+      }
+      break;
     }
   }
   if (!hasNameField && !hasEmailField && !organizationProvided && additionalFieldUpdates.length === 0) {
@@ -1825,6 +1889,10 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       values.push(fieldUpdate.value);
       sets.push(`${fieldUpdate.column} = $${values.length}`);
     }
+    if (hireDateProvided) {
+      values.push(normalizedHireDate);
+      sets.push(`hire_date = $${values.length}`);
+    }
     if (sets.length === 1) {
       return res.status(400).json({ error: 'no_fields' });
     }
@@ -1845,6 +1913,8 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
          full_name,
          username,
          organization,
+         hire_date,
+         discipline,
          last_name,
          first_name,
          surname,
@@ -1860,6 +1930,7 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
       [id]
     );
+    const responseHireDate = normalizeDateOutput(user.hire_date ?? (hireDateProvided ? normalizedHireDate : null));
     res.json({
       id: user.id,
       email: user.email,
@@ -1873,7 +1944,9 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       sub_unit: user.sub_unit ?? null,
       department: user.department ?? null,
       discipline_type: user.discipline_type ?? null,
-      discipline: user.discipline_type ?? null,
+      discipline: user.discipline ?? user.discipline_type ?? null,
+      hire_date: responseHireDate,
+      hireDate: responseHireDate,
       roles: roleRows.map(r => r.role_key),
     });
   } catch (err) {
@@ -1940,6 +2013,8 @@ apiRouter.post('/users/local', ensureAuth, async (req, res) => {
       full_name: user.full_name,
       status: user.status,
       last_login_at: user.last_login_at,
+      hire_date: null,
+      hireDate: null,
     });
   } catch (err) {
     console.error('POST /api/users/local error', err);
@@ -2141,8 +2216,10 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.provider,
         u.last_login_at,
         u.organization,
+        u.hire_date,
         u.status,
         u.discipline_type,
+        u.discipline,
         u.last_name,
         u.surname,
         u.first_name,
@@ -2183,8 +2260,10 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.provider,
         u.last_login_at,
         u.organization,
+        u.hire_date,
         u.status,
         u.discipline_type,
+        u.discipline,
         u.last_name,
         u.surname,
         u.first_name,
@@ -2205,8 +2284,10 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.password_hash,
         u.provider,
         u.last_login_at,
+        u.hire_date,
         u.status,
         u.discipline_type,
+        u.discipline,
         u.last_name,
         u.surname,
         u.first_name,
@@ -2246,8 +2327,10 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
         u.password_hash,
         u.provider,
         u.last_login_at,
+        u.hire_date,
         u.status,
         u.discipline_type,
+        u.discipline,
         u.last_name,
         u.surname,
         u.first_name,
@@ -2285,9 +2368,12 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
             };
           })
           .filter(Boolean);
+        const hireDateValue = normalizeDateOutput(userDetails.hire_date ?? null);
         return {
           ...userDetails,
           organization,
+          hire_date: hireDateValue,
+          hireDate: hireDateValue,
           roles: Array.isArray(roles) ? roles : [],
           assigned_programs: assignedPrograms,
         };
@@ -2325,9 +2411,12 @@ app.get('/rbac/users', ensureAuth, async (req, res) => {
               };
             })
             .filter(Boolean);
+          const hireDateValue = normalizeDateOutput(userDetails.hire_date ?? null);
           return {
             ...userDetails,
             roles: Array.isArray(roles) ? roles : [],
+            hire_date: hireDateValue,
+            hireDate: hireDateValue,
             organization: restrictToOrganization ? organizationFilter : null,
             assigned_programs: assignedPrograms,
           };
@@ -3672,6 +3761,7 @@ create table if not exists public.users (
   email        text,
   full_name    text,
   organization text,
+  hire_date    date,
   picture_url  text,
   password_hash text,
   password_reset_token text,

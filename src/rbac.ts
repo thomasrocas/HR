@@ -11,6 +11,7 @@ export interface User {
   organization?: string | null;
   roles: Role[];
   status: 'active' | 'pending' | 'suspended' | 'archived';
+  hireDate: string | null;
 }
 
 const policy: Record<string, Record<string, Role[]>> = {

@@ -19,6 +19,8 @@ jest.mock('pg', () => ({ Pool: MockPool }));
 // Require app after mocks
 const { app, pool } = require('../orientation_server.js');
 
+const DEFAULT_HIRE_DATE = '2023-01-01';
+
 describe('rbac admin routes', () => {
   beforeAll(async () => {
     await pool.query(`
@@ -28,6 +30,7 @@ describe('rbac admin routes', () => {
         email text,
         full_name text,
         organization text,
+        hire_date date,
         discipline text,
         discipline_type text,
         last_name text,
@@ -111,8 +114,8 @@ describe('rbac admin routes', () => {
     const adminId = crypto.randomUUID();
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [adminId, 'admin', 'Admin', hash, 'local']);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [userId, 'user', 'User', hash, 'local']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [adminId, 'admin', 'Admin', hash, 'local', DEFAULT_HIRE_DATE]);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [userId, 'user', 'User', hash, 'local', DEFAULT_HIRE_DATE]);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
 
     const programId = crypto.randomUUID();
@@ -129,6 +132,7 @@ describe('rbac admin routes', () => {
     expect(listRes.body.length).toBe(2);
     const targetUser = listRes.body.find(entry => entry.id === userId);
     expect(targetUser).toBeTruthy();
+    expect(targetUser.hireDate).toBe(DEFAULT_HIRE_DATE);
     expect(targetUser.assigned_programs).toEqual([
       {
         id: programId,
@@ -155,8 +159,8 @@ describe('rbac admin routes', () => {
     const adminId = crypto.randomUUID();
     const managerId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [adminId, 'admin', 'Admin', hash, 'local']);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [managerId, 'manager', 'Manager', hash, 'local']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [adminId, 'admin', 'Admin', hash, 'local', DEFAULT_HIRE_DATE]);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [managerId, 'manager', 'Manager', hash, 'local', DEFAULT_HIRE_DATE]);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
 
@@ -191,17 +195,55 @@ describe('rbac admin routes', () => {
       .expect(403);
   });
 
+  test('admin can create users with hire dates', async () => {
+    const adminId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [adminId, 'admin', 'Admin', hash, 'local', DEFAULT_HIRE_DATE]);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
+      adminId,
+      'admin',
+    ]);
+
+    const adminAgent = request.agent(app);
+    await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+    const createRes = await adminAgent
+      .post('/api/users')
+      .send({
+        email: 'newhire@example.com',
+        full_name: 'New Hire',
+        organization: 'Example Org',
+        hire_date: '2024-07-01',
+        roles: ['viewer'],
+      })
+      .expect(201);
+
+    expect(createRes.body).toMatchObject({
+      email: 'newhire@example.com',
+      full_name: 'New Hire',
+      organization: 'Example Org',
+      hire_date: '2024-07-01',
+      hireDate: '2024-07-01',
+      roles: expect.arrayContaining(['viewer']),
+    });
+    expect(createRes.body.id).toBeTruthy();
+
+    const createdId = createRes.body.id;
+    const { rows } = await pool.query('select hire_date from public.users where id=$1', [createdId]);
+    expect(rows[0].hire_date).toEqual(new Date('2024-07-01'));
+  });
+
   test('admin can provision usernames and reset passwords while enforcing uniqueness', async () => {
     const adminId = crypto.randomUUID();
     const existingId = crypto.randomUUID();
     const targetId = crypto.randomUUID();
     const managerId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [adminId, 'admin', 'Admin', hash, 'local']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [adminId, 'admin', 'Admin', hash, 'local', DEFAULT_HIRE_DATE]);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [adminId, 'admin']);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [existingId, 'existing', 'Existing', hash, 'local']);
-    await pool.query('insert into public.users(id, email, full_name, provider) values ($1,$2,$3,$4)', [targetId, 'target@example.com', 'Target User', 'google']);
-    await pool.query('insert into public.users(id, username, full_name, password_hash, provider) values ($1,$2,$3,$4,$5)', [managerId, 'manager', 'Manager', hash, 'local']);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [existingId, 'existing', 'Existing', hash, 'local', DEFAULT_HIRE_DATE]);
+    await pool.query('insert into public.users(id, email, full_name, provider, hire_date) values ($1,$2,$3,$4,$5)', [targetId, 'target@example.com', 'Target User', 'google', DEFAULT_HIRE_DATE]);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [managerId, 'manager', 'Manager', hash, 'local', DEFAULT_HIRE_DATE]);
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [managerId, 'manager']);
 
     const adminAgent = request.agent(app);
@@ -253,12 +295,12 @@ describe('rbac admin routes', () => {
     const userId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query(
-      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
-      [mgrId, 'mgr', 'Mgr', 'Org One', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7)',
+      [mgrId, 'mgr', 'Mgr', 'Org One', hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query(
-      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
-      [userId, 'user', 'User', 'Org One', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7)',
+      [userId, 'user', 'User', 'Org One', hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query(
       "insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key='manager'",
@@ -315,16 +357,16 @@ describe('rbac admin routes', () => {
     const hash = await bcrypt.hash('passpass', 1);
 
     await pool.query(
-      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
-      [mgrId, 'mgr-org', 'Mgr Org', 'Org Shared', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7)',
+      [mgrId, 'mgr-org', 'Mgr Org', 'Org Shared', hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query(
-      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
-      [sameOrgId, 'user-shared', 'User Shared', 'Org Shared', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7)',
+      [sameOrgId, 'user-shared', 'User Shared', 'Org Shared', hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query(
-      'insert into public.users(id, username, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6)',
-      [otherOrgId, 'user-other', 'User Other', 'Org Other', hash, 'local']
+      'insert into public.users(id, username, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7)',
+      [otherOrgId, 'user-other', 'User Other', 'Org Other', hash, 'local', DEFAULT_HIRE_DATE]
     );
 
     await pool.query(
@@ -351,16 +393,16 @@ describe('rbac admin routes', () => {
     const otherId = crypto.randomUUID();
     const hash = await bcrypt.hash('passpass', 1);
     await pool.query(
-      'insert into public.users(id, username, email, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6,$7)',
-      [adminId, 'admin', 'admin@example.com', 'Admin', 'Admin Org', hash, 'local']
+      'insert into public.users(id, username, email, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [adminId, 'admin', 'admin@example.com', 'Admin', 'Admin Org', hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query(
-      'insert into public.users(id, username, email, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6,$7)',
-      [targetId, 'user', 'user@example.com', 'User', 'Original Org', hash, 'local']
+      'insert into public.users(id, username, email, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [targetId, 'user', 'user@example.com', 'User', 'Original Org', hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query(
-      'insert into public.users(id, username, email, full_name, organization, password_hash, provider) values ($1,$2,$3,$4,$5,$6,$7)',
-      [otherId, 'other', 'other@example.com', 'Other', null, hash, 'local']
+      'insert into public.users(id, username, email, full_name, organization, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [otherId, 'other', 'other@example.com', 'Other', null, hash, 'local', DEFAULT_HIRE_DATE]
     );
     await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
       adminId,
@@ -383,6 +425,7 @@ describe('rbac admin routes', () => {
         discipline: '  Disc  ',
         department: '  Dept  ',
         disciplineType: '  DiscType  ',
+        hire_date: '2024-05-20',
       })
       .expect(200);
 
@@ -399,6 +442,8 @@ describe('rbac admin routes', () => {
       discipline: 'Disc',
       department: 'Dept',
       discipline_type: 'DiscType',
+      hire_date: '2024-05-20',
+      hireDate: '2024-05-20',
     });
     expect(Array.isArray(updateRes.body.roles)).toBe(true);
 
@@ -413,7 +458,8 @@ describe('rbac admin routes', () => {
          sub_unit,
          discipline,
          department,
-         discipline_type
+         discipline_type,
+         hire_date
        from public.users where id=$1`,
       [targetId]
     );
@@ -428,6 +474,7 @@ describe('rbac admin routes', () => {
       discipline: 'Disc',
       department: 'Dept',
       discipline_type: 'DiscType',
+      hire_date: new Date('2024-05-20'),
     });
 
     await adminAgent
@@ -447,5 +494,6 @@ describe('rbac admin routes', () => {
     const listRes = await adminAgent.get('/rbac/users').expect(200);
     const refreshed = listRes.body.find(u => u.id === targetId);
     expect(refreshed.organization).toBeNull();
+    expect(refreshed.hireDate).toBe('2024-05-20');
   });
 });
