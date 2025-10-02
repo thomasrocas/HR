@@ -439,7 +439,7 @@ describe('rbac admin routes', () => {
       first_name: 'First',
       surname: 'Surname',
       sub_unit: 'Sub',
-      discipline: 'Disc',
+      discipline: 'DiscType',
       department: 'Dept',
       discipline_type: 'DiscType',
       hire_date: '2024-05-20',
@@ -495,5 +495,46 @@ describe('rbac admin routes', () => {
     const refreshed = listRes.body.find(u => u.id === targetId);
     expect(refreshed.organization).toBeNull();
     expect(refreshed.hireDate).toBe('2024-05-20');
+  });
+
+  test('PATCH /api/users/:id succeeds without discipline column', async () => {
+    await pool.query('alter table public.users drop column if exists discipline');
+    try {
+      const adminId = crypto.randomUUID();
+      const targetId = crypto.randomUUID();
+      const hash = await bcrypt.hash('passpass', 1);
+      await pool.query(
+        'insert into public.users(id, username, email, full_name, password_hash, provider, hire_date, discipline_type) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [adminId, 'admin', 'admin@example.com', 'Admin', hash, 'local', DEFAULT_HIRE_DATE, 'Existing']
+      );
+      await pool.query(
+        'insert into public.users(id, username, email, full_name, password_hash, provider, hire_date, discipline_type) values ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [targetId, 'user', 'user@example.com', 'User', hash, 'local', DEFAULT_HIRE_DATE, null]
+      );
+      await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
+        adminId,
+        'admin',
+      ]);
+
+      const adminAgent = request.agent(app);
+      await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+      const updateRes = await adminAgent
+        .patch(`/api/users/${targetId}`)
+        .send({ disciplineType: 'NewType' })
+        .expect(200);
+
+      expect(updateRes.body).toMatchObject({
+        id: targetId,
+        discipline_type: 'NewType',
+        discipline: 'NewType',
+      });
+      expect(Array.isArray(updateRes.body.roles)).toBe(true);
+
+      const { rows } = await pool.query('select discipline_type from public.users where id=$1', [targetId]);
+      expect(rows[0]).toEqual({ discipline_type: 'NewType' });
+    } finally {
+      await pool.query('alter table public.users add column if not exists discipline text');
+    }
   });
 });
