@@ -1589,11 +1589,31 @@ function buildUserListUrl(params) {
   return `${API}/rbac/users${queryString ? `?${queryString}` : ''}`;
 }
 
+function normalizeUserRecord(user) {
+  if (!user || typeof user !== 'object') {
+    return user;
+  }
+  const {
+    discipline,
+    discipline_type,
+    ...rest
+  } = user;
+  const normalizedDisciplineType = discipline_type ?? null;
+  return {
+    ...rest,
+    discipline_type: normalizedDisciplineType,
+  };
+}
+
 async function listUsers(params) {
   const url = buildUserListUrl(params);
   const r = await fetch(url, { credentials: 'include' });
   if (!r.ok) throw new Error('GET /rbac/users failed');
-  return r.json();
+  const payload = await r.json();
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+  return payload.map(normalizeUserRecord);
 }
 async function listPrograms() {
   const r = await fetch(`${API}/programs`, { credentials: 'include' });

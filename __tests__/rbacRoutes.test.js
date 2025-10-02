@@ -133,6 +133,10 @@ describe('rbac admin routes', () => {
     const targetUser = listRes.body.find(entry => entry.id === userId);
     expect(targetUser).toBeTruthy();
     expect(targetUser.hireDate).toBe(DEFAULT_HIRE_DATE);
+    expect(targetUser).toHaveProperty('discipline_type');
+    expect(targetUser.discipline_type).toBeNull();
+    expect(targetUser).toHaveProperty('discipline');
+    expect(targetUser.discipline).toBe(targetUser.discipline_type);
     expect(targetUser.assigned_programs).toEqual([
       {
         id: programId,
