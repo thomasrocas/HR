@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ANX • Accept Invitation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: light;
+      --surface: #ffffff;
+      --surface-muted: #f8fafc;
+      --border: #e2e8f0;
+      --ink: #0f172a;
+      --ink-muted: #64748b;
+      --brand: #2563eb;
+      --brand-accent: #1d4ed8;
+      --danger: #dc2626;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(160deg, var(--surface-muted), #eff6ff);
+      color: var(--ink);
+    }
+
+    .card {
+      width: min(520px, 100% - 2rem);
+      background: var(--surface);
+      border-radius: 1.25rem;
+      padding: 2.5rem 2.25rem;
+      box-shadow: 0 30px 60px -28px rgba(15, 23, 42, 0.55);
+      border: 1px solid var(--border);
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.75rem;
+      font-weight: 700;
+    }
+
+    p.lead {
+      margin-top: 0;
+      margin-bottom: 1.5rem;
+      color: var(--ink-muted);
+    }
+
+    .status {
+      margin-bottom: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.85rem;
+      background: var(--surface-muted);
+      color: var(--ink-muted);
+      font-size: 0.9rem;
+    }
+
+    .status.success {
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .label-text {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      margin-bottom: 0.35rem;
+      font-weight: 600;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      border-radius: 0.85rem;
+      border: 1px solid var(--border);
+      padding: 0.65rem 0.85rem;
+      font-size: 1rem;
+      color: var(--ink);
+      background: var(--surface);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+    }
+
+    input[disabled] {
+      background: var(--surface-muted);
+      color: var(--ink-muted);
+      cursor: not-allowed;
+    }
+
+    button {
+      width: 100%;
+      border: none;
+      border-radius: 0.9rem;
+      padding: 0.9rem 1.25rem;
+      font-size: 1rem;
+      font-weight: 600;
+      background: var(--brand);
+      color: #ffffff;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    button:hover {
+      background: var(--brand-accent);
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .success-actions {
+      margin-top: 1.5rem;
+      text-align: center;
+      font-size: 0.95rem;
+      color: var(--ink-muted);
+    }
+
+    .success-actions a {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <main class="card" aria-live="polite">
+    <h1>Complete your profile</h1>
+    <p class="lead">Create your account credentials to access the ANX Orientation experience.</p>
+    <div id="status" class="status">Checking your invitation…</div>
+    <form id="inviteForm" class="hidden" novalidate>
+      <label>
+        <span class="label-text">Email</span>
+        <input id="email" type="email" disabled />
+      </label>
+      <label>
+        <span class="label-text">Full name</span>
+        <input id="fullName" type="text" autocomplete="name" placeholder="e.g. Jordan Smith" />
+      </label>
+      <label>
+        <span class="label-text">Username</span>
+        <input id="username" type="text" autocomplete="username" placeholder="Choose a username" required />
+      </label>
+      <label>
+        <span class="label-text">Password</span>
+        <input id="password" type="password" autocomplete="new-password" placeholder="Create a password (min 8 characters)" required />
+      </label>
+      <label>
+        <span class="label-text">Confirm password</span>
+        <input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Re-enter your password" required />
+      </label>
+      <button id="submitBtn" type="submit">Activate account</button>
+    </form>
+    <div id="successState" class="hidden">
+      <div class="status success">Your account is ready! You can now sign in with your new username and password.</div>
+      <div class="success-actions">
+        <a href="/">Go to sign in</a>
+      </div>
+    </div>
+  </main>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      const statusEl = document.getElementById('status');
+      const form = document.getElementById('inviteForm');
+      const successState = document.getElementById('successState');
+      const emailField = document.getElementById('email');
+      const fullNameField = document.getElementById('fullName');
+      const usernameField = document.getElementById('username');
+      const passwordField = document.getElementById('password');
+      const confirmField = document.getElementById('confirmPassword');
+      const submitBtn = document.getElementById('submitBtn');
+
+      function setStatus(message, type) {
+        statusEl.textContent = message;
+        statusEl.classList.remove('success', 'error');
+        if (type === 'success') {
+          statusEl.classList.add('success');
+        } else if (type === 'error') {
+          statusEl.classList.add('error');
+        }
+      }
+
+      function showError(message) {
+        setStatus(message, 'error');
+        form.classList.add('hidden');
+        submitBtn.disabled = false;
+      }
+
+      async function fetchInvite() {
+        if (!token) {
+          showError('This invitation link is invalid. Please request a new invite.');
+          return;
+        }
+        try {
+          const response = await fetch(`/api/invitations/${encodeURIComponent(token)}`);
+          if (response.ok) {
+            const data = await response.json();
+            emailField.value = data.email || '';
+            if (data.full_name || data.name) {
+              fullNameField.value = data.full_name || data.name || '';
+            }
+            setStatus('Great! Finish the fields below to activate your account.', 'success');
+            form.classList.remove('hidden');
+          } else {
+            let message = 'We could not validate your invitation.';
+            if (response.status === 410) {
+              message = 'This invitation has expired. Please contact your administrator for a new link.';
+            } else if (response.status === 409) {
+              message = 'This invitation has already been used.';
+            } else if (response.status === 403) {
+              message = 'Your invitation can no longer be used. Reach out to your administrator.';
+            }
+            showError(message);
+          }
+        } catch (error) {
+          console.error(error);
+          showError('Something went wrong while checking your invitation. Please try again later.');
+        }
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!token) {
+          showError('Invitation token missing.');
+          return;
+        }
+        const username = usernameField.value.trim();
+        const password = passwordField.value;
+        const confirmPassword = confirmField.value;
+        const fullName = fullNameField.value.trim();
+        if (!username) {
+          showError('Please choose a username.');
+          return;
+        }
+        if (password.length < 8) {
+          showError('Password must be at least 8 characters long.');
+          return;
+        }
+        if (password !== confirmPassword) {
+          showError('Passwords do not match.');
+          return;
+        }
+        submitBtn.disabled = true;
+        setStatus('Creating your account…', '');
+        try {
+          const response = await fetch(`/api/invitations/${encodeURIComponent(token)}/accept`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username,
+              password,
+              fullName,
+            }),
+          });
+          if (response.ok) {
+            setStatus('Your account is ready!', 'success');
+            form.classList.add('hidden');
+            successState.classList.remove('hidden');
+          } else {
+            let message = 'We could not complete your account setup.';
+            if (response.status === 400) {
+              message = 'Please double-check your username and password.';
+            } else if (response.status === 409) {
+              message = 'That username is already in use. Try a different one.';
+            } else if (response.status === 410) {
+              message = 'This invitation has expired. Please request a new invite.';
+            } else if (response.status === 403) {
+              message = 'This invitation can no longer be used. Reach out to your administrator.';
+            }
+            submitBtn.disabled = false;
+            showError(message);
+          }
+        } catch (error) {
+          console.error(error);
+          submitBtn.disabled = false;
+          showError('Something went wrong. Please try again in a moment.');
+        }
+      });
+
+      void fetchInvite();
+    })();
+  </script>
+</body>
+</html>

@@ -215,7 +215,7 @@ export default function UsersLanding({ currentUser }: { currentUser: User }) {
 
   const handleInvite = async () => {
     if (!globalActions.canInvite) return;
-    await createUser({ ...newUser, status: 'pending' });
+    await createUser({ ...newUser, status: 'pending', sendInvite: true });
     setShowCreate(false);
     await fetchUsers();
     alert('Invite sent');

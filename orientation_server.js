@@ -103,6 +103,88 @@ try {
   };
 }
 
+const SEND_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL
+  || process.env.EMAIL_FROM
+  || process.env.SMTP_FROM
+  || 'no-reply@example.com';
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
+const hasFetchSupport = typeof fetch === 'function';
+const sendgridConfigured = Boolean(SENDGRID_API_KEY && SEND_FROM_EMAIL && hasFetchSupport);
+const SENDGRID_ENDPOINT = 'https://api.sendgrid.com/v3/mail/send';
+
+const escapeHtml = value => {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+async function deliverMail(message) {
+  if (!message || !message.to) {
+    throw new Error('send_mail_missing_recipient');
+  }
+  const payload = { ...message };
+  if (!payload.from) {
+    payload.from = SEND_FROM_EMAIL;
+  }
+  if (!payload.text && payload.html) {
+    payload.text = payload.html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  if (!payload.html && payload.text) {
+    const safeText = escapeHtml(payload.text).replace(/\n/g, '<br>');
+    payload.html = `<p>${safeText}</p>`;
+  }
+  if (sendgridConfigured) {
+    try {
+      const content = [];
+      if (payload.text) {
+        content.push({ type: 'text/plain', value: payload.text });
+      }
+      if (payload.html) {
+        content.push({ type: 'text/html', value: payload.html });
+      }
+      if (!content.length) {
+        content.push({ type: 'text/plain', value: '' });
+      }
+      const body = {
+        personalizations: [{ to: Array.isArray(payload.to) ? payload.to.map(email => ({ email })) : [{ email: payload.to }] }],
+        from: { email: payload.from },
+        subject: payload.subject || '',
+        content,
+      };
+      if (payload.cc) {
+        const ccList = Array.isArray(payload.cc) ? payload.cc : [payload.cc];
+        body.personalizations[0].cc = ccList.map(email => ({ email }));
+      }
+      if (payload.bcc) {
+        const bccList = Array.isArray(payload.bcc) ? payload.bcc : [payload.bcc];
+        body.personalizations[0].bcc = bccList.map(email => ({ email }));
+      }
+      const response = await fetch(SENDGRID_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${SENDGRID_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        const error = new Error(`sendgrid_error_${response.status}`);
+        error.details = detail;
+        throw error;
+      }
+      return;
+    } catch (err) {
+      console.error('SendGrid delivery failed, falling back to SMTP transport', err);
+    }
+  }
+  await transporter.sendMail(payload);
+}
+
 // ==== 1) Postgres config ====
 const pool = new Pool({
   host: process.env.PGHOST || 'localhost',
@@ -432,10 +514,10 @@ app.post('/auth/local/forgot', async (req, res) => {
           [hashed, expires, user.id]
         );
         const resetLink = `${process.env.PUBLIC_URL || 'http://localhost:3002'}/reset.html?token=${token}`;
-        await transporter.sendMail({
+        await deliverMail({
           to: user.email,
           subject: 'Password Reset',
-          text: `Reset your password: ${resetLink}`
+          text: `Reset your password: ${resetLink}`,
         });
       }
     }
@@ -531,6 +613,84 @@ async function ensurePreferencesRow(userId) {
   } catch (_err) {
     /* ignore if preferences table is absent */
   }
+}
+
+const INVITE_EXPIRATION_DAYS = Number(process.env.USER_INVITE_TTL_DAYS || 7);
+const INVITE_EXPIRATION_MS = Number.isFinite(INVITE_EXPIRATION_DAYS)
+  ? Math.max(1, INVITE_EXPIRATION_DAYS) * 24 * 60 * 60 * 1000
+  : 7 * 24 * 60 * 60 * 1000;
+
+let inviteColumnsEnsured = false;
+async function ensureInviteColumns() {
+  if (inviteColumnsEnsured) {
+    return;
+  }
+  const sql = `
+    alter table public.users
+      add column if not exists invite_token_hash text,
+      add column if not exists invite_expires_at timestamptz,
+      add column if not exists invited_at timestamptz,
+      add column if not exists invited_by uuid,
+      add column if not exists activated_at timestamptz,
+      add column if not exists completed_profile_at timestamptz;
+  `;
+  try {
+    await pool.query(sql);
+    inviteColumnsEnsured = true;
+  } catch (err) {
+    inviteColumnsEnsured = false;
+    throw err;
+  }
+}
+
+const resolvePublicBaseUrl = () => {
+  const base = process.env.PUBLIC_URL
+    || process.env.SERVER_PUBLIC_URL
+    || process.env.APP_BASE_URL
+    || `http://localhost:${process.env.PORT || 3002}`;
+  return base.replace(/\/$/, '');
+};
+
+async function createUserInvitation({ userId, email, fullName, invitedBy }) {
+  if (!userId || !email) {
+    throw new Error('invite_missing_fields');
+  }
+  await ensureInviteColumns();
+  const token = crypto.randomBytes(32).toString('hex');
+  const hashed = crypto.createHash('sha256').update(token).digest('hex');
+  const expiresAt = new Date(Date.now() + INVITE_EXPIRATION_MS);
+  await pool.query(
+    `update public.users
+        set invite_token_hash = $1,
+            invite_expires_at = $2,
+            invited_at = now(),
+            invited_by = $3,
+            status = case when status = 'archived' then status else 'pending' end,
+            updated_at = now()
+      where id = $4`,
+    [hashed, expiresAt, invitedBy ?? null, userId]
+  );
+
+  const baseUrl = resolvePublicBaseUrl();
+  const inviteUrl = `${baseUrl}/invite.html?token=${token}`;
+  const safeName = fullName ? escapeHtml(fullName) : null;
+  const greetingName = fullName ? fullName : email;
+  const subject = 'You\'re invited to ANX Orientation';
+  const text = `Hello ${greetingName || ''}\n\n` +
+    'You have been invited to the ANX Orientation platform. Complete your account setup at the link below:\n\n'
+    + `${inviteUrl}\n\nIf you did not expect this email, please ignore it.`;
+  const html = `
+    <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #0f172a;">
+      <h2 style="margin-bottom: 0.5rem;">${safeName ? `Hello ${safeName},` : 'Hello,'}</h2>
+      <p style="margin: 0 0 1rem;">You have been invited to the ANX Orientation platform. Click the button below to finish setting up your account.</p>
+      <p style="margin: 0 0 1.5rem;">
+        <a href="${inviteUrl}" style="display: inline-block; padding: 12px 20px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600;">Accept invitation</a>
+      </p>
+      <p style="margin: 0; font-size: 0.875rem; color: #64748b;">If the button does not work, copy and paste this link into your browser:</p>
+      <p style="margin: 0; font-size: 0.875rem; color: #2563eb; word-break: break-all;">${escapeHtml(inviteUrl)}</p>
+    </div>
+  `;
+  await deliverMail({ to: email, subject, text, html });
 }
 
 const parseBooleanParam = value => {
@@ -1711,6 +1871,25 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       }
     }
 
+    if (sendInvite) {
+      try {
+        await createUserInvitation({
+          userId,
+          email,
+          fullName: normalizedName ?? user.full_name ?? null,
+          invitedBy: req.user?.id ?? null,
+        });
+      } catch (inviteError) {
+        console.error('Failed to send invite email', inviteError);
+        try {
+          await pool.query('delete from public.users where id=$1', [userId]);
+        } catch (_cleanupErr) {
+          /* swallow cleanup errors */
+        }
+        return res.status(502).json({ error: 'invite_failed' });
+      }
+    }
+
     const { rows: roleRows } = await pool.query(
       'select r.role_key from public.user_roles ur join public.roles r on ur.role_id=r.role_id where ur.user_id=$1',
       [userId]
@@ -1744,6 +1923,139 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
     res.status(500).json({ error: 'internal_server_error' });
   }
 }
+
+app.get('/api/invitations/:token', async (req, res) => {
+  const token = typeof req.params?.token === 'string' ? req.params.token : '';
+  if (!token || token.length < 16) {
+    return res.status(400).json({ error: 'invalid_token' });
+  }
+  const hashed = crypto.createHash('sha256').update(token).digest('hex');
+  try {
+    await ensureInviteColumns().catch(err => {
+      console.error('Failed to ensure invite columns', err);
+    });
+    const { rows } = await pool.query(
+      `select id, email, full_name, status, invite_expires_at
+         from public.users
+        where invite_token_hash = $1
+        limit 1`,
+      [hashed]
+    );
+    const user = rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'invalid_token' });
+    }
+    const expiresAt = user.invite_expires_at ? new Date(user.invite_expires_at) : null;
+    if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) {
+      return res.status(410).json({ error: 'invite_expired' });
+    }
+    const status = typeof user.status === 'string' ? user.status.trim().toLowerCase() : 'pending';
+    if (status === 'archived' || status === 'suspended') {
+      return res.status(403).json({ error: 'account_disabled' });
+    }
+    if (status === 'active') {
+      return res.status(409).json({ error: 'already_active' });
+    }
+    res.json({
+      email: user.email,
+      full_name: user.full_name ?? null,
+      name: user.full_name ?? null,
+      status,
+      expires_at: expiresAt.toISOString(),
+    });
+  } catch (err) {
+    console.error('GET /api/invitations/:token error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
+
+app.post('/api/invitations/:token/accept', async (req, res) => {
+  const token = typeof req.params?.token === 'string' ? req.params.token : '';
+  if (!token || token.length < 16) {
+    return res.status(400).json({ error: 'invalid_token' });
+  }
+  const hashed = crypto.createHash('sha256').update(token).digest('hex');
+  const body = req.body || {};
+  const username = toNullableString(body.username);
+  if (!username || !validUsername(username)) {
+    return res.status(400).json({ error: 'invalid_username' });
+  }
+  const password = typeof body.password === 'string' ? body.password : null;
+  if (!password || !validPassword(password)) {
+    return res.status(400).json({ error: 'invalid_password' });
+  }
+  const nameKeys = ['full_name', 'fullName', 'name'];
+  let normalizedName = null;
+  for (const key of nameKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      normalizedName = toNullableString(body[key]);
+      break;
+    }
+  }
+  try {
+    await ensureInviteColumns();
+    const { rows } = await pool.query(
+      `select id, email, full_name, status, invite_expires_at
+         from public.users
+        where invite_token_hash = $1
+        limit 1`,
+      [hashed]
+    );
+    const user = rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'invalid_token' });
+    }
+    const expiresAt = user.invite_expires_at ? new Date(user.invite_expires_at) : null;
+    if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) {
+      return res.status(410).json({ error: 'invite_expired' });
+    }
+    const status = typeof user.status === 'string' ? user.status.trim().toLowerCase() : 'pending';
+    if (status === 'archived' || status === 'suspended') {
+      return res.status(403).json({ error: 'account_disabled' });
+    }
+    if (status === 'active') {
+      return res.status(409).json({ error: 'already_active' });
+    }
+    const conflict = await pool.query(
+      'select 1 from public.users where id <> $1 and lower(username) = lower($2) limit 1',
+      [user.id, username]
+    );
+    if (conflict.rowCount) {
+      return res.status(409).json({ error: 'username_taken' });
+    }
+    const hash = await bcrypt.hash(password, SALT_ROUNDS);
+    const values = [username, hash];
+    let setClause = `username = $1,
+        password_hash = $2,
+        provider = 'local',
+        status = 'active',
+        updated_at = now(),
+        invite_token_hash = null,
+        invite_expires_at = null,
+        activated_at = coalesce(activated_at, now()),
+        completed_profile_at = now()`;
+    if (normalizedName !== null) {
+      values.push(normalizedName);
+      setClause += `,
+        full_name = $${values.length}`;
+    }
+    if (await hasUserStatusReasonColumn()) {
+      setClause += ', status_reason = null';
+    }
+    values.push(user.id);
+    const updateSql = `
+      update public.users
+         set ${setClause}
+       where id = $${values.length};`;
+    await pool.query(updateSql, values);
+    await ensureDefaultRole(user.id);
+    await ensurePreferencesRow(user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/invitations/:token/accept error', err);
+    res.status(500).json({ error: 'internal_server_error' });
+  }
+});
 
 app.post('/api/users', ensureAuth, (req, res) => handleAdminUserCreate(req, res, { endpointLabel: '/api/users' }));
 app.post('/rbac/users', ensureAuth, (req, res) => handleAdminUserCreate(req, res, { endpointLabel: '/rbac/users' }));
@@ -3766,6 +4078,12 @@ create table if not exists public.users (
   password_hash text,
   password_reset_token text,
   password_reset_expires timestamptz,
+  invite_token_hash text,
+  invite_expires_at timestamptz,
+  invited_at timestamptz,
+  invited_by uuid references public.users(id),
+  activated_at timestamptz,
+  completed_profile_at timestamptz,
   provider     auth_provider default 'google',
   created_at   timestamptz default now(),
   updated_at   timestamptz default now(),
