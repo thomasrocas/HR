@@ -2226,6 +2226,7 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
          username,
          organization,
          hire_date,
+         discipline,
          last_name,
          first_name,
          surname,
@@ -2242,7 +2243,6 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       [id]
     );
     const responseHireDate = normalizeDateOutput(user.hire_date ?? (hireDateProvided ? normalizedHireDate : null));
-    const responseDisciplineType = user.discipline_type ?? null;
     res.json({
       id: user.id,
       email: user.email,
@@ -2255,8 +2255,8 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       surname: user.surname ?? null,
       sub_unit: user.sub_unit ?? null,
       department: user.department ?? null,
-      discipline_type: responseDisciplineType,
-      discipline: responseDisciplineType,
+      discipline_type: user.discipline_type ?? null,
+      discipline: user.discipline ?? user.discipline_type ?? null,
       hire_date: responseHireDate,
       hireDate: responseHireDate,
       roles: roleRows.map(r => r.role_key),
