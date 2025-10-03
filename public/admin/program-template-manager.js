@@ -1487,6 +1487,8 @@ function normalizeProgramRecord(program) {
     || Object.prototype.hasOwnProperty.call(program, 'disciplineType')) {
     const value = program.discipline ?? program.discipline_type ?? program.disciplineType;
     normalized.discipline = value;
+    normalized.discipline_type = value;
+    normalized.disciplineType = value;
   }
   if (Object.prototype.hasOwnProperty.call(program, 'description')
     || Object.prototype.hasOwnProperty.call(program, 'program_description')
@@ -5840,6 +5842,7 @@ async function submitProgramForm(event) {
     organization: organizationValue ? organizationValue : null,
     sub_unit: subUnitValue ? subUnitValue : null,
     department: departmentValue ? departmentValue : null,
+    discipline_type: disciplineValue ? disciplineValue : null,
     discipline: disciplineValue ? disciplineValue : null,
   };
   const encodedId = targetId ? encodeURIComponent(targetId) : null;
