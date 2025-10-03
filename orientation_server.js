@@ -108,9 +108,22 @@ const SEND_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL
   || process.env.SMTP_FROM
   || 'no-reply@example.com';
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
-const hasFetchSupport = typeof fetch === 'function';
+
+let fetchImpl = typeof globalThis.fetch === 'function' ? globalThis.fetch : null;
+if (!fetchImpl) {
+  try {
+    const { fetch: undiciFetch } = require('undici');
+    if (typeof undiciFetch === 'function') {
+      fetchImpl = undiciFetch;
+    }
+  } catch (err) {
+    console.warn('No global fetch found and undici is unavailable; SendGrid delivery disabled');
+  }
+}
+const hasFetchSupport = typeof fetchImpl === 'function';
 const sendgridConfigured = Boolean(SENDGRID_API_KEY && SEND_FROM_EMAIL && hasFetchSupport);
 const SENDGRID_ENDPOINT = 'https://api.sendgrid.com/v3/mail/send';
+const hasSmtpTransport = Boolean(process.env.SMTP_URL);
 
 const escapeHtml = value => {
   if (value === null || value === undefined) return '';
@@ -163,7 +176,7 @@ async function deliverMail(message) {
         const bccList = Array.isArray(payload.bcc) ? payload.bcc : [payload.bcc];
         body.personalizations[0].bcc = bccList.map(email => ({ email }));
       }
-      const response = await fetch(SENDGRID_ENDPOINT, {
+      const response = await fetchImpl(SENDGRID_ENDPOINT, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${SENDGRID_API_KEY}`,
@@ -179,7 +192,12 @@ async function deliverMail(message) {
       }
       return;
     } catch (err) {
-      console.error('SendGrid delivery failed, falling back to SMTP transport', err);
+      if (hasSmtpTransport) {
+        console.error('SendGrid delivery failed, falling back to SMTP transport', err);
+      } else {
+        console.error('SendGrid delivery failed and no SMTP transport is configured', err);
+        throw err;
+      }
     }
   }
   await transporter.sendMail(payload);
@@ -4056,7 +4074,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, pool, ensurePerm, userManagesProgram };
+module.exports = { app, pool, ensurePerm, userManagesProgram, deliverMail };
 
 /*
 ======================
