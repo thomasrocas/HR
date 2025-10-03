@@ -1738,8 +1738,7 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
     { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
     { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
     { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
-    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType'] },
-    { column: 'discipline', keys: ['discipline'] },
+    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType', 'discipline'] },
   ];
   const additionalFields = [];
   for (const config of additionalFieldConfigs) {
@@ -1853,8 +1852,7 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       'surname',
       'sub_unit',
       'department',
-      'discipline_type',
-      'discipline'
+      'discipline_type'
     ];
     if (hireDateProvided) {
       returningColumns.push('hire_date');
@@ -1929,7 +1927,7 @@ async function handleAdminUserCreate(req, res, { endpointLabel }) {
       sub_unit: user.sub_unit ?? null,
       department: user.department ?? null,
       discipline_type: user.discipline_type ?? null,
-      discipline: user.discipline ?? user.discipline_type ?? null,
+      discipline: user.discipline_type ?? null,
       hire_date: responseHireDate,
       hireDate: responseHireDate,
       roles: roleRows.map(r => r.role_key),
@@ -2145,8 +2143,7 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
     { column: 'surname', keys: ['surname', 'surName', 'maiden_name', 'maidenName'] },
     { column: 'sub_unit', keys: ['sub_unit', 'subUnit'] },
     { column: 'department', keys: ['department', 'department_name', 'departmentName'] },
-    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType'] },
-    { column: 'discipline', keys: ['discipline'] },
+    { column: 'discipline_type', keys: ['discipline_type', 'disciplineType', 'discipline'] },
   ];
   const additionalFieldUpdates = [];
   for (const config of additionalFieldConfigs) {
@@ -2244,7 +2241,6 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
          username,
          organization,
          hire_date,
-         discipline,
          last_name,
          first_name,
          surname,
@@ -2274,7 +2270,7 @@ app.patch('/api/users/:id', ensureAuth, async (req, res) => {
       sub_unit: user.sub_unit ?? null,
       department: user.department ?? null,
       discipline_type: user.discipline_type ?? null,
-      discipline: user.discipline ?? user.discipline_type ?? null,
+      discipline: user.discipline_type ?? null,
       hire_date: responseHireDate,
       hireDate: responseHireDate,
       roles: roleRows.map(r => r.role_key),

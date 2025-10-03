@@ -17,7 +17,8 @@ db.public.registerFunction({
 jest.mock('pg', () => ({ Pool: MockPool }));
 
 // Require app after mocks
-const { app, pool } = require('../orientation_server.js');
+const orientationServer = require('../orientation_server.js');
+const { app, pool } = orientationServer;
 
 const DEFAULT_HIRE_DATE = '2023-01-01';
 
@@ -237,6 +238,46 @@ describe('rbac admin routes', () => {
     expect(rows[0].hire_date).toEqual(new Date('2024-07-01'));
   });
 
+  test('admin can invite users while normalizing discipline alias', async () => {
+    const adminId = crypto.randomUUID();
+    const hash = await bcrypt.hash('passpass', 1);
+    await pool.query('insert into public.users(id, username, full_name, password_hash, provider, hire_date) values ($1,$2,$3,$4,$5,$6)', [adminId, 'admin', 'Admin', hash, 'local', DEFAULT_HIRE_DATE]);
+    await pool.query('insert into public.user_roles(user_id, role_id) select $1, role_id from public.roles where role_key=$2', [
+      adminId,
+      'admin',
+    ]);
+
+    const adminAgent = request.agent(app);
+    await adminAgent.post('/auth/local/login').send({ username: 'admin', password: 'passpass' }).expect(200);
+
+    const inviteRes = await adminAgent
+      .post('/api/users')
+      .send({
+        email: 'invited@example.com',
+        full_name: 'Invited User',
+        sendInvite: true,
+        discipline: ' Nursing ',
+      })
+      .expect(201);
+
+    expect(inviteRes.body).toMatchObject({
+      email: 'invited@example.com',
+      status: 'pending',
+      discipline_type: 'Nursing',
+      discipline: 'Nursing',
+    });
+    expect(inviteRes.body.id).toBeTruthy();
+
+    const createdId = inviteRes.body.id;
+    const { rows } = await pool.query(
+      'select discipline_type, discipline, invite_token_hash from public.users where id=$1',
+      [createdId]
+    );
+    expect(rows[0].discipline_type).toBe('Nursing');
+    expect(rows[0].discipline).toBeNull();
+    expect(rows[0].invite_token_hash).toEqual(expect.any(String));
+  });
+
   test('admin can provision usernames and reset passwords while enforcing uniqueness', async () => {
     const adminId = crypto.randomUUID();
     const existingId = crypto.randomUUID();
@@ -443,7 +484,7 @@ describe('rbac admin routes', () => {
       first_name: 'First',
       surname: 'Surname',
       sub_unit: 'Sub',
-      discipline: 'Disc',
+      discipline: 'DiscType',
       department: 'Dept',
       discipline_type: 'DiscType',
       hire_date: '2024-05-20',
@@ -475,7 +516,7 @@ describe('rbac admin routes', () => {
       first_name: 'First',
       surname: 'Surname',
       sub_unit: 'Sub',
-      discipline: 'Disc',
+      discipline: null,
       department: 'Dept',
       discipline_type: 'DiscType',
       hire_date: new Date('2024-05-20'),
