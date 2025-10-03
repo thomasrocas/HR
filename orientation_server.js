@@ -2857,7 +2857,9 @@ app.get('/programs', ensurePerm('program.read'), async (req, res) => {
              created_at,
              deleted_at,
              organization,
-             sub_unit
+             sub_unit,
+             department,
+             discipline_type
         from public.programs`;
     if (conds.length) sql += ` where ${conds.join(' and ')}`;
     sql += ' order by created_at desc';
@@ -2879,7 +2881,10 @@ app.post('/programs', ensurePerm('program.create'), async (req, res) => {
       results = null,
       purpose = null,
       organization,
-      sub_unit
+      sub_unit,
+      department = null,
+      discipline_type = null,
+      discipline = null
     } = req.body || {};
     const sanitizedTotalWeeks = sanitizeProgramTotalWeeks(total_weeks);
     const sanitizedDescription = toNullableString(description);
@@ -2887,9 +2892,13 @@ app.post('/programs', ensurePerm('program.create'), async (req, res) => {
     const sanitizedPurpose = toNullableString(purpose);
     const sanitizedOrganization = toNullableString(organization);
     const sanitizedSubUnit = toNullableString(sub_unit);
+    const sanitizedDepartment = toNullableString(department);
+    const sanitizedDisciplineType = toNullableString(
+      discipline_type !== null && discipline_type !== undefined ? discipline_type : discipline
+    );
     const sql = `
-      insert into public.programs (program_id, title, total_weeks, description, results, purpose, organization, sub_unit, created_by)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      insert into public.programs (program_id, title, total_weeks, description, results, purpose, organization, sub_unit, department, discipline_type, created_by)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       returning *;`;
     const params = [
       program_id,
@@ -2900,6 +2909,8 @@ app.post('/programs', ensurePerm('program.create'), async (req, res) => {
       sanitizedPurpose,
       sanitizedOrganization,
       sanitizedSubUnit,
+      sanitizedDepartment,
+      sanitizedDisciplineType,
       req.user.id
     ];
     const { rows } = await pool.query(sql, params);
@@ -2922,15 +2933,22 @@ app.patch('/programs/:program_id', ensurePerm('program.update'), async (req, res
     }
     const fields = [];
     const vals = [];
+    const requestBody = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    if (!Object.prototype.hasOwnProperty.call(requestBody, 'discipline_type')
+      && Object.prototype.hasOwnProperty.call(requestBody, 'discipline')) {
+      requestBody.discipline_type = requestBody.discipline;
+    }
 
-    for (const key of ['title', 'total_weeks', 'description', 'results', 'purpose', 'organization', 'sub_unit']) {
-      if (key in req.body) {
+    const nullableStringKeys = new Set(['organization', 'sub_unit', 'description', 'results', 'purpose', 'department', 'discipline_type']);
+
+    for (const key of ['title', 'total_weeks', 'description', 'results', 'purpose', 'organization', 'sub_unit', 'department', 'discipline_type']) {
+      if (key in requestBody) {
         if (key === 'total_weeks') {
-          vals.push(sanitizeProgramTotalWeeks(req.body[key]));
-        } else if (key === 'organization' || key === 'sub_unit' || key === 'description' || key === 'results' || key === 'purpose') {
-          vals.push(toNullableString(req.body[key]));
+          vals.push(sanitizeProgramTotalWeeks(requestBody[key]));
+        } else if (nullableStringKeys.has(key)) {
+          vals.push(toNullableString(requestBody[key]));
         } else {
-          vals.push(req.body[key]);
+          vals.push(requestBody[key]);
         }
         fields.push(`${key} = $${vals.length}`);
       }
