@@ -11,6 +11,12 @@ const managerSource = fs.readFileSync(
   'utf8',
 );
 
+const loadTemplatesSectionStart = managerSource.indexOf('async function loadTemplates');
+const loadTemplatesSectionEnd = managerSource.indexOf('function extractAssignmentsFromResponse');
+if (loadTemplatesSectionStart === -1 || loadTemplatesSectionEnd === -1) {
+  throw new Error('Unable to locate loadTemplates in program-template-manager.js');
+}
+
 const functionsSectionStart = managerSource.indexOf('function withTagifySuppressed');
 const functionsSectionEnd = managerSource.indexOf('function schedulePendingTemplateAttachments');
 if (functionsSectionStart === -1 || functionsSectionEnd === -1) {
@@ -32,6 +38,7 @@ if (assignmentsSectionEnd === -1) {
 const functionSection = managerSource.slice(functionsSectionStart, functionsSectionEnd);
 const scheduleSection = managerSource.slice(scheduleSectionStart, scheduleSectionEnd);
 const assignmentsSection = managerSource.slice(assignmentsSectionStart, assignmentsSectionEnd);
+const loadTemplatesSection = managerSource.slice(loadTemplatesSectionStart, loadTemplatesSectionEnd);
 
 class FakeTagify {
   public value: any[] = [];
@@ -311,5 +318,48 @@ describe('program template Tagify helpers', () => {
     await expect(ctx.flushPendingTemplateAttachments({ immediate: true })).resolves.toBe(true);
 
     expect(fetchJson).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('program template loadTemplates', () => {
+  it('uses the search query parameter when loading templates', async () => {
+    const fetchAllProgramTemplates = jest.fn(async () => []);
+    const renderTemplates = jest.fn();
+    const context: ManagerContext = {
+      console,
+      fetchAllProgramTemplates,
+      renderTemplates,
+      hydrateTemplatesWithAudit: undefined,
+      getTemplateId: (template: any) => template?.id ?? null,
+      templateMessage: { textContent: '' },
+      globalTemplates: [],
+      selectedTemplateIds: new Set(),
+      selectedTemplateId: null,
+      templateCurrentPage: 1,
+      Array,
+      Boolean,
+      Date,
+      Map,
+      Math,
+      Number,
+      Object,
+      Promise,
+      RegExp,
+      Set,
+      String,
+      Symbol,
+      URLSearchParams,
+      JSON,
+    };
+
+    vm.createContext(context);
+    vm.runInContext(loadTemplatesSection, context);
+
+    await vm.runInContext('loadTemplates({ query: "orientation" })', context);
+
+    expect(fetchAllProgramTemplates).toHaveBeenCalledTimes(1);
+    const [params] = fetchAllProgramTemplates.mock.calls[0];
+    expect(params).toMatchObject({ search: 'orientation', include_deleted: 'true' });
+    expect(Object.prototype.hasOwnProperty.call(params, 'q')).toBe(false);
   });
 });

@@ -141,6 +141,17 @@ function withOrgFilter(params = {}) {
     }
   }
 
+  if (searchParams.has('q')) {
+    const qValues = searchParams.getAll('q');
+    searchParams.delete('q');
+    if (!searchParams.has('search') && qValues.length) {
+      const lastValue = qValues[qValues.length - 1];
+      if (lastValue !== null && lastValue !== undefined) {
+        searchParams.set('search', lastValue);
+      }
+    }
+  }
+
   return searchParams;
 }
 
@@ -179,6 +190,12 @@ function parsePositiveInteger(value) {
 
 async function fetchAllProgramTemplates(params = {}, options = {}) {
   const baseParams = params && typeof params === 'object' ? { ...params } : {};
+  if (Object.prototype.hasOwnProperty.call(baseParams, 'q')) {
+    if (!Object.prototype.hasOwnProperty.call(baseParams, 'search') && baseParams.q !== undefined) {
+      baseParams.search = baseParams.q;
+    }
+    delete baseParams.q;
+  }
   const { batchSize = 100, maxRequests = 20 } = options || {};
   let offset = parsePositiveInteger(baseParams.offset);
   if (!Number.isFinite(offset) || offset < 0) {
@@ -6940,7 +6957,7 @@ async function loadTemplates(options = {}) {
     templateMessage.textContent = 'Loading templates…';
     const params = {};
     if (query) {
-      params.q = query;
+      params.search = query;
     }
     if (status) {
       params.status = status;
