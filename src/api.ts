@@ -32,24 +32,9 @@ export interface Template {
   department: string | null;
 }
 
-export type ClinicalVisitStatus = 'scheduled' | 'completed' | 'cancelled';
-
-export interface ClinicalVisit {
-  id: string;
-  visitDate: string;
-  patientName: string;
-  clinicianName: string;
-  status: ClinicalVisitStatus;
-  organization: string | null;
-  subUnit: string | null;
-  location: string | null;
-  visitType: string | null;
-}
-
 type UserListResponse = { data: User[]; meta: { total: number; page: number } };
 type ProgramListResponse = { data: Program[]; meta: { total: number; page: number } };
 type TemplateListResponse = { data: Template[] };
-type ClinicalVisitListResponse = { data: ClinicalVisit[]; meta: { total: number; page: number } };
 
 type GlobalWithEnv = typeof globalThis & {
   process?: { env?: Record<string, string | undefined> };
@@ -129,7 +114,6 @@ const toDateOnlyString = (value: unknown): string | null => {
 const USER_STATUSES = new Set<User['status']>(['active', 'pending', 'suspended', 'archived']);
 const PROGRAM_STATUSES = new Set<Program['status']>(['draft', 'published', 'deprecated', 'archived']);
 const TEMPLATE_STATUS_SET = new Set<NonNullable<Template['status']>>(['draft', 'published', 'deprecated']);
-const CLINICAL_VISIT_STATUS_SET = new Set<ClinicalVisitStatus>(['scheduled', 'completed', 'cancelled']);
 
 const normalizeRoles = (value: unknown): User['roles'] => {
   if (!Array.isArray(value)) return [];
@@ -541,113 +525,6 @@ const normalizeTemplateList = (payload: unknown): TemplateListResponse => {
   return { data: [] };
 };
 
-const normalizeClinicalVisit = (raw: any): ClinicalVisit => {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      id: '',
-      visitDate: '',
-      patientName: 'Unknown patient',
-      clinicianName: '',
-      status: 'scheduled',
-      organization: null,
-      subUnit: null,
-      location: null,
-      visitType: null,
-    };
-  }
-
-  const record = raw as Record<string, unknown>;
-  const idCandidate = record.id ?? record.visit_id ?? record.visitId ?? record.uuid ?? '';
-  const patientCandidate =
-    record.patientName ?? record.patient_name ?? record.patient ?? record.client ?? record.resident ?? '';
-  const clinicianCandidate =
-    record.clinicianName ?? record.clinician_name ?? record.provider ?? record.nurse ?? record.owner ?? '';
-  const statusCandidate = typeof record.status === 'string' ? record.status : record.state;
-  const normalizedStatus = typeof statusCandidate === 'string' ? statusCandidate.trim().toLowerCase() : '';
-  const status = CLINICAL_VISIT_STATUS_SET.has(normalizedStatus as ClinicalVisitStatus)
-    ? (normalizedStatus as ClinicalVisitStatus)
-    : 'scheduled';
-
-  const organizationSource =
-    record.organization ??
-    record.org ??
-    record.organization_name ??
-    record.organizationName ??
-    record.orgName ??
-    null;
-  let organization: string | null = null;
-  if (typeof organizationSource === 'string') {
-    const trimmed = organizationSource.trim();
-    organization = trimmed ? trimmed : null;
-  } else if (organizationSource === null) {
-    organization = null;
-  }
-
-  const subUnitSource =
-    record.sub_unit ?? record.subUnit ?? record.sub_unit_name ?? record.subUnitName ?? record.subunit ?? null;
-  let subUnit: string | null = null;
-  if (typeof subUnitSource === 'string') {
-    const trimmed = subUnitSource.trim();
-    subUnit = trimmed ? trimmed : null;
-  } else if (subUnitSource === null) {
-    subUnit = null;
-  }
-
-  const locationSource = record.location ?? record.site ?? record.facility ?? null;
-  const visitTypeSource = record.visitType ?? record.visit_type ?? record.type ?? record.category ?? null;
-
-  const visitDate = toDateOnlyString(
-    record.visitDate ?? record.visit_date ?? record.date ?? record.scheduled_for ?? record.scheduledFor ?? null,
-  );
-  const patientName = typeof patientCandidate === 'string' ? patientCandidate.trim() : String(patientCandidate ?? '');
-  const clinicianName =
-    typeof clinicianCandidate === 'string' ? clinicianCandidate.trim() : String(clinicianCandidate ?? '');
-
-  return {
-    id: String(idCandidate ?? ''),
-    visitDate: visitDate ?? '',
-    patientName: patientName || 'Unknown patient',
-    clinicianName,
-    status,
-    organization,
-    subUnit,
-    location:
-      typeof locationSource === 'string'
-        ? locationSource.trim() || null
-        : locationSource === null
-          ? null
-          : String(locationSource),
-    visitType:
-      typeof visitTypeSource === 'string'
-        ? visitTypeSource.trim() || null
-        : visitTypeSource === null
-          ? null
-          : String(visitTypeSource),
-  };
-};
-
-const normalizeClinicalVisitList = (payload: unknown): ClinicalVisitListResponse => {
-  if (Array.isArray(payload)) {
-    const data = payload.map(normalizeClinicalVisit);
-    return { data, meta: { total: data.length, page: 1 } };
-  }
-  if (payload && typeof payload === 'object') {
-    const dataCandidate = (payload as { data?: unknown }).data;
-    const metaCandidate = (payload as { meta?: { total?: number; page?: number } }).meta;
-    if (Array.isArray(dataCandidate)) {
-      const data = dataCandidate.map(normalizeClinicalVisit);
-      return {
-        data,
-        meta: {
-          total: typeof metaCandidate?.total === 'number' ? metaCandidate.total : data.length,
-          page: typeof metaCandidate?.page === 'number' ? metaCandidate.page : 1,
-        },
-      };
-    }
-  }
-  return { data: [], meta: { total: 0, page: 1 } };
-};
-
 const buildProgramWritePayload = (payload: Partial<Program>): Record<string, unknown> => {
   const {
     id: _id,
@@ -831,29 +708,6 @@ async function apiFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
 
   return mockFetch<T>(url, opts);
 }
-
-/* --------------------- Clinical Visits --------------------- */
-export const getClinicalVisits = async (
-  params: {
-    query?: string;
-    status?: string | ClinicalVisitStatus;
-    organization?: string | null;
-    subUnit?: string | null;
-  } = {},
-): Promise<ClinicalVisitListResponse> => {
-  const search = new URLSearchParams();
-  const query = params.query?.trim();
-  if (query) search.set('query', query);
-  const status = typeof params.status === 'string' ? params.status.trim().toLowerCase() : '';
-  if (status) search.set('status', status);
-  const organization = params.organization?.trim();
-  if (organization) search.set('organization', organization);
-  const subUnit = params.subUnit?.trim();
-  if (subUnit) search.set('sub_unit', subUnit);
-  const queryString = search.toString();
-  const raw = await apiFetch<unknown>(`/api/clinical-visits${queryString ? `?${queryString}` : ''}`);
-  return normalizeClinicalVisitList(raw);
-};
 
 /* -------------------------- Users -------------------------- */
 export const getUsers = async (
@@ -1139,7 +993,6 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   await new Promise(r => setTimeout(r, 300)); // simulate latency
   const u = seed.users;
   const p = seed.programs;
-  const v = seed.clinicalVisits;
   const method = (opts?.method || 'GET').toUpperCase();
   switch (true) {
     case url.startsWith('/api/users?'):
@@ -1246,48 +1099,6 @@ async function mockFetch<T>(url: string, opts?: RequestInit): Promise<T> {
       return { deleted: true } as any;
     case /^\/api\/programs\/[^/]+\/restore$/.test(url) && method === 'POST':
       return { restored: true } as any;
-    case (url === '/api/clinical-visits' || url.startsWith('/api/clinical-visits?')) && method === 'GET': {
-      const urlObj = new URL(url, 'https://example.com');
-      const queryParam = urlObj.searchParams.get('query');
-      const statusParam = urlObj.searchParams.get('status');
-      const organizationParam = urlObj.searchParams.get('organization');
-      const subUnitParam = urlObj.searchParams.get('sub_unit');
-      let data = Array.isArray(v) ? [...v] : [];
-      if (queryParam) {
-        const normalized = queryParam.trim().toLowerCase();
-        if (normalized) {
-          data = data.filter(visit => {
-            const patient = (visit.patientName ?? '').toLowerCase();
-            const clinician = (visit.clinicianName ?? '').toLowerCase();
-            const visitType = (visit.visitType ?? '').toLowerCase();
-            return (
-              patient.includes(normalized) ||
-              clinician.includes(normalized) ||
-              visitType.includes(normalized)
-            );
-          });
-        }
-      }
-      if (statusParam) {
-        const normalizedStatus = statusParam.trim().toLowerCase();
-        if (normalizedStatus) {
-          data = data.filter(visit => (visit.status ?? '').toLowerCase() === normalizedStatus);
-        }
-      }
-      if (organizationParam) {
-        const normalizedOrg = organizationParam.trim().toLowerCase();
-        if (normalizedOrg) {
-          data = data.filter(visit => (visit.organization ?? '').trim().toLowerCase() === normalizedOrg);
-        }
-      }
-      if (subUnitParam) {
-        const normalizedSub = subUnitParam.trim().toLowerCase();
-        if (normalizedSub) {
-          data = data.filter(visit => (visit.subUnit ?? '').trim().toLowerCase().includes(normalizedSub));
-        }
-      }
-      return { data, meta: { total: data.length, page: 1 } } as any;
-    }
     case url.startsWith('/api/audit'):
       return seed.audit as any;
     default:
@@ -1393,52 +1204,6 @@ export const seed = {
       department: 'People Ops',
     },
   ] as Template[],
-  clinicalVisits: [
-    {
-      id: 'cv-1',
-      visitDate: '2024-06-03',
-      patientName: 'Martha Diaz',
-      clinicianName: 'Nina Patel, RN',
-      status: 'scheduled',
-      organization: 'Home Health',
-      subUnit: 'San Mateo Acute',
-      location: 'San Mateo',
-      visitType: 'Skilled Nursing',
-    },
-    {
-      id: 'cv-2',
-      visitDate: '2024-05-29',
-      patientName: 'Jordan Mills',
-      clinicianName: 'Anthony Rivera, PT',
-      status: 'completed',
-      organization: 'Home Health',
-      subUnit: 'San Mateo Rehab',
-      location: 'Foster City',
-      visitType: 'Physical Therapy',
-    },
-    {
-      id: 'cv-3',
-      visitDate: '2024-06-05',
-      patientName: 'Kai Watanabe',
-      clinicianName: 'Elena Brooks, RN',
-      status: 'scheduled',
-      organization: 'Hospice',
-      subUnit: 'Peninsula Support',
-      location: 'San Carlos',
-      visitType: 'Hospice Check-in',
-    },
-    {
-      id: 'cv-4',
-      visitDate: '2024-06-07',
-      patientName: 'Amelia Chen',
-      clinicianName: 'Miguel Santos, RN',
-      status: 'scheduled',
-      organization: 'Home Health',
-      subUnit: 'EastBay Outreach',
-      location: 'Oakland',
-      visitType: 'Follow-up Visit',
-    },
-  ] as ClinicalVisit[],
   audit: [
     { id: 'a1', action: 'create', at: '2024-05-10', actor: 'alice@example.com' },
     { id: 'a2', action: 'deactivate', at: '2024-06-01', actor: 'admin@example.com' },

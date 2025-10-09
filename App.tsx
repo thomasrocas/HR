@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import UsersLanding from './src/users/UsersLanding';
 import ProgramsLanding from './src/programs/ProgramsLanding';
-import ClinicalVisitsLanding from './src/clinical-visits/ClinicalVisitsLanding';
 import { User } from './src/rbac';
 import { seed } from './src/api';
 
@@ -26,7 +25,6 @@ export default function App(): JSX.Element {
       <Routes>
         <Route path="/admin/users" element={<UsersLanding currentUser={loggedInUser} />} />
         <Route path="/programs" element={<ProgramsLanding currentUser={loggedInUser} />} />
-        <Route path="/clinical-visits" element={<ClinicalVisitsLanding currentUser={loggedInUser} />} />
       </Routes>
     </BrowserRouter>
   );
