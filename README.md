@@ -1,43 +1,83 @@
-# HR Orientation
+# HR Orientation Monorepo
 
-## Side Panel
+This repository hosts the HR Orientation application. The codebase is being reorganized into a monorepo with separate workspaces for the server, client, and shared utilities.
 
-The application includes an account and settings side panel on the right. On small screens the
-panel slides in when the chevron toggle at the screen edge is tapped and closes when the backdrop is clicked or the
-Escape key is pressed. On larger screens it remains visible.
+## Project Structure
 
-The panel now shares styling tokens with the admin role manager. Wrap the outer container in a
-`panel` class and any nested sections in `panel-section` to inherit the rounded corners, borders, and
-surface colors. Buttons inside the panel should use the base `btn` class with one of the variants
-(`btn-primary`, `btn-outline`, or `btn-ghost`). Form inputs share the `form-field` utility (alias `input`).
-This keeps typography, spacing, and focus states consistent across admin pages.
+```
+apps/
+  server/
+    src/
+      config/
+      controllers/
+      routes/
+      services/
+      models/
+      middlewares/
+      utils/
+    tests/
+  client/
+    src/
+      components/
+      pages/
+      services/
+      utils/
+packages/
+  shared/
+    src/
+```
 
-## Design tokens & utilities
+## Prerequisites
 
-Color variables are defined in `src/styles.css` (`--brand-primary`, `--surface`, `--text-muted`, etc.)
-and mirrored in `tailwind.config.ts` as the `brand`, `surface`, `ink`, `border`, and `focus` color
-groups. Use the Tailwind classes generated from these tokens (`bg-surface`, `bg-surface-alt`,
-`text-ink`, `text-ink-muted`, `border-border`, `ring-focus`) to keep layouts on brand without
-falling back to arbitrary values.
+- Node.js 18+
+- npm 9+ (or compatible package manager)
+- PostgreSQL 13+
 
-Shared component classes introduced for the role manager:
+## Setup
 
-- `panel` and `panel-section` – Card containers with rounded corners, border, and subtle shadowing
-  for primary and nested sections respectively.
-- `label-text` – Uppercase caption styling for field labels.
-- `form-field` / `input` – Rounded text input with shared focus ring using the `focus` token.
-- `btn` – Base button styling with consistent spacing, rounded corners, disabled states, and
-  accessible focus ring. Pair with:
-  - `btn-primary` for filled actions using the brand color.
-  - `btn-outline` for neutral bordered actions on surface backgrounds.
-  - `btn-ghost` for low-emphasis text buttons.
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy the example environment file and adjust values as needed:
+   ```bash
+   cp .env.example .env
+   ```
+3. Provision a PostgreSQL database and update `DATABASE_URL` accordingly.
 
-When creating new interactions, prefer these utilities over bespoke styles so future contributors
-inherit the same spacing, typography, and color behavior.
+## Development
 
+- Start the development server(s) after scripts are added:
+  ```bash
+  npm run dev
+  ```
+- Lint and type-check as available:
+  ```bash
+  npm run lint
+  npm run typecheck
+  ```
 
-## Migrations
+## Testing
 
-Run the SQL files in the `migrations/` directory in order. After applying `002_rbac.sql`, run `003_seed_admin.sql`
-to create a default local account (`admin` / `changeme`) and grant it the `admin` role. This ensures at least one
-user can manage roles for others after initial deployment.
+- Run the automated test suite:
+  ```bash
+  npm test
+  ```
+- Execute targeted server or client tests as the monorepo tooling evolves (e.g., `npm run test:server`).
+
+## Database Migrations
+
+Apply SQL files in the `migrations/` directory sequentially using your preferred migration runner or `psql` client.
+
+## Docker
+
+Build and run the application via Docker once images are defined:
+```bash
+docker compose up --build
+```
+Adjust environment variables in `docker-compose.yml` (once available) to match your deployment settings.
+
+## Additional Notes
+
+- Shared constants and types will live under `packages/shared/src`.
+- Do not commit secrets; keep all sensitive values in `.env` files or secret managers.
