@@ -1,35 +1,20 @@
 
 import express from "express";
 
-import cors from "cors";
-import session from "express-session";
 import { Pool } from "pg";
 
 import config from "./config/config";
 import { buildApiRouter } from "./routes";
-
+import { mountLegacyOrientationServer } from "./legacy/orientation_server";
 
 const app = express();
-
-app.use(express.json());
-app.use(
-  cors({
-    origin: config.server.corsOrigin,
-    credentials: true,
-  })
-);
-app.use(
-  session({
-    secret: config.server.sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-  })
-);
 
 const db = new Pool({
   connectionString: config.db.url,
 });
 
+
+const legacy = mountLegacyOrientationServer(app, db);
 
 app.use("/api", buildApiRouter(db));
 
@@ -47,4 +32,5 @@ const server = app.listen(config.server.port, () => {
   }
 });
 
-export { app, db };
+export { app, db, legacy };
+
