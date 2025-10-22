@@ -6,9 +6,7 @@ import { Pool } from "pg";
 import config from "./config/config";
 import { buildApiRouter } from "./routes";
 import { mountLegacyOrientationServer } from "./legacy/orientation_server";
-
 import { setLegacyAuthPool } from "./middlewares/_legacyAuth";
-
 
 const app = express();
 
@@ -16,14 +14,11 @@ const db = new Pool({
   connectionString: config.db.url,
 });
 
-
 setLegacyAuthPool(db);
-
 
 const legacy = mountLegacyOrientationServer(app, db);
 
 app.use("/api", buildApiRouter(db));
-
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, env: config.env });
