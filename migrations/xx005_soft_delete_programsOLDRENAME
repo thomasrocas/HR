@@ -1,0 +1,43 @@
+
+BEGIN;
+
+-- 1) Add columns if missing
+ALTER TABLE public.orientation_tasks
+  ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.users(id),
+  ADD COLUMN IF NOT EXISTS deleted boolean DEFAULT false;
+
+-- 2) Normalize any NULLs
+UPDATE public.orientation_tasks SET deleted = false WHERE deleted IS NULL;
+
+-- 3) Backfill user_id for legacy rows (choose an admin if available, else oldest user)
+DO $$
+DECLARE
+  admin_user uuid;
+BEGIN
+  SELECT ur.user_id
+    INTO admin_user
+  FROM public.user_roles ur
+  JOIN public.roles r ON r.role_id = ur.role_id
+  WHERE r.role_key = 'admin'
+  ORDER BY ur.user_id
+  LIMIT 1;
+
+  IF admin_user IS NULL THEN
+    SELECT id INTO admin_user
+    FROM public.users
+    ORDER BY created_at NULLS LAST, id
+    LIMIT 1;
+  END IF;
+
+  UPDATE public.orientation_tasks
+  SET user_id = admin_user
+  WHERE user_id IS NULL;
+END $$;
+
+-- 4) Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_orientation_tasks_user_id ON public.orientation_tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_orientation_tasks_program_id ON public.orientation_tasks(program_id);
+CREATE INDEX IF NOT EXISTS idx_orientation_tasks_scheduled_for ON public.orientation_tasks(scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_orientation_tasks_deleted ON public.orientation_tasks(deleted);
+
+COMMIT;

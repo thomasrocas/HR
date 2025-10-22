@@ -171,4 +171,3 @@ select u.id, 'orientation', 'manager'
 from public.users u
 where u.username = 'admin'
 on conflict do nothing;
-

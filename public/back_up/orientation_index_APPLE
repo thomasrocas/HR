@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANX • Halle Orientation – Auth + Calendar</title>
+  <!-- Tailwind (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'media',
+      theme: {
+        extend: {
+          spacing: {
+            13: '3.25rem',
+            15: '3.75rem',
+            18: '4.5rem',
+            22: '5.5rem',
+            26: '6.5rem'
+          },
+          borderRadius: {
+            apple: '1.25rem'
+          },
+          boxShadow: {
+            apple: '0 0 1px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.1)'
+          },
+          colors: {
+            anx: {
+              sky: { DEFAULT: '#0ea5e9', muted: '#7dd3fc' },
+              mint: { DEFAULT: '#10b981', muted: '#6ee7b7' },
+              slate: { DEFAULT: '#1f2937', muted: '#94a3b8' }
+            }
+          },
+          transitionTimingFunction: {
+            apple: 'cubic-bezier(0.215,0.61,0.355,1)',
+            'apple-in': 'cubic-bezier(0.55,0.055,0.675,0.19)',
+            'apple-out': 'cubic-bezier(0.215,0.61,0.355,1)'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    @layer utilities {
+      .apple-shadow{ @apply shadow-apple; }
+        .apple-border{ @apply border border-slate-200/80 dark:border-slate-700/60; }
+        .apple-card{ @apply bg-white dark:bg-slate-800 rounded-apple border border-slate-200/80 dark:border-slate-700 shadow-apple; }
+      .apple-focus{ @apply focus:outline-none focus:ring-2 focus:ring-anx-sky focus:ring-offset-2; }
+      .apple-press{ @apply active:scale-95; }
+      .apple-ease{ @apply transition ease-apple; }
+      .apple-backdrop{ @apply backdrop-blur-sm bg-black/30; }
+    }
+  </style>
+  <!-- React UMD + Babel (web-only JSX) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Day.js -->
+  <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
+  <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
+    <style>
+      body{ font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .card{ @apply bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700; }
+        .btn{ @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 text-sm apple-focus apple-press disabled:opacity-50 disabled:cursor-not-allowed; }
+        .btn-ghost{ @apply border-transparent text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:text-slate-400 dark:text-slate-200 dark:hover:bg-slate-800 dark:active:bg-slate-700 dark:disabled:text-slate-500; }
+        .btn-outline{ @apply border-slate-300 text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:text-slate-400 disabled:border-slate-200 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:active:bg-slate-700 dark:disabled:text-slate-500 dark:disabled:border-slate-700; }
+        .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:bg-anx-sky/90 active:bg-anx-sky/80 disabled:bg-anx-sky/50 disabled:border-anx-sky/50 disabled:text-white/70 dark:bg-anx-sky dark:hover:bg-anx-sky/90 dark:active:bg-anx-sky/80 dark:disabled:bg-anx-sky/50 dark:disabled:border-anx-sky/50; }
+        .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700; }
+        .input{ @apply w-full border rounded-2xl px-4 py-2.5 text-sm apple-focus bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 placeholder-slate-400 dark:placeholder-slate-500 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500; }
+        .textarea{ @apply w-full border rounded-2xl px-4 py-2.5 text-sm apple-focus bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 placeholder-slate-400 dark:placeholder-slate-500 disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-700 dark:disabled:text-slate-500; }
+        .t-display{ @apply text-slate-900 dark:text-slate-100; font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; letter-spacing: -0.025em; }
+        .t-title{ @apply text-slate-900 dark:text-slate-100; font-size: 1.5rem; line-height: 2rem; font-weight: 600; letter-spacing: -0.015em; }
+        .t-headline{ @apply text-slate-900 dark:text-slate-100; font-size: 1.25rem; line-height: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
+        .t-body{ @apply text-slate-700 dark:text-slate-300; font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; }
+        .t-caption{ @apply text-slate-500 dark:text-slate-400; font-size: 0.75rem; line-height: 1rem; font-weight: 400; }
+      .outline-dashed{ outline-style: dashed; }
+
+    button:focus,
+    [tabindex]:focus,
+    input:focus,
+    textarea:focus,
+    select:focus{
+      @apply outline-none ring-2 ring-anx-sky;
+    }
+
+    /* Web Viewer safe modal */
+    .fm-modal-overlay{
+      position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      z-index: 2147483000; display:flex; align-items:center; justify-content:center;
+      padding: 1rem; transform: translateZ(0); isolation: isolate; touch-action:none; overscroll-behavior: contain;
+    }
+    .fm-modal{
+      position: relative; background:#fff; border-radius: 1rem; border:1px solid #e5e7eb;
+      box-shadow: 0 12px 30px rgba(0,0,0,.24); width: 100%; max-width: 1200px; z-index: 2147483640;
+    }
+    .fm-modal-header{ display:flex; align-items:center; justify-content:space-between; padding:.75rem 1rem; border-bottom:1px solid #e5e7eb; }
+    .fm-modal-body{ max-height: min(70vh, 720px); overflow:auto; padding: 1rem; }
+    html, body { height: 100%; }
+  </style>
+</head>
+  <body class="min-h-screen bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+<div id="root" class="max-w-7xl mx-auto px-4"></div>
+
+<script type="text/babel">
+const { useEffect, useMemo, useState, useRef } = React;
+const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
+
+/* Use same origin the page is served from */
+const API = window.location.origin;
+const qs = new URLSearchParams(location.search);
+let QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
+
+/* Helpers */
+const fmt = (d) => dayjs(d).format('MMM D, YYYY');
+const inRange = (d, start, numWeeks) => {
+  const s = dayjs(start);
+  const e = s.add((numWeeks*7)-1,'day');
+  const x = dayjs(d);
+  return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day');
+};
+const uid = () => Math.random().toString(36).slice(2);
+
+function useFocusTrap(active, ref) {
+  useEffect(() => {
+    if (!active) return;
+    const node = ref.current;
+    if (!node) return;
+    const selector =
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => node.querySelectorAll(selector);
+    const handleKey = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    const focusable = getFocusable();
+    focusable[0] && focusable[0].focus();
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [active, ref]);
+}
+
+function useLocalStorageState(key, initial) {
+  const [value, setValue] = useState(() => {
+    const stored = localStorage.getItem(key);
+    return stored !== null ? JSON.parse(stored) : initial;
+  });
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+  return [value, setValue];
+}
+
+function useRafThrottle(fn) {
+  const frame = useRef(null);
+  return (...args) => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      fn(...args);
+      frame.current = null;
+    });
+  };
+}
+
+/* ---- AUTH PANEL (Local + Google) ---- */
+function AuthPanel({ onAuthed }){
+  const [mode, setMode] = useState('login');
+  const [u, setU] = useState('');
+  const [p, setP] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [err, setErr] = useState('');
+
+  async function doLogin(e){
+    e.preventDefault(); setErr('');
+    const r = await fetch(`${API}/auth/local/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({ username: u.trim(), password: p })
+    });
+    if(!r.ok){ setErr('Login failed.'); return; }
+    onAuthed();
+  }
+  async function doRegister(e){
+    e.preventDefault(); setErr('');
+    const r = await fetch(`${API}/auth/local/register`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+      body: JSON.stringify({ username: u.trim(), password: p, full_name: name.trim(), email: email.trim() })
+    });
+    if(!r.ok){ setErr('Registration failed (username taken?).'); return; }
+    onAuthed();
+  }
+  function doGoogle(){
+    window.location.href = `${API}/auth/google`;
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
+      <div className="card p-6">
+        <h2 className="t-title mb-4">{mode === 'login' ? 'Sign in' : 'Create an account'}</h2>
+        <p className="t-body text-slate-500 dark:text-slate-400 mb-4">Use a local account as an alternate to Google SSO.</p>
+        {mode === 'register' && (
+          <>
+            <div className="mb-4">
+              <label htmlFor="fullName" className="t-body block mb-1">Full name</label>
+              <input id="fullName" className="input apple-focus" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" />
+            </div>
+            <div className="mb-4">
+              <label htmlFor="email" className="t-body block mb-1">Email</label>
+              <input id="email" className="input apple-focus" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@anx.com" />
+            </div>
+          </>
+        )}
+        <div className="mb-4">
+          <label htmlFor="username" className="t-body block mb-1">Username</label>
+          <input id="username" className="input apple-focus" value={u} onChange={e=>setU(e.target.value)} placeholder="e.g., halle" />
+        </div>
+        <div className="mb-4">
+          <label htmlFor="password" className="t-body block mb-1">Password</label>
+          <input id="password" className="input apple-focus" type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="••••••••" />
+        </div>
+        {err && <div className="t-body text-red-600 mb-3">{err}</div>}
+        {mode === 'login' ? (
+          <button className="btn apple-focus apple-press btn-primary w-full" onClick={doLogin}>Sign in</button>
+        ) : (
+          <button className="btn apple-focus apple-press btn-primary w-full" onClick={doRegister}>Create account</button>
+        )}
+        <button className="btn apple-focus apple-press btn-ghost w-full mt-2" onClick={()=> setMode(m => m==='login'?'register':'login')}>
+          {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
+        </button>
+        <a href="/reset.html" className="btn apple-focus apple-press btn-ghost w-full mt-2">Reset Password</a>
+        <div className="h-px bg-slate-200 my-4"></div>
+        <button className="btn apple-focus apple-press btn-outline w-full" onClick={doGoogle}>Continue with Google</button>
+      </div>
+      <div className="card p-6">
+        <h3 className="t-headline mb-4">Welcome to ANX Orientation</h3>
+        <p className="t-body text-slate-600 dark:text-slate-300 mb-4">
+          Sign in to load your calendar, tasks, and preferences. Your session is stored securely and restores your last view.
+        </p>
+        <ul className="list-disc pl-5 t-body text-slate-600 dark:text-slate-300 space-y-1">
+          <li>Use <strong>local username/password</strong> or <strong>Google SSO</strong>.</li>
+          <li>Your tasks are tied to your account and won’t mix with others.</li>
+          <li>Safe for FileMaker Web Viewer (cookies: SameSite=Lax).</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/* ---- API helpers with credentials ---- */
+async function apiGetMe(){
+  const r = await fetch(`${API}/me`, { credentials:'include' });
+  if(!r.ok) return null;
+  return r.json();
+}
+async function apiLogout(){
+  await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
+}
+
+async function apiGetPrefs(){
+  const r = await fetch(`${API}/prefs`, { credentials:'include' });
+  if(!r.ok) return {};
+  return r.json();
+}
+async function apiPatchPrefs(data){
+  const r = await fetch(`${API}/prefs`, {
+    method:'PATCH', credentials:'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('PATCH /prefs failed');
+  return r.json();
+}
+
+async function apiPatchMe(data){
+  const r = await fetch(`${API}/me`, {
+    method:'PATCH', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('PATCH /me failed');
+  return r.json();
+}
+
+async function apiChangePassword(data){
+  const r = await fetch(`${API}/auth/local/change-password`, {
+    method:'POST', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('POST /auth/local/change-password failed');
+  return r.json();
+}
+
+/* ---- Program & Template helpers ---- */
+async function apiListPrograms(){
+  const r = await fetch(`${API}/programs`, { credentials:'include' });
+  if(!r.ok) throw new Error('GET /programs failed');
+  return r.json();
+}
+async function apiCreateProgram(data){
+  const r = await fetch(`${API}/programs`, {
+    method:'POST', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('POST /programs failed');
+  return r.json();
+}
+async function apiPatchProgram(programId, data){
+  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}`, {
+    method:'PATCH', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error(`PATCH /programs/${programId} failed (${r.status})`);
+  return r.json();
+}
+async function apiDeleteProgram(programId){
+  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}`, {
+    method:'DELETE', credentials:'include'
+  });
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error(`DELETE /programs/${programId} failed (${r.status})`);
+  return r.json();
+}
+async function apiListTemplates(programId){
+  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates`, { credentials:'include' });
+  if(!r.ok) throw new Error('GET /programs/:id/templates failed');
+  return r.json();
+}
+async function apiCreateTemplate(programId, data){
+  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates`, {
+    method:'POST', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('POST /programs/:id/templates failed');
+  return r.json();
+}
+async function apiPatchTemplate(programId, templateId, data){
+  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
+    method:'PATCH', credentials:'include',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(data)
+  });
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error(`PATCH /programs/${programId}/templates/${templateId} failed (${r.status})`);
+  return r.json();
+}
+async function apiDeleteTemplate(programId, templateId){
+  const r = await fetch(`${API}/programs/${encodeURIComponent(programId)}/templates/${encodeURIComponent(templateId)}`, {
+    method:'DELETE', credentials:'include'
+  });
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error(`DELETE /programs/${programId}/templates/${templateId} failed (${r.status})`);
+  return r.json();
+}
+async function apiInstantiateProgram(programId) {
+  const res = await fetch(`${API}/programs/${encodeURIComponent(programId)}/instantiate`, {
+    method: 'POST', credentials:'include'
+  });
+  if (!res.ok) throw new Error('POST /programs/:id/instantiate failed');
+  return res.json();
+}
+
+/* ---- TASK helpers ---- */
+async function apiGetTasks(params = {}){
+  const { include_deleted = false, ...rest } = params;
+  const usp = new URLSearchParams(rest);
+  if(include_deleted) usp.set('include_deleted','true');
+  const r = await fetch(`${API}/tasks?${usp.toString()}`, { credentials:'include' });
+  if(!r.ok) throw new Error('GET /tasks failed');
+  return r.json();
+}
+async function apiPatchTask(taskId, payload) {
+  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'PATCH', credentials:'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`PATCH /tasks/${taskId} failed (${res.status})`);
+  return res.json();
+}
+async function apiPatchScheduledFor(taskId, date) {
+  return apiPatchTask(taskId, { scheduled_for: date || null });
+}
+async function apiCreateTask(data) {
+  const res = await fetch(`${API}/tasks`, {
+    method: 'POST', credentials:'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error(`POST /tasks failed (${res.status})`);
+  return res.json();
+}
+async function apiDeleteTask(taskId) {
+  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE', credentials:'include'
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`DELETE /tasks/${taskId} failed (${res.status})`);
+  return res.json();
+}
+
+async function apiRestoreTask(taskId){
+  const res = await fetch(`${API}/tasks/${encodeURIComponent(taskId)}/restore`, {
+    method: 'POST', credentials:'include'
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`POST /tasks/${taskId}/restore failed (${res.status})`);
+  return res.json();
+}
+
+/* ---- APP ---- */
+function Section({title, subtitle, children, right}){
+  return (
+    <section className="card p-4 md:p-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="t-title">{title}</h2>
+          {subtitle && <p className="t-body text-slate-500 dark:text-slate-400">{subtitle}</p>}
+        </div>
+        {right}
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+function ProgressBar({value}){
+  return (
+    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+      <div className="h-2 bg-anx-sky" style={{width:`${Math.max(0,Math.min(value,100))}%`}}></div>
+    </div>
+  );
+}
+function Ring({value=0}){
+  const r=42, c=2*Math.PI*r, off=c - (c * value/100);
+  return (
+    <svg width="120" height="120" viewBox="0 0 120 120" className="mx-auto">
+      <circle cx="60" cy="60" r={r} fill="none" stroke="#e5e7eb" strokeWidth="12" />
+      <circle cx="60" cy="60" r={r} fill="none" stroke="#0ea5e9" strokeWidth="12" strokeLinecap="round" style={{ strokeDasharray:c, strokeDashoffset:off, transform:'rotate(-90deg)', transformOrigin:'50% 50%'}}/>
+      <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" className="fill-slate-700 font-semibold">{value}%</text>
+    </svg>
+  );
+}
+
+function App({ me, onSignOut }){
+  const [trainee, setTrainee] = useState(me?.name || 'Halle Angeles');
+  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [numWeeks, setNumWeeks] = useState(6);
+  const [weeks, setWeeks] = useState([]);
+  const [deletedTasks, setDeletedTasks] = useState([]);
+  const [assignPicker, setAssignPicker] = useState(null); // {date, trigger}
+  const [dragBadge, setDragBadge] = useState(null);       // {wi,ti,task_id}
+  const [expandedDays, setExpandedDays] = useState(new Set());
+  const [needsInstantiate, setNeedsInstantiate] = useState(false);
+  const [programs, setPrograms] = useState([]);
+  const [programModal, setProgramModal] = useState({ show:false, program:null, trigger:null });
+  const [panelOpen, setPanelOpen] = useLocalStorageState('anx_panel_open', false);
+  const [panelWidth, setPanelWidth] = useLocalStorageState('anx_panel_width_px', 260);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateProgramId, setTemplateProgramId] = useState(null);
+  const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchDebounce = useRef(null);
+  const touchHover = useRef(null);
+  const panelRef = useRef(null);
+  const triggerRef = useRef(null);
+  const templateTriggerRef = useRef(null);
+  const restoreFocus = () => {
+    triggerRef.current && triggerRef.current.focus();
+  };
+  const togglePanel = (e) => {
+    if (panelOpen) {
+      setPanelOpen(false);
+      restoreFocus();
+    } else {
+      triggerRef.current = e.currentTarget;
+      setPanelOpen(true);
+    }
+  };
+
+  const toggleSection = (key) => {
+    setOpenSections(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => setSearchTerm(val), 150);
+  };
+
+  const resizeMove = useRafThrottle((e) => {
+    const width = Math.max(260, Math.min(400, window.innerWidth - e.clientX));
+    setPanelWidth(width);
+  });
+  const startResize = (e) => {
+    e.preventDefault();
+    const move = (ev) => resizeMove(ev);
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  };
+
+  const [acctName, setAcctName] = useState(me?.name || '');
+  const [acctEmail, setAcctEmail] = useState(me?.email || '');
+  const [acctUsername, setAcctUsername] = useState(me?.username || '');
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [acctMsg, setAcctMsg] = useState('');
+  const [pwMsg, setPwMsg] = useState('');
+
+  useEffect(() => {
+    if (!panelOpen) return;
+    const handleKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setPanelOpen(false);
+        restoreFocus();
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [panelOpen]);
+  useFocusTrap(panelOpen && !programModal.show && !assignPicker && !showTemplates, panelRef);
+
+  function buildWeeks(rows){
+    const byWeek = {};
+    rows.forEach(r => {
+      const wk = r.week_number || 0;
+      if (!byWeek[wk]) {
+        byWeek[wk] = { id: uid(), wk, title:'', theme:'', result:'', purpose:'', actions:'', tasks: [] };
+      }
+      byWeek[wk].tasks.push({
+        id: r.task_id,
+        task_id: r.task_id,
+        title: r.label,
+        notes: r.notes || '',
+        completed: r.done,
+        scheduled_for: r.scheduled_for
+      });
+    });
+    return Object.values(byWeek).sort((a,b)=> a.wk - b.wk);
+  }
+
+  async function reloadTasks(){
+    if(!QS_PROGRAM_ID) return 0;
+    const rows = await apiGetTasks({ program_id: QS_PROGRAM_ID, include_deleted: true });
+    const active = rows.filter(r => !r.deleted);
+    setWeeks(buildWeeks(active));
+    setDeletedTasks(rows.filter(r => r.deleted));
+    return active.length;
+  }
+
+  /* Load tasks */
+  useEffect(() => {
+    async function load() {
+      try {
+        if (!QS_PROGRAM_ID) {
+          const prefs = await apiGetPrefs();
+          QS_PROGRAM_ID = prefs.program_id || null;
+          if (QS_PROGRAM_ID) localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+        } else {
+          localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+          try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch (e) {}
+        }
+        if (!QS_PROGRAM_ID) return;
+        const count = await reloadTasks();
+        if (!count) { setNeedsInstantiate(true); return; }
+        setNeedsInstantiate(false);
+      } catch (err) {
+        console.error('Failed to load tasks', err);
+      }
+    }
+    load();
+  }, []);
+
+  /* Load programs */
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await apiListPrograms();
+        setPrograms(list);
+      } catch (err) {
+        console.error('Failed to load programs', err);
+      }
+    })();
+  }, []);
+
+  async function handleInstantiate(){
+    try {
+      await apiInstantiateProgram(QS_PROGRAM_ID);
+      await reloadTasks();
+      setNeedsInstantiate(false);
+    } catch(err){
+      console.error('Failed to instantiate program', err);
+      alert('Failed to load program tasks');
+    }
+  }
+
+  const progress = useMemo(()=>{
+    const all = weeks.flatMap(w=> w.tasks||[]);
+    const done = all.filter(t=> t.completed).length;
+    const total = all.length || 1;
+    return {done, total, pct: Math.round(100*done/total)};
+  }, [weeks]);
+
+  const calDays = useMemo(()=>{
+    const s = dayjs(startDate).startOf('week');
+    const totalDays = Math.max(7, numWeeks * 7);
+    return Array.from({length: totalDays}, (_,i)=> s.add(i,'day'));
+  }, [startDate, numWeeks]);
+
+  const scheduledMap = useMemo(()=>{
+    const map = {};
+    weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
+      if(t.scheduled_for){
+        const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
+        map[key] = map[key] || [];
+        map[key].push({ label:`W${w.wk}: ${t.title}`, done: t.completed, wi, ti, task_id: t.task_id });
+      }
+    }));
+    return map;
+  }, [weeks]);
+
+  async function refreshPrograms(newId){
+    try {
+      const list = await apiListPrograms();
+      setPrograms(list);
+      if(newId !== undefined){
+        QS_PROGRAM_ID = newId;
+      }
+      if(QS_PROGRAM_ID && !list.find(p=> p.program_id === QS_PROGRAM_ID)){
+        QS_PROGRAM_ID = list[0]?.program_id || null;
+      }
+      if(QS_PROGRAM_ID){
+        localStorage.setItem('anx_program_id', QS_PROGRAM_ID);
+        try { await apiPatchPrefs({ program_id: QS_PROGRAM_ID }); } catch(e){}
+        const count = await reloadTasks();
+        if(!count){ setNeedsInstantiate(true); }
+        else { setNeedsInstantiate(false); }
+      } else {
+        localStorage.removeItem('anx_program_id');
+        setWeeks([]); setDeletedTasks([]); setNeedsInstantiate(false);
+      }
+    } catch(err){
+      console.error('Failed to refresh programs', err);
+    }
+  }
+
+  async function handleDeleteProgram(programId){
+    if(!confirm('Delete this program?')) return;
+    try {
+      await apiDeleteProgram(programId);
+      await refreshPrograms();
+    } catch(err){
+      console.error('Failed to delete program', err);
+      alert('Failed to delete program');
+    }
+  }
+
+  async function saveAccount(e){
+    e.preventDefault();
+    setAcctMsg('');
+    try {
+      const u = await apiPatchMe({ full_name: acctName, email: acctEmail, username: acctUsername });
+      setAcctName(u.name || '');
+      setAcctEmail(u.email || '');
+      setAcctUsername(u.username || '');
+      setAcctMsg('Saved');
+    } catch (err) {
+      setAcctMsg('Save failed');
+    }
+  }
+
+  async function changePassword(e){
+    e.preventDefault();
+    setPwMsg('');
+    try {
+      await apiChangePassword({ current_password: pwCurrent, new_password: pwNew });
+      setPwMsg('Password updated');
+      setPwCurrent('');
+      setPwNew('');
+    } catch (err) {
+      setPwMsg('Change failed');
+    }
+  }
+
+  async function setTaskDate(wi, ti, date, taskId){
+    const prevWeeks = structuredClone(weeks);
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      if (clone[wi]?.tasks?.[ti]) clone[wi].tasks[ti].scheduled_for = date;
+      return clone;
+    });
+    if (!taskId) { setWeeks(prevWeeks); alert('Failed to save scheduled date'); return; }
+    try {
+      const row = await apiPatchScheduledFor(taskId, date);
+      if (!row || !row.task_id) { setWeeks(prevWeeks); alert('Failed to save scheduled date'); }
+    } catch (err) { setWeeks(prevWeeks); alert('Failed to save scheduled date'); }
+  }
+
+  function toggleTask(wi, ti){
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      const t = clone[wi].tasks[ti];
+      const newValue = !t.completed;
+      t.completed = newValue;
+      apiPatchTask(t.task_id, { done: newValue }).catch(err => {
+        console.error('Failed to update task completion', err);
+      });
+      return clone;
+    });
+  }
+
+  async function handleAddTask(wi){
+    const label = prompt('Task title?');
+    if(!label) return;
+    try {
+      const created = await apiCreateTask({
+        label,
+        week_number: weeks[wi].wk,
+        program_id: QS_PROGRAM_ID
+      });
+      setWeeks(prev => {
+        const clone = structuredClone(prev);
+        const task = {
+          id: created.task_id,
+          task_id: created.task_id,
+          title: created.label,
+          notes: created.notes || '',
+          completed: created.done,
+          scheduled_for: created.scheduled_for
+        };
+        clone[wi].tasks = clone[wi].tasks || [];
+        clone[wi].tasks.push(task);
+        return clone;
+      });
+    } catch(err){
+      console.error('Failed to create task', err);
+      alert('Failed to create task');
+    }
+  }
+
+  async function handleDeleteTask(wi, ti){
+    const task = weeks[wi]?.tasks?.[ti];
+    if(!task) return;
+    if(!confirm('Delete this task?')) return;
+    try {
+      await apiDeleteTask(task.task_id);
+      const weekNumber = weeks[wi].wk;
+      setWeeks(ws => {
+        const copy = ws.map(w => ({ ...w, tasks: [...(w.tasks||[])] }));
+        copy[wi].tasks.splice(ti,1);
+        return copy;
+      });
+      setDeletedTasks(dt => [...dt, { ...task, label: task.title, week_number: weekNumber }]);
+    } catch(err){
+      console.error('Failed to delete task', err);
+      alert('Failed to delete task');
+    }
+  }
+
+  async function handleRestoreTask(taskId){
+    try {
+      const res = await apiRestoreTask(taskId);
+      if (res === null) { console.warn('Task missing on server'); return; }
+      setDeletedTasks(dt => dt.filter(t => t.task_id !== taskId));
+      setWeeks(ws => {
+        const copy = ws.map(w => ({ ...w, tasks: [...(w.tasks||[])] }));
+        const wi = copy.findIndex(w => w.wk === res.week_number);
+        const newTask = {
+          id: res.task_id,
+          task_id: res.task_id,
+          title: res.label,
+          notes: res.notes || '',
+          completed: res.done,
+          scheduled_for: res.scheduled_for
+        };
+        if (wi !== -1) {
+          copy[wi].tasks.push(newTask);
+        } else {
+          copy.push({ id: uid(), wk: res.week_number, title:'', theme:'', result:'', purpose:'', actions:'', tasks:[newTask] });
+          copy.sort((a,b)=> a.wk - b.wk);
+        }
+        return copy;
+      });
+    } catch(err){
+      console.error('Failed to restore task', err);
+      alert('Failed to restore task');
+    }
+  }
+
+  function toggleExpandedDay(key){
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if(next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function handleDragStart(e){
+    const { wi, ti, taskid } = e.currentTarget.dataset;
+    setDragBadge({ wi: Number(wi), ti: Number(ti), task_id: taskid });
+  }
+  function handleDragEnd(){ setDragBadge(null); }
+  function handleDragOver(e){
+    e.preventDefault();
+    e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
+  }
+  function handleDragLeave(e){
+    e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
+  }
+  function handleDrop(e, date){
+    e.preventDefault();
+    handleDragLeave(e);
+    if(dragBadge){
+      setTaskDate(dragBadge.wi, dragBadge.ti, date, dragBadge.task_id);
+      setDragBadge(null);
+    }
+  }
+  
+  function handleTouchMove(e){
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if(touchHover.current && touchHover.current !== el){
+      handleDragLeave({currentTarget: touchHover.current});
+      touchHover.current = null;
+    }
+    if(el && el.dataset && el.dataset.date){
+      handleDragOver({preventDefault: ()=>{}, currentTarget: el});
+      touchHover.current = el;
+    }
+    e.preventDefault();
+  }
+  function handleTouchEnd(e){
+    const touch = e.changedTouches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if(touchHover.current){
+      handleDragLeave({currentTarget: touchHover.current});
+      touchHover.current = null;
+    }
+    if(el && el.dataset && el.dataset.date){
+      handleDrop({preventDefault: ()=>{}, currentTarget: el}, el.dataset.date);
+    } else {
+      setDragBadge(null);
+    }
+  }
+
+  const weekColumns = useMemo(()=> {
+    const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
+    return sorted.map((w,wi)=> ({
+      wk: w.wk,
+      title: w.title,
+      items: (w.tasks||[])
+        .map((t, ti) => (!t.scheduled_for ? { label: t.title, wi, ti, task_id: t.task_id } : null))
+        .filter(Boolean)
+    }));
+  }, [weeks]);
+
+  function AssignModal({date, onClose}){
+    const visible = weekColumns.filter(c => c.items.length);
+    const handleAssign = (it) => { setTaskDate(it.wi, it.ti, date, it.task_id); onClose(); };
+    const ref = useRef(null);
+    useFocusTrap(true, ref);
+    useEffect(() => {
+      const esc = (e) => { if (e.key === 'Escape') onClose(); };
+      document.addEventListener('keydown', esc);
+      return () => document.removeEventListener('keydown', esc);
+    }, [onClose]);
+    return ReactDOM.createPortal(
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} ref={ref}>
+        <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
+          <div className="fm-modal-header">
+            <div className="font-semibold">Assign Task to {fmt(date)}</div>
+            <button className="btn apple-focus apple-press btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="fm-modal-body">
+            {visible.length ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                {visible.map((col, idx)=> (
+                    <div key={idx} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-slate-50 dark:bg-slate-700 t-body font-semibold border-b border-slate-200 dark:border-slate-700">Week {col.wk}</div>
+                    <div className="p-2 grid gap-2">
+                      {col.items.map((it, i)=> (
+                        <button key={i} className="btn apple-focus apple-press btn-outline justify-start truncate text-left" title={it.label} onClick={()=> handleAssign(it)}>
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <div className="card p-6 text-center t-body text-slate-500 dark:text-slate-400">All tasks are scheduled!</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  function ProgramModal({ program, onClose }){
+    const [title, setTitle] = useState(program?.title || '');
+    const [weeksCount, setWeeksCount] = useState(program?.total_weeks || 6);
+    const [desc, setDesc] = useState(program?.description || '');
+    const [showTemplates, setShowTemplates] = useState(false);
+    const templatesTriggerRef = useRef(null);
+
+    useEffect(()=>{
+      setTitle(program?.title || '');
+      setWeeksCount(program?.total_weeks || 6);
+      setDesc(program?.description || '');
+    }, [program]);
+
+    async function handleSave(){
+      try {
+        const data = { title: title.trim(), total_weeks: Number(weeksCount), description: desc };
+        let saved;
+        if(program?.program_id){
+          saved = await apiPatchProgram(program.program_id, data);
+        } else {
+          saved = await apiCreateProgram(data);
+        }
+        await refreshPrograms(saved.program_id);
+        onClose();
+      } catch(err){
+        console.error('Failed to save program', err);
+        alert('Failed to save program');
+      }
+    }
+
+  async function handleDelete(){
+    if(!program?.program_id) return;
+    if(!confirm('Delete this program?')) return;
+    try {
+      await apiDeleteProgram(program.program_id);
+      await refreshPrograms();
+      onClose();
+    } catch(err){
+      console.error('Failed to delete program', err);
+      alert('Failed to delete program');
+    }
+  }
+
+  const ref = useRef(null);
+  useFocusTrap(!showTemplates, ref);
+  useEffect(() => {
+      const esc = (e) => { if (e.key === 'Escape') onClose(); };
+      document.addEventListener('keydown', esc);
+      return () => document.removeEventListener('keydown', esc);
+    }, [onClose]);
+    return ReactDOM.createPortal(
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} ref={ref}>
+        <div className="fm-modal max-w-lg" onClick={e=> e.stopPropagation()}>
+          <div className="fm-modal-header">
+            <div className="font-semibold">{program?.program_id ? 'Edit Program' : 'New Program'}</div>
+            <button className="btn apple-focus apple-press btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="fm-modal-body space-y-4">
+            <div>
+              <label className="t-body block mb-1">Title</label>
+              <input className="input apple-focus" value={title} onChange={e=>setTitle(e.target.value)} />
+            </div>
+            <div>
+              <label className="t-body block mb-1">Total Weeks</label>
+              <input type="number" min="1" className="input apple-focus" value={weeksCount} onChange={e=> setWeeksCount(e.target.value)} />
+            </div>
+            <div>
+              <label className="t-body block mb-1">Description</label>
+              <textarea className="textarea apple-focus" value={desc} onChange={e=> setDesc(e.target.value)} />
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              {program?.program_id && (
+                <div className="flex items-center gap-2">
+                  <button className="btn apple-focus apple-press btn-outline" onClick={handleDelete}>Delete</button>
+                  <button className="btn apple-focus apple-press btn-outline" onClick={(e)=> { templatesTriggerRef.current = e.currentTarget; setShowTemplates(true); }}>Templates</button>
+                </div>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                <button className="btn apple-focus apple-press btn-ghost" onClick={onClose}>Cancel</button>
+                <button className="btn apple-focus apple-press btn-primary" onClick={handleSave}>Save</button>
+              </div>
+            </div>
+          </div>
+          {showTemplates && program?.program_id && <TemplateModal programId={program.program_id} onClose={()=> { setShowTemplates(false); templatesTriggerRef.current && templatesTriggerRef.current.focus(); }} />}
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  function TemplateModal({ programId, onClose }){
+    const [templates, setTemplates] = useState([]);
+    const [editing, setEditing] = useState(null);
+    const [wk, setWk] = useState(1);
+    const [label, setLabel] = useState('');
+    const [notes, setNotes] = useState('');
+    const [sort, setSort] = useState(1);
+
+    useEffect(()=>{ refresh(); }, [programId]);
+
+    async function refresh(){
+      try {
+        const list = await apiListTemplates(programId);
+        setTemplates(list);
+      } catch(err){
+        console.error('Failed to load templates', err);
+      }
+    }
+
+    function startNew(){
+      setEditing({});
+      setWk(1); setLabel(''); setNotes(''); setSort(1);
+    }
+    function startEdit(t){
+      setEditing(t);
+      setWk(t.week_number||1); setLabel(t.label||''); setNotes(t.notes||''); setSort(t.sort_order||1);
+    }
+    function cancelEdit(){
+      setEditing(null);
+    }
+
+    async function handleSave(e){
+      e.preventDefault();
+      try {
+        const data = { week_number:Number(wk), label:label.trim(), notes, sort_order:Number(sort) };
+        if(editing?.template_id){
+          await apiPatchTemplate(programId, editing.template_id, data);
+        } else {
+          await apiCreateTemplate(programId, data);
+        }
+        await refresh();
+        setEditing(null);
+        if(programId === QS_PROGRAM_ID) await refreshPrograms();
+      } catch(err){
+        console.error('Failed to save template', err);
+        alert('Failed to save template');
+      }
+    }
+
+    async function handleDelete(id){
+      if(!confirm('Delete this template?')) return;
+      try {
+        await apiDeleteTemplate(programId, id);
+        await refresh();
+        if(programId === QS_PROGRAM_ID) await refreshPrograms();
+      } catch(err){
+        console.error('Failed to delete template', err);
+        alert('Failed to delete template');
+      }
+    }
+
+    const ref = useRef(null);
+    useFocusTrap(true, ref);
+    useEffect(() => {
+      const esc = (e) => { if (e.key === 'Escape') onClose(); };
+      document.addEventListener('keydown', esc);
+      return () => document.removeEventListener('keydown', esc);
+    }, [onClose]);
+    return ReactDOM.createPortal(
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose} ref={ref}>
+        <div className="fm-modal max-w-2xl" onClick={e=> e.stopPropagation()}>
+          <div className="fm-modal-header">
+            <div className="font-semibold">Manage Templates</div>
+            <button className="btn apple-focus apple-press btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="fm-modal-body space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="font-semibold">Templates</div>
+              <button className="btn apple-focus apple-press btn-outline" onClick={startNew}>+ New Row</button>
+            </div>
+            <div className="space-y-2">
+              {templates.map(t=> (
+                <div key={t.template_id} className="border rounded p-2 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">Week {t.week_number} • {t.label}</div>
+                    <div className="t-caption text-slate-500 dark:text-slate-400">Sort {t.sort_order}{t.notes?` • ${t.notes}`:''}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={()=> startEdit(t)}>Edit</button>
+                    <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={()=> handleDelete(t.template_id)}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {editing && (
+              <form onSubmit={handleSave} className="space-y-2 pt-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="t-body block mb-1">Week #</label>
+                    <input type="number" className="input apple-focus" value={wk} onChange={e=> setWk(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="t-body block mb-1">Sort Order</label>
+                    <input type="number" className="input apple-focus" value={sort} onChange={e=> setSort(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <label className="t-body block mb-1">Label</label>
+                  <input className="input apple-focus" value={label} onChange={e=> setLabel(e.target.value)} />
+                </div>
+                <div>
+                  <label className="t-body block mb-1">Notes</label>
+                  <textarea className="textarea apple-focus" value={notes} onChange={e=> setNotes(e.target.value)} />
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button type="button" className="btn apple-focus apple-press btn-ghost" onClick={cancelEdit}>Cancel</button>
+                  <button type="submit" className="btn apple-focus apple-press btn-primary">Save</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  const controlBar = (
+    <div className="flex items-center gap-3">
+      <select className="input apple-focus" value={QS_PROGRAM_ID||''} onChange={e=> refreshPrograms(e.target.value||null)}>
+        <option value="">Select program</option>
+        {programs.map(p=> <option key={p.program_id} value={p.program_id}>{p.title}</option>)}
+      </select>
+      <button className="btn apple-focus apple-press btn-outline" onClick={(e)=> setProgramModal({ show:true, program: programs.find(p=> p.program_id === QS_PROGRAM_ID) || null, trigger:e.currentTarget })}>Manage</button>
+      <div className="h-6 w-px bg-slate-200" />
+      <label className="t-body text-slate-600 dark:text-slate-300">Start</label>
+      <input type="date" className="input apple-focus w-[160px]" value={startDate} onChange={(e)=> setStartDate(e.target.value)} />
+      <div className="h-6 w-px bg-slate-200" />
+      <label className="t-body text-slate-600 dark:text-slate-300">Weeks</label>
+      <div className="flex items-center gap-1">
+        <button className="btn apple-focus apple-press btn-outline" onClick={()=> setNumWeeks(w=> Math.max(1, w-1))} aria-label="Decrease weeks">−</button>
+        <input type="number" min="1" max="24" step="1" className="input apple-focus w-16 text-center" value={numWeeks}
+               onChange={(e)=> setNumWeeks(()=> { const v = parseInt(e.target.value||'1',10); return isNaN(v) ? 1 : Math.min(24, Math.max(1, v)); })} />
+        <button className="btn apple-focus apple-press btn-outline" onClick={()=> setNumWeeks(w=> Math.min(24, w+1))} aria-label="Increase weeks">+</button>
+      </div>
+      <div className="h-6 w-px bg-slate-200" />
+      <button className="btn apple-focus apple-press btn-ghost" title="Jump to today" onClick={()=> setStartDate(dayjs().format('YYYY-MM-DD'))}>Today</button>
+    </div>
+  );
+
+  return (
+    <div className="flex">
+      <div className="flex-1 space-y-6 py-6">
+          <header className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div>
+                <h1 className="t-display">ANX Orientation • {trainee}</h1>
+                <p className="t-body text-slate-500 dark:text-slate-400">{numWeeks}-Week Program • Start {fmt(startDate)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {controlBar}
+            </div>
+          </header>
+
+      {needsInstantiate && (
+        <div className="card p-6">
+          <p className="mb-4">This program has no tasks yet. Load preset tasks?</p>
+          <button className="btn apple-focus apple-press btn-primary" onClick={handleInstantiate}>Load Program Tasks</button>
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div className="grid md:grid-cols-4 gap-4">
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Overall Progress</div><Ring value={progress.pct}/></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Tasks Completed</div><div className="t-title mt-2">{progress.done}/{progress.total}</div></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Weeks</div><div className="t-title mt-2">{numWeeks}</div></div>
+        <div className="card p-4"><div className="t-body text-slate-500 dark:text-slate-400">Start</div><div className="t-title mt-2">{fmt(startDate)}</div></div>
+      </div>
+
+      {/* Calendar */}
+      <Section title={`${numWeeks}-Week Visual Calendar`} subtitle="Assign tasks by date; click Assign on a day.">
+        <div className="grid grid-cols-7 gap-2 t-caption font-medium text-slate-500 dark:text-slate-400 mb-2">
+          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-2">
+          {calDays.map((d,idx)=>{
+            const key = d.format('YYYY-MM-DD');
+            const items = scheduledMap[key]||[];
+            const out = !inRange(d, startDate, numWeeks);
+            const expanded = expandedDays.has(key);
+            return (
+                <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50 dark:bg-slate-700':''}`}
+                   onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e)=>handleDrop(e,key)}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="t-caption font-semibold">{d.format('D')}</div>
+        <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={(e)=> setAssignPicker({date:key, trigger:e.currentTarget})}>Assign</button>
+                </div>
+                <div className="space-y-1">
+                  {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
+                    <div key={i}
+                         className={`relative t-caption pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
+                         draggable data-wi={it.wi} data-ti={it.ti} data-taskid={it.task_id}
+                         onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                         onTouchStart={handleDragStart} onTouchMove={handleTouchMove}
+                         onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
+                      {it.label}
+                      <button type="button" aria-label="Remove"
+                              className="absolute -top-1 -right-1 t-caption leading-none text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                              onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null, it.task_id); }}
+                              onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  {items.length>3 && (
+                    <button type="button" className="t-caption text-slate-500 dark:text-slate-400" onClick={()=> toggleExpandedDay(key)}>
+                      {expanded ? 'Show less' : `+${items.length-3} more…`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> { assignPicker.trigger && assignPicker.trigger.focus(); setAssignPicker(null); }} />}
+        {programModal.show && <ProgramModal program={programModal.program} onClose={()=> { programModal.trigger && programModal.trigger.focus(); setProgramModal({show:false, program:null, trigger:null}); }} />}
+      </Section>
+
+      {/* Weeks & Tasks */}
+      <Section title="Weeks & Tasks">
+        <div className="space-y-6">
+          {weeks.map((w, wi)=>{
+            const pct = Math.round(100*((w.tasks||[]).filter(t=>t.completed).length / ((w.tasks||[]).length||1)));
+            return (
+              <div key={w.id} className="card p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="t-headline">Week {w.wk}: {w.title}</div>
+                    <div className="t-body text-slate-500 dark:text-slate-400">{w.theme}</div>
+                  </div>
+                  <div className="w-48"><ProgressBar value={pct}/><div className="t-caption text-right mt-1">{pct}%</div></div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3 mt-4">
+                  {(w.tasks||[]).map((t,ti)=> (
+                    <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
+                      <button type="button" aria-label="Delete" className="absolute top-1 right-1 t-caption text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                              onClick={()=> handleDeleteTask(wi,ti)}>✕</button>
+                      <div className="flex items-start gap-3">
+                        <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
+                        <div className="flex-1">
+                          <div className="font-medium">{t.title}</div>
+                          <div className="mt-2 flex items-center gap-2 t-body">
+                            <span className="t-body text-slate-600 dark:text-slate-300">Assigned:</span>
+                            <input type="date" className="input apple-focus w-auto" value={t.scheduled_for||''}
+                                   onChange={e=> setTaskDate(wi,ti, e.target.value||null, t.task_id)} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn apple-focus apple-press btn-outline mt-3" onClick={()=> handleAddTask(wi)}>+ Add Task</button>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section title="Deleted Tasks">
+        <div className="space-y-2">
+          {deletedTasks.length ? (
+            deletedTasks.map(t => (
+              <div key={t.task_id} className="flex items-center justify-between">
+                <span>{t.label || t.title}</span>
+                <button className="btn apple-focus apple-press btn-ghost t-caption" onClick={() => handleRestoreTask(t.task_id)}>Restore</button>
+              </div>
+            ))
+          ) : (
+            <div className="t-body text-slate-500 dark:text-slate-400">No deleted tasks</div>
+          )}
+        </div>
+      </Section>
+    </div>
+      <div
+        className={`fixed inset-0 md:hidden overscroll-contain touch-none apple-backdrop apple-ease duration-300 transition-opacity ${panelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'} apple-focus`}
+        onClick={togglePanel}
+        tabIndex={panelOpen ? 0 : -1}
+        aria-label="Close side panel"
+      ></div>
+      <button
+        id="side-panel-toggle"
+        onClick={togglePanel}
+        aria-label="Toggle side panel"
+        aria-expanded={panelOpen}
+        aria-controls="side-panel"
+        className="fixed right-0 top-1/2 z-50 transform -translate-y-1/2 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-l shadow apple-focus apple-press"
+        style={{ right: panelOpen ? panelWidth : 0 }}
+      >
+        {panelOpen ? (
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
+      </button>
+      {/* SidePanel: container uses apple styling classes; buttons use `btn`; fields use `input` for consistent styling */}
+      {panelOpen && (
+        <div
+          className="hidden md:block fixed inset-y-0 z-50 w-1 cursor-col-resize apple-focus"
+          style={{ right: panelWidth }}
+          onPointerDown={startResize}
+          tabIndex={0}
+          aria-label="Resize panel"
+        ></div>
+      )}
+      <aside
+          id="side-panel"
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="panel-heading"
+          className={`bg-white dark:bg-slate-800 apple-shadow apple-border p-4 space-y-4 fixed inset-y-0 right-0 z-50 overflow-hidden transform apple-ease transition-transform duration-300 md:transition-[width] md:duration-300 md:translate-x-0
+                     ${panelOpen ? 'translate-x-0' : 'translate-x-full md:w-0'}`}
+          style={{ width: panelOpen ? panelWidth : 0 }}
+        >
+        <h2 id="panel-heading" className="sr-only">Side Panel</h2>
+          <div className="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center t-body font-semibold">
+            {(acctName||'').split(/\s+/).map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate">{acctName}</div>
+            <div className="t-body text-slate-500 dark:text-slate-400 truncate">{acctEmail}</div>
+          </div>
+          <button
+            className="btn apple-focus apple-press btn-ghost"
+            onClick={()=> setOpenSections(prev=> prev.includes('account')? prev : [...prev,'account'])}
+          >
+            Edit
+          </button>
+        </div>
+        <div className="pt-4 space-y-4">
+          <input
+            className="input apple-focus w-full"
+            placeholder="Search…"
+            onChange={handleSearchChange}
+          />
+          {/* Account */}
+          <div>
+            <h3>
+              <button
+                id="hdr-account"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('account')}
+                aria-controls="sec-account"
+                onClick={()=> toggleSection('account')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">👤</span>Account</span>
+                <span className={`transition-transform ${openSections.includes('account')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('account') && (
+              <div id="sec-account" className="mt-2 space-y-2" aria-labelledby="hdr-account">
+                <form className="space-y-2" onSubmit={saveAccount}>
+                  <div>
+                    <label htmlFor="acct_fullname" className="t-body block mb-1">Full name</label>
+                    <input id="acct_fullname" className="input apple-focus" value={acctName} onChange={e=> setAcctName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="acct_email" className="t-body block mb-1">Email</label>
+                    <input id="acct_email" className="input apple-focus" value={acctEmail} onChange={e=> setAcctEmail(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="acct_username" className="t-body block mb-1">Username</label>
+                    <input id="acct_username" className="input apple-focus" value={acctUsername} onChange={e=> setAcctUsername(e.target.value)} />
+                  </div>
+                  {acctMsg && <div className="t-caption text-slate-500 dark:text-slate-400">{acctMsg}</div>}
+                  <button className="btn apple-focus apple-press btn-primary w-full mt-2" type="submit">Save</button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Password */}
+          <div>
+            <h3>
+              <button
+                id="hdr-password"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('password')}
+                aria-controls="sec-password"
+                onClick={()=> toggleSection('password')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">🔒</span>Password</span>
+                <span className={`transition-transform ${openSections.includes('password')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('password') && (
+              <div id="sec-password" className="mt-2 space-y-2" aria-labelledby="hdr-password">
+                <form className="space-y-2" onSubmit={changePassword}>
+                  <div>
+                    <label htmlFor="pw_current" className="t-body block mb-1">Current Password</label>
+                    <input id="pw_current" type="password" className="input apple-focus" value={pwCurrent} onChange={e=> setPwCurrent(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="pw_new" className="t-body block mb-1">New Password</label>
+                    <input id="pw_new" type="password" className="input apple-focus" value={pwNew} onChange={e=> setPwNew(e.target.value)} />
+                  </div>
+                  {pwMsg && <div className="t-caption text-slate-500 dark:text-slate-400">{pwMsg}</div>}
+                  <button className="btn apple-focus apple-press btn-primary w-full mt-2" type="submit">Change Password</button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Programs & Templates */}
+          <div>
+            <h3>
+              <button
+                id="hdr-programs"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('programs')}
+                aria-controls="sec-programs"
+                onClick={()=> toggleSection('programs')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">📦</span>Programs & Templates</span>
+                <span className={`transition-transform ${openSections.includes('programs')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('programs') && (
+              <div id="sec-programs" className="mt-2 space-y-2" aria-labelledby="hdr-programs">
+                <div className="space-y-1">
+                  {programs
+                    .filter(p => (p.title || '').toLowerCase().includes(searchTerm.toLowerCase()))
+                    .map(p => (
+                    <div key={p.program_id} className="flex items-center gap-1">
+                      <span className="flex-1 truncate">{p.title}</span>
+                      <button className="btn apple-focus apple-press btn-ghost" onClick={() => refreshPrograms(p.program_id)}>Open</button>
+                      <button
+                        className="btn apple-focus apple-press btn-ghost"
+                        onClick={(e) => {
+                          templateTriggerRef.current = e.currentTarget;
+                          setTemplateProgramId(p.program_id);
+                          setShowTemplates(true);
+                        }}
+                      >
+                        Templates
+                      </button>
+                      <details className="relative">
+                        <summary className="btn apple-focus apple-press btn-ghost px-2 -mr-2" tabIndex={0} aria-label="More options">⋯</summary>
+                          <div className="absolute right-0 z-10 mt-1 w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow">
+                          <button
+                            className="btn apple-focus apple-press btn-ghost w-full justify-start"
+                            onClick={(e) => setProgramModal({ show: true, program: p, trigger: e.currentTarget })}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn apple-focus apple-press btn-ghost w-full justify-start"
+                            onClick={() => handleDeleteProgram(p.program_id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+                  <div className="sticky bottom-0 bg-white dark:bg-slate-800 pt-2">
+                  <button
+                    className="btn apple-focus apple-press btn-primary w-full"
+                    onClick={(e) => setProgramModal({ show: true, program: null, trigger: e.currentTarget })}
+                  >
+                    + New Program
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Utilities */}
+          <div>
+            <h3>
+              <button
+                id="hdr-utilities"
+                type="button"
+                className="t-headline flex items-center justify-between w-full"
+                aria-expanded={openSections.includes('utilities')}
+                aria-controls="sec-utilities"
+                onClick={()=> toggleSection('utilities')}
+              >
+                <span className="flex items-center gap-2"><span aria-hidden="true">🛠️</span>Utilities</span>
+                <span className={`transition-transform ${openSections.includes('utilities')? 'rotate-180':''}`}>⌄</span>
+              </button>
+            </h3>
+            {openSections.includes('utilities') && (
+              <div id="sec-utilities" className="mt-2 space-y-2" aria-labelledby="hdr-utilities">
+                <button className="btn apple-focus apple-press btn-outline w-full" onClick={() => refreshPrograms()}>
+                  Refresh Programs
+                </button>
+                <button className="btn apple-focus apple-press btn-outline w-full" disabled>
+                  Clear Cache (coming soon)
+                </button>
+                <button className="btn apple-focus apple-press btn-outline w-full" onClick={onSignOut}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+    {showTemplates && templateProgramId && (
+      <TemplateModal
+        programId={templateProgramId}
+        onClose={() => {
+          setShowTemplates(false);
+          templateTriggerRef.current && templateTriggerRef.current.focus();
+        }}
+      />
+    )}
+  </div>
+  );
+}
+
+/* ---- ROOT: checks /me; shows AuthPanel or App ---- */
+function Root(){
+  const [me, setMe] = useState(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(()=>{
+    (async () => {
+      const user = await apiGetMe();
+      if (user) setMe(user);
+      setChecked(true);
+    })();
+  }, []);
+
+  if (!checked){
+    return (
+      <div className="min-h-screen flex items-center justify-center w-full">
+        <div className="max-w-2xl mx-auto card p-6">Loading…</div>
+      </div>
+    );
+  }
+  if (!me){
+    return (
+      <div className="min-h-screen flex items-center justify-center w-full">
+        <AuthPanel onAuthed={async ()=> { const user = await apiGetMe(); setMe(user); }} />
+      </div>
+    );
+  }
+  return <App me={me} onSignOut={async () => { await apiLogout(); window.location.href = '/'; }} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
+</script>
+</body>
+</html>

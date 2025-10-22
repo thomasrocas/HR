@@ -41,4 +41,3 @@ inherit the same spacing, typography, and color behavior.
 Run the SQL files in the `migrations/` directory in order. After applying `002_rbac.sql`, run `003_seed_admin.sql`
 to create a default local account (`admin` / `changeme`) and grant it the `admin` role. This ensures at least one
 user can manage roles for others after initial deployment.
-

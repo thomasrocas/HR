@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANX • Halle Orientation – Fixed Modal + Excel‑Grid Assign (Start/Weeks Controls)</title>
+  <!-- Tailwind (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { anx: { sky: '#0ea5e9', mint:'#10b981', slate:'#1f2937' }}}}};
+  </script>
+  <!-- React UMD + Babel (web-only JSX) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Day.js -->
+  <script src="https://unpkg.com/dayjs@1.11.11/dayjs.min.js"></script>
+  <script src="https://unpkg.com/dayjs@1.11.11/plugin/isoWeek.js"></script>
+  <style>
+    .card{ @apply bg-white rounded-2xl shadow-sm border border-slate-100; }
+    .btn{ @apply inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm; }
+    .btn-ghost{ @apply border-transparent hover:bg-slate-50; }
+    .btn-outline{ @apply border-slate-300 hover:bg-slate-50; }
+    .btn-primary{ @apply bg-anx-sky text-white border-anx-sky hover:brightness-95; }
+    .tag{ @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border bg-slate-50 text-slate-700; }
+    .input{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+    .textarea{ @apply w-full border rounded-xl px-3 py-2 text-sm; }
+    .outline-dashed{ outline-style: dashed; }
+
+    /* Web Viewer safe modal */
+    .fm-modal-overlay{
+      position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      z-index: 2147483000; display:flex; align-items:center; justify-content:center;
+      padding: 1rem; transform: translateZ(0); isolation: isolate; touch-action:none; overscroll-behavior: contain;
+    }
+    .fm-modal{
+      position: relative; background:#fff; border-radius: 1rem; border:1px solid #e5e7eb;
+      box-shadow: 0 12px 30px rgba(0,0,0,.24); width: 100%; max-width: 1200px; z-index: 2147483640;
+    }
+    .fm-modal-header{ display:flex; align-items:center; justify-content:space-between; padding:.75rem 1rem; border-bottom:1px solid #e5e7eb; }
+    .fm-modal-body{ max-height: min(70vh, 720px); overflow:auto; padding: 1rem; }
+    html, body { height: 100%; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div id="root" class="max-w-7xl mx-auto px-4 py-6"></div>
+
+<script type="text/babel">
+const { useEffect, useMemo, useState, useRef } = React;
+const dayjsIso = dayjs.extend(window.dayjs_plugin_isoWeek);
+
+const DEFAULT_API_BASE = localStorage.getItem('anx_api_base') || 'http://10.200.200.159:3002';
+const DEFAULT_TRAINEE   = localStorage.getItem('anx_trainee') || 'Halle Angeles';
+const qs = new URLSearchParams(location.search);
+const QS_PROGRAM_ID = qs.get('program_id') || localStorage.getItem('anx_program_id') || null;
+
+const fmt = (d) => dayjs(d).format('MMM D, YYYY');
+const inRange = (d, start, numWeeks) => {
+  const s = dayjs(start);
+  const e = s.add((numWeeks*7)-1,'day');
+  const x = dayjs(d);
+  return x.isSame(s,'day') || (x.isAfter(s,'day') && x.isBefore(e,'day')) || x.isSame(e,'day');
+};
+const uid = () => Math.random().toString(36).slice(2);
+
+function seedWeeks(){
+  return [
+    {wk:1, title:'Orientation & Foundations – STATE', theme:'Prime physiology • Focus • Language', result:'Certainty stepping into nursing role', purpose:'Align ANX mission with personal WHY', actions:'Priming, onboarding, mentor goals', tasks:[
+      {title:'Onboarding: badges, EMR, safety & HIPAA', rpm:{result:'Ready for patient-facing', purpose:'Protect patients & data', actions:['HIPAA & safety modules','ID badge & EMR login','Review ANX mission & values']}},
+      {title:'Meet mentor & set 3 primary outcomes', rpm:{result:'3 clear outcomes', purpose:'Clarity → confidence', actions:['Schedule check-ins','Document outcomes']}},
+      {title:'Daily priming: gratitude + incantations', rpm:{result:'Empowered daily state', purpose:'State → Story → Strategy', actions:['3 gratitudes','2 incantations before visits']}} ]},
+    {wk:2, title:'Home Health Immersion – STORY', theme:'Shift beliefs → empowering story', result:'Confident assessment & education', purpose:'Progress over perfection', actions:'Shadow, teach-back, reframe belief', tasks:[
+      {title:'Shadow RN case managers', rpm:{result:'Assessment flow understood', purpose:'Model excellence', actions:['Observe 3 visits','Map assessment checklist']}},
+      {title:'Patient teaching with supervision', rpm:{result:'Deliver 1 session', purpose:'Build voice & influence', actions:['Med rec & teach-back','Chart note']}},
+      {title:'Reframe limiting belief → empowering story', rpm:{result:'1 belief rewritten', purpose:'Identity growth', actions:['Journal what held me back','Write new story & anchor']}} ]},
+    {wk:3, title:'Hospice Practice – PURPOSE', theme:'Meaning • Presence • Contribution', result:'Competence in hospice philosophy', purpose:'Dignity & love at end of life', actions:'Shadow, family meeting, journal', tasks:[
+      {title:'Shadow hospice RN (admission + routine)', rpm:{result:'Symptom mgmt & goals of care', purpose:'Comfort-focused care', actions:['Observe 2 admissions','Review pain protocols']}},
+      {title:'Family meeting observation & debrief', rpm:{result:'Communication insights', purpose:'Empathy & clarity', actions:['Trust-building phrases','Share insights']}},
+      {title:'Journal: presence & meaning', rpm:{result:'Purpose anchored', purpose:'Sustain resilience', actions:['15-min reflection','Create grounding ritual']}} ]},
+    {wk:4, title:'Skills & Simulation – CANI', theme:'Relentless improvement', result:'Technical mastery under guidance', purpose:'Confidence under pressure', actions:'Skills lab, mock code, feedback sprint', tasks:[
+      {title:'Skills lab: wound, catheter, oxygen', rpm:{result:'Pass checklists', purpose:'Safe, effective care', actions:['Practice + signoff','Note gaps → micro-goals']}},
+      {title:'Mock emergency (home code)', rpm:{result:'Calm, structured response', purpose:'Patient safety', actions:['Run scenario','After-action review']}},
+      {title:'Feedback sprint & celebration', rpm:{result:'3 improvements', purpose:'Reinforce progress', actions:['Ask 2 clinicians for feedback','Anchor progress: “YES!”']}} ]},
+    {wk:5, title:'Leadership & Contribution – Modeling Excellence', theme:'Success leaves clues', result:'System awareness & leadership reps', purpose:'Create raving fans', actions:'QI, leadership interview, lead huddle', tasks:[
+      {title:'Attend QI/patient safety meeting', rpm:{result:'1 improvement idea', purpose:'Quality mindset', actions:['Pick a metric','Propose micro-experiment']}},
+      {title:'Interview DON/Admin: leadership clues', rpm:{result:'Top 3 habits', purpose:'Model mastery', actions:['15-min interview','Summarize in journal']}},
+      {title:'Lead a mini-huddle / family teach-back', rpm:{result:'1 led interaction', purpose:'Service & influence', actions:['Prep script','Debrief with mentor']}} ]},
+    {wk:6, title:'Integration & Capstone – Raise Your Standard', theme:'Future pacing & identity', result:'Independent (supervised) visits + capstone', purpose:'Own growth & set standards', actions:'Visits, talk, 90-day RPM', tasks:[
+      {title:'Independent supervised visits', rpm:{result:'2 successful visits', purpose:'Embodied confidence', actions:['Plan visit flow','Self-review with mentor']}},
+      {title:'Capstone: My Breakthroughs talk', rpm:{result:'5–7 min presentation', purpose:'Integrate & inspire', actions:['Story → lesson → action','Thank mentors']}},
+      {title:'90-day growth plan (RPM)', rpm:{result:'Next-level outcomes set', purpose:'CANI continues', actions:['Define Results & Purpose','Map Massive Actions']}} ]},
+  ];
+}
+
+function Section({title, subtitle, children, right}){
+  return (
+    <section className="card p-4 md:p-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+        </div>
+        {right}
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function ProgressBar({value}){
+  return (
+    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+      <div className="h-2 bg-anx-sky" style={{width:`${Math.max(0,Math.min(value,100))}%`}}></div>
+    </div>
+  );
+}
+function Ring({value=0}){
+  const r=42, c=2*Math.PI*r, off=c - (c * value/100);
+  return (
+    <svg width="120" height="120" viewBox="0 0 120 120" className="mx-auto">
+      <circle cx="60" cy="60" r={r} fill="none" stroke="#e5e7eb" strokeWidth="12" />
+      <circle cx="60" cy="60" r={r} fill="none" stroke="#0ea5e9" strokeWidth="12" strokeLinecap="round" style={{ strokeDasharray:c, strokeDashoffset:off, transform:'rotate(-90deg)', transformOrigin:'50% 50%'}}/>
+      <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" className="fill-slate-700 font-semibold">{value}%</text>
+    </svg>
+  );
+}
+
+function App(){
+  const [trainee, setTrainee] = useState(DEFAULT_TRAINEE);
+  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD')); // program start date
+  const [numWeeks, setNumWeeks] = useState(6); // NEW: dynamic # of weeks
+  const [weeks, setWeeks] = useState([]);
+  const [assignPicker, setAssignPicker] = useState(null); // {date}
+  const [dragBadge, setDragBadge] = useState(null); // {wi,ti}
+  const [expandedDays, setExpandedDays] = useState(new Set()); // tracks which calendar days are expanded
+  const touchHover = useRef(null);
+
+  useEffect(()=>{
+    if(!weeks.length) setWeeks(seedWeeks().map(w=> ({...w, id: uid(), tasks: (w.tasks||[]).map(t=> ({...t, id: uid(), notes:'', completed:false, scheduled_for:null})) })));
+  }, []);
+
+  const totals = useMemo(()=>{
+    const all = weeks.flatMap(w=> w.tasks||[]);
+    const done = all.filter(t=> t.completed).length;
+    const total = all.length || 1;
+    return {done, total, pct: Math.round(100*done/total)};
+  }, [weeks]);
+
+  // Calendar helpers
+  const calDays = useMemo(()=>{
+    const s = dayjs(startDate).startOf('week'); // keep grid aligned to week start (Sun) for visual clarity
+    const totalDays = Math.max(7, numWeeks * 7);
+    return Array.from({length: totalDays}, (_,i)=> s.add(i,'day'));
+  }, [startDate, numWeeks]);
+
+  const scheduledMap = useMemo(()=>{
+    const map = {};
+    weeks.forEach((w, wi)=> (w.tasks||[]).forEach((t,ti)=>{
+      if(t.scheduled_for){
+        const key = dayjs(t.scheduled_for).format('YYYY-MM-DD');
+        map[key] = map[key] || [];
+        map[key].push({ label:`W${w.wk}: ${t.title}`, done: t.completed, wi, ti });
+      }
+    }));
+    return map;
+  }, [weeks]);
+
+  function setTaskDate(wi, ti, date){
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      clone[wi].tasks[ti].scheduled_for = date;
+      return clone;
+    });
+  }
+  function toggleTask(wi, ti){
+    setWeeks(prev => {
+      const clone = structuredClone(prev);
+      const t = clone[wi].tasks[ti];
+      t.completed = !t.completed;
+      return clone;
+    });
+  }
+
+  function toggleExpandedDay(key){
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if(next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function handleDragStart(e){
+    const { wi, ti } = e.currentTarget.dataset;
+    setDragBadge({ wi: Number(wi), ti: Number(ti) });
+  }
+  function handleDragEnd(){
+    setDragBadge(null);
+  }
+  function handleDragOver(e){
+    e.preventDefault();
+    e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
+  }
+  function handleDragLeave(e){
+    e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
+  }
+  function handleDrop(e, date){
+    e.preventDefault();
+    handleDragLeave(e);
+    if(dragBadge){
+      setTaskDate(dragBadge.wi, dragBadge.ti, date);
+      setDragBadge(null);
+    }
+  }
+  function handleTouchMove(e){
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if(touchHover.current && touchHover.current !== el){
+      handleDragLeave({currentTarget: touchHover.current});
+      touchHover.current = null;
+    }
+    if(el && el.dataset && el.dataset.date){
+      handleDragOver({preventDefault: ()=>{}, currentTarget: el});
+      touchHover.current = el;
+    }
+    e.preventDefault();
+  }
+  function handleTouchEnd(e){
+    const touch = e.changedTouches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if(touchHover.current){
+      handleDragLeave({currentTarget: touchHover.current});
+      touchHover.current = null;
+    }
+    if(el && el.dataset && el.dataset.date){
+      handleDrop({preventDefault: ()=>{}, currentTarget: el}, el.dataset.date);
+    } else {
+      setDragBadge(null);
+    }
+  }
+
+  // Build week-grouped task matrix for Excel-like grid
+  const weekColumns = useMemo(()=> {
+    const sorted = [...weeks].sort((a,b)=> a.wk - b.wk);
+    // Only surface tasks that have not been scheduled yet so the
+    // assignment modal shows remaining work.
+    return sorted.map((w,wi)=> ({
+      wk: w.wk,
+      title: w.title,
+      items: (w.tasks||[])
+        .map((t, ti) => (!t.scheduled_for ? { label: t.title, wi, ti } : null))
+        .filter(Boolean)
+    }));
+  }, [weeks]);
+
+  function AssignModal({date, onClose}){
+    // Weeks with at least one unscheduled task
+    const visible = weekColumns.filter(c => c.items.length);
+    const handleAssign = (it) => {
+      setTaskDate(it.wi, it.ti, date);
+      onClose();
+    };
+    return ReactDOM.createPortal(
+      <div className="fm-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+        <div className="fm-modal" onClick={(e)=> e.stopPropagation()}>
+          <div className="fm-modal-header">
+            <div className="font-semibold">Assign Task to {fmt(date)}</div>
+            <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+          <div className="fm-modal-body">
+            {visible.length ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                {visible.map((col, idx)=> (
+                  <div key={idx} className="border rounded-xl overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold border-b">
+                      Week {col.wk}
+                    </div>
+                    <div className="p-2 grid gap-2">
+                      {col.items.map((it, i)=> (
+                        <button
+                          key={i}
+                          className="btn btn-outline justify-start truncate text-left"
+                          title={it.label}
+                          onClick={()=> handleAssign(it)}
+                        >
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <div className="card p-6 text-center text-sm text-slate-500">All tasks are scheduled!</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  // Controls: Start Date + Weeks
+  const controlBar = (
+    <div className="flex items-center gap-3">
+      <label className="text-sm text-slate-600">Start</label>
+      <input
+        type="date"
+        className="input w-[160px]"
+        value={startDate}
+        onChange={(e)=> setStartDate(e.target.value)}
+      />
+      <div className="h-6 w-px bg-slate-200" />
+      <label className="text-sm text-slate-600">Weeks</label>
+      <div className="flex items-center gap-1">
+        <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.max(1, w-1))} aria-label="Decrease weeks">−</button>
+        <input
+          type="number"
+          min="1"
+          max="24"
+          step="1"
+          className="input w-16 text-center"
+          value={numWeeks}
+          onChange={(e)=> setNumWeeks(()=> {
+            const v = parseInt(e.target.value||'1',10);
+            return isNaN(v) ? 1 : Math.min(24, Math.max(1, v));
+          })}
+        />
+        <button className="btn btn-outline" onClick={()=> setNumWeeks(w=> Math.min(24, w+1))} aria-label="Increase weeks">+</button>
+      </div>
+      <div className="h-6 w-px bg-slate-200" />
+      <button
+        className="btn btn-ghost"
+        title="Jump to today (keeps grid aligned to week start)"
+        onClick={()=> setStartDate(dayjs().format('YYYY-MM-DD'))}
+      >Today</button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">ANX Orientation • {trainee}</h1>
+          <p className="text-sm text-slate-500">{numWeeks}‑Week Program • Start {fmt(startDate)}</p>
+        </div>
+        {controlBar}
+      </header>
+
+      {/* KPIs */}
+      <div className="grid md:grid-cols-4 gap-4">
+        <div className="card p-4"><div className="text-sm text-slate-500">Overall Progress</div><Ring value={totals.pct}/></div>
+        <div className="card p-4"><div className="text-sm text-slate-500">Tasks Completed</div><div className="text-2xl font-semibold mt-2">{totals.done}/{totals.total}</div></div>
+        <div className="card p-4"><div className="text-sm text-slate-500">Weeks</div><div className="text-2xl font-semibold mt-2">{numWeeks}</div></div>
+        <div className="card p-4"><div className="text-sm text-slate-500">Start</div><div className="text-2xl font-semibold mt-2">{fmt(startDate)}</div></div>
+      </div>
+
+      {/* Calendar */}
+      <Section
+        title={`${numWeeks}‑Week Visual Calendar`}
+        subtitle="Assign tasks by date; click Assign on a day."
+        right={controlBar}
+      >
+        <div className="grid grid-cols-7 gap-2 text-xs font-medium text-slate-500 mb-2">
+          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center">{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-2">
+          {calDays.map((d,idx)=>{
+            const key = d.format('YYYY-MM-DD');
+            const items = scheduledMap[key]||[];
+            const out = !inRange(d, startDate, numWeeks);
+            const expanded = expandedDays.has(key);
+            return (
+              <div
+                key={idx}
+                data-date={key}
+                className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={(e)=>handleDrop(e,key)}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs font-semibold">{d.format('D')}</div>
+                  <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>
+                </div>
+                <div className="space-y-1">
+                  {items.slice(0, expanded ? items.length : 3).map((it,i)=> (
+                    <div
+                      key={i}
+                      className={`relative text-[11px] pl-2 pr-4 py-1 rounded-md border ${it.done?'bg-emerald-50 border-emerald-300':'bg-sky-50 border-sky-300'}`}
+                      draggable
+                      data-wi={it.wi}
+                      data-ti={it.ti}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onTouchStart={handleDragStart}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onTouchCancel={handleTouchEnd}
+                    >
+                      {it.label}
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        className="absolute -top-1 -right-1 text-xs leading-none text-slate-500 hover:text-slate-700"
+                        onClick={(e) => { e.stopPropagation(); setTaskDate(it.wi, it.ti, null); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  {items.length>3 && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-slate-500"
+                      onClick={()=> toggleExpandedDay(key)}
+                    >
+                      {expanded ? 'Show less' : `+${items.length-3} more…`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {assignPicker && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+      </Section>
+
+      {/* Weeks & Tasks */}
+      <Section title="Weeks & Tasks">
+        <div className="space-y-6">
+          {weeks.map((w, wi)=>{
+            const pct = Math.round(100*((w.tasks||[]).filter(t=>t.completed).length / ((w.tasks||[]).length||1)));
+            return (
+              <div key={w.id} className="card p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-lg font-semibold">Week {w.wk}: {w.title}</div>
+                    <div className="text-sm text-slate-500">{w.theme}</div>
+                  </div>
+                  <div className="w-48"><ProgressBar value={pct}/><div className="text-xs text-right mt-1">{pct}%</div></div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3 mt-4">
+                  {(w.tasks||[]).map((t,ti)=> (
+                    <div key={t.id} className={`card p-3 ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
+                      <div className="flex items-start gap-3">
+                        <input type="checkbox" className="mt-1" checked={t.completed} onChange={()=> toggleTask(wi,ti)} />
+                        <div className="flex-1">
+                          <div className="font-medium">{t.title}</div>
+                          <div className="mt-2 flex items-center gap-2 text-sm">
+                            <span className="text-slate-600">Assigned:</span>
+                            <input type="date" className="input w-auto" value={t.scheduled_for||''} onChange={e=> setTaskDate(wi,ti, e.target.value||null)} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
