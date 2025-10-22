@@ -1587,6 +1587,7 @@ async function userManagesProgram(userId, programId) {
 }
 
 app.get('/me', ensureAuth, (req, res) => {
+  const hireDateValue = normalizeDateOutput(req.user?.hire_date ?? req.user?.hireDate ?? null);
   res.json({
     id: req.user.id,
     name: req.user.full_name,
@@ -1594,7 +1595,9 @@ app.get('/me', ensureAuth, (req, res) => {
     username: req.user.username,
     picture: req.user.picture_url,
     roles: req.roles,
-    perms: Array.from(req.perms)
+    perms: Array.from(req.perms),
+    hire_date: hireDateValue,
+    hireDate: hireDateValue
   });
 });
 
