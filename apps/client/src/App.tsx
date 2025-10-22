@@ -1,10 +1,10 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
-import UsersLanding from './src/users/UsersLanding';
-import ProgramsLanding from './src/programs/ProgramsLanding';
-import { User } from './src/rbac';
-import { seed } from './src/api';
+import UsersLanding from '../../../public/src/users/UsersLanding';
+import ProgramsLanding from '../../../public/src/programs/ProgramsLanding';
+import { User } from '../../../public/src/rbac';
+import { seed } from '../../../public/src/api';
 
 const fallbackUser: User = {
   id: 'fallback-admin',
