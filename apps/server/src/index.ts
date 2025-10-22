@@ -1,10 +1,13 @@
+
 import express from "express";
+
 import cors from "cors";
 import session from "express-session";
 import { Pool } from "pg";
 
 import config from "./config/config";
 import { buildApiRouter } from "./routes";
+
 
 const app = express();
 
@@ -27,7 +30,9 @@ const db = new Pool({
   connectionString: config.db.url,
 });
 
+
 app.use("/api", buildApiRouter(db));
+
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, env: config.env });
