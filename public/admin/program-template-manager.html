@@ -735,15 +735,27 @@
           </div>
           <div>
             <label for="programFormDescription" class="label-text mb-1">Description</label>
-            <textarea id="programFormDescription" name="description" class="textarea" placeholder="Add an overview for collaborators..."></textarea>
+            <textarea id="programFormDescription" name="description" class="textarea" placeholder="Add an overview for collaborators..." maxlength="1000"></textarea>
+            <div class="mt-1 flex items-center justify-between text-xs text-slate-500">
+              <span>1000 char limit</span>
+              <span id="programFormDescriptionCount" aria-live="polite">0/1000</span>
+            </div>
           </div>
           <div>
             <label for="programFormResults" class="label-text mb-1">Results</label>
-            <textarea id="programFormResults" name="results" class="textarea" placeholder="Outline the expected outcomes..."></textarea>
+            <textarea id="programFormResults" name="results" class="textarea" placeholder="Outline the expected outcomes..." maxlength="1000"></textarea>
+            <div class="mt-1 flex items-center justify-between text-xs text-slate-500">
+              <span>1000 char limit</span>
+              <span id="programFormResultsCount" aria-live="polite">0/1000</span>
+            </div>
           </div>
           <div>
             <label for="programFormPurpose" class="label-text mb-1">Purpose</label>
-            <textarea id="programFormPurpose" name="purpose" class="textarea" placeholder="Describe the purpose of this program..."></textarea>
+            <textarea id="programFormPurpose" name="purpose" class="textarea" placeholder="Describe the purpose of this program..." maxlength="1000"></textarea>
+            <div class="mt-1 flex items-center justify-between text-xs text-slate-500">
+              <span>1000 char limit</span>
+              <span id="programFormPurposeCount" aria-live="polite">0/1000</span>
+            </div>
           </div>
           <div class="grid gap-3 md:grid-cols-2">
             <label class="space-y-1">

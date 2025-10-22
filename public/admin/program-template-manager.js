@@ -2533,6 +2533,9 @@ const programFormWeeksInput = document.getElementById('programFormWeeks');
 const programFormDescriptionInput = document.getElementById('programFormDescription');
 const programFormResultsInput = document.getElementById('programFormResults');
 const programFormPurposeInput = document.getElementById('programFormPurpose');
+const programFormDescriptionCount = document.getElementById('programFormDescriptionCount');
+const programFormResultsCount = document.getElementById('programFormResultsCount');
+const programFormPurposeCount = document.getElementById('programFormPurposeCount');
 const programFormOrganizationInput = document.getElementById('programFormOrganization');
 const programFormSubUnitInput = document.getElementById('programFormSubUnit');
 const programFormDepartmentInput = document.getElementById('programFormDepartment');
@@ -2578,6 +2581,44 @@ const programTemplatePanelMessage = document.getElementById('programTemplatePane
 const programTemplatePanelEmpty = document.getElementById('programTemplatePanelEmpty');
 const programTemplateList = document.getElementById('programTemplateList');
 const templateAttachInput = document.getElementById('programTemplateAttachInput');
+
+const MAX_PROGRAM_TEXTAREA_LENGTH = 1000;
+
+function initializeProgramTextareaCounter(textarea, counter, maxLength) {
+  if (!textarea || !counter) {
+    return () => {};
+  }
+  textarea.setAttribute('maxlength', String(maxLength));
+  const update = () => {
+    let value = textarea.value || '';
+    if (value.length > maxLength) {
+      value = value.slice(0, maxLength);
+      textarea.value = value;
+    }
+    counter.textContent = `${value.length}/${maxLength}`;
+  };
+  textarea.addEventListener('input', update);
+  update();
+  return update;
+}
+
+const updateProgramFormDescriptionCharacterCount = initializeProgramTextareaCounter(
+  programFormDescriptionInput,
+  programFormDescriptionCount,
+  MAX_PROGRAM_TEXTAREA_LENGTH,
+);
+
+const updateProgramFormResultsCharacterCount = initializeProgramTextareaCounter(
+  programFormResultsInput,
+  programFormResultsCount,
+  MAX_PROGRAM_TEXTAREA_LENGTH,
+);
+
+const updateProgramFormPurposeCharacterCount = initializeProgramTextareaCounter(
+  programFormPurposeInput,
+  programFormPurposeCount,
+  MAX_PROGRAM_TEXTAREA_LENGTH,
+);
 const btnAttachTags = document.getElementById('btnPanelAttachTemplate');
 const templateVisibilityOptions = document.getElementById('templateVisibilityOptions');
 const programPageSizeSelect = document.getElementById('programPageSize');
@@ -4051,6 +4092,9 @@ function resetProgramForm() {
   if (programForm) {
     programForm.reset();
   }
+  if (programFormDescriptionInput) {
+    programFormDescriptionInput.value = '';
+  }
   if (programFormResultsInput) {
     programFormResultsInput.value = '';
   }
@@ -4070,6 +4114,9 @@ function resetProgramForm() {
     programFormDisciplineInput.value = '';
   }
   setProgramFormMessage('');
+  updateProgramFormDescriptionCharacterCount();
+  updateProgramFormResultsCharacterCount();
+  updateProgramFormPurposeCharacterCount();
 }
 
 function setTemplateFormMessage(text, isError = false) {
@@ -5584,6 +5631,9 @@ function openProgramModal(mode = 'create', programId = null) {
   if (programForm) {
     programForm.reset();
   }
+  updateProgramFormDescriptionCharacterCount();
+  updateProgramFormResultsCharacterCount();
+  updateProgramFormPurposeCharacterCount();
   const isDangerVisible = isEdit && CAN_MANAGE_PROGRAMS;
   if (programModalArchiveTrigger) {
     programModalArchiveTrigger.classList.toggle('hidden', !isDangerVisible);
@@ -5639,6 +5689,9 @@ function openProgramModal(mode = 'create', programId = null) {
     if (programModalTitle) programModalTitle.textContent = 'New Program';
     if (programFormSubmit) programFormSubmit.textContent = 'Create Program';
   }
+  updateProgramFormDescriptionCharacterCount();
+  updateProgramFormResultsCharacterCount();
+  updateProgramFormPurposeCharacterCount();
   setProgramFormMessage('');
   openModal(programModal);
   if (programFormTitleInput) {
