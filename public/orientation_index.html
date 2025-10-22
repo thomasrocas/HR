@@ -433,25 +433,6 @@ const getDeliveryIndicator = (value) => {
   return { ...(found || DEFAULT_DELIVERY_INDICATOR), title: label };
 };
 
-const MAX_PROGRAM_TEXTAREA_LENGTH = 1000;
-
-const clampProgramText = (value) => {
-  if (value === null || value === undefined) {
-    return '';
-  }
-  const stringValue = String(value);
-  return stringValue.length > MAX_PROGRAM_TEXTAREA_LENGTH
-    ? stringValue.slice(0, MAX_PROGRAM_TEXTAREA_LENGTH)
-    : stringValue;
-};
-
-const getProgramDescription = (program = {}) => (
-  program?.description
-    ?? program?.program_description
-    ?? program?.programDescription
-    ?? ''
-);
-
 const getProgramResults = (program = {}) => (
   program?.results
     ?? program?.program_results
@@ -1203,6 +1184,7 @@ function App({ me, onSignOut }){
   const [userPrograms, setUserPrograms] = useState([]);
   const [calendarMode, setCalendarMode] = useState('all');
   const [calendarSelectValue, setCalendarSelectValue] = useState('__all__');
+
   const [allCalendarEvents, setAllCalendarEvents] = useState([]);
   const [allCalendarPrograms, setAllCalendarPrograms] = useState([]);
   const [programVisibility, setProgramVisibility] = useState({});
@@ -2876,43 +2858,18 @@ useEffect(() => {
   function ProgramModal({ program, onClose }){
     const [title, setTitle] = useState(program?.title || '');
     const [weeksCount, setWeeksCount] = useState(program?.total_weeks || 6);
-    const [desc, setDesc] = useState(clampProgramText(getProgramDescription(program)));
-    const [results, setResults] = useState(clampProgramText(getProgramResults(program)));
-    const [purpose, setPurpose] = useState(clampProgramText(getProgramPurpose(program)));
+    const [desc, setDesc] = useState(program?.description || '');
     const [showTemplates, setShowTemplates] = useState(false);
 
     useEffect(()=>{
       setTitle(program?.title || '');
       setWeeksCount(program?.total_weeks || 6);
-      setDesc(clampProgramText(getProgramDescription(program)));
-      setResults(clampProgramText(getProgramResults(program)));
-      setPurpose(clampProgramText(getProgramPurpose(program)));
+      setDesc(program?.description || '');
     }, [program]);
-
-    const handleDescriptionChange = (event) => {
-      setDesc(clampProgramText(event.target.value));
-    };
-
-    const handleResultsChange = (event) => {
-      setResults(clampProgramText(event.target.value));
-    };
-
-    const handlePurposeChange = (event) => {
-      setPurpose(clampProgramText(event.target.value));
-    };
 
     async function handleSave(){
       try {
-        const trimmedDesc = desc.trim();
-        const trimmedResults = results.trim();
-        const trimmedPurpose = purpose.trim();
-        const data = {
-          title: title.trim(),
-          total_weeks: Number(weeksCount),
-          description: trimmedDesc ? trimmedDesc : null,
-          results: trimmedResults ? trimmedResults : null,
-          purpose: trimmedPurpose ? trimmedPurpose : null,
-        };
+        const data = { title: title.trim(), total_weeks: Number(weeksCount), description: desc };
         let saved;
         if(program?.program_id){
           saved = await apiPatchProgram(program.program_id, data);
@@ -2960,45 +2917,7 @@ useEffect(() => {
             </div>
             <div>
               <label className="text-sm block mb-1">Description</label>
-              <textarea
-                className="textarea"
-                value={desc}
-                maxLength={MAX_PROGRAM_TEXTAREA_LENGTH}
-                onChange={handleDescriptionChange}
-                aria-describedby="programModalDescriptionHelper"
-              />
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                <span id="programModalDescriptionHelper">1000 char limit</span>
-                <span aria-live="polite">{desc.length}/{MAX_PROGRAM_TEXTAREA_LENGTH}</span>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm block mb-1">Results</label>
-              <textarea
-                className="textarea"
-                value={results}
-                maxLength={MAX_PROGRAM_TEXTAREA_LENGTH}
-                onChange={handleResultsChange}
-                aria-describedby="programModalResultsHelper"
-              />
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                <span id="programModalResultsHelper">1000 char limit</span>
-                <span aria-live="polite">{results.length}/{MAX_PROGRAM_TEXTAREA_LENGTH}</span>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm block mb-1">Purpose</label>
-              <textarea
-                className="textarea"
-                value={purpose}
-                maxLength={MAX_PROGRAM_TEXTAREA_LENGTH}
-                onChange={handlePurposeChange}
-                aria-describedby="programModalPurposeHelper"
-              />
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                <span id="programModalPurposeHelper">1000 char limit</span>
-                <span aria-live="polite">{purpose.length}/{MAX_PROGRAM_TEXTAREA_LENGTH}</span>
-              </div>
+              <textarea className="textarea" value={desc} onChange={e=> setDesc(e.target.value)} />
             </div>
             <div className="flex items-center justify-between pt-2">
               {program?.program_id && (
