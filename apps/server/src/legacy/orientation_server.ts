@@ -31,6 +31,7 @@ export function mountLegacyOrientationServer(app: Express, pool: Pool) {
     isAccountDisabled,
   } = require('../utils/validation');
   const { escapeHtml } = require('../../../../packages/shared/src/utils/escapeHtml');
+
   let transporter;
   try {
     const nodemailer = require('nodemailer');

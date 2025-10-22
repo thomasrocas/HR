@@ -1,4 +1,6 @@
+
 import express from "express";
+
 import { Pool } from "pg";
 
 import config from "./config/config";
@@ -32,3 +34,4 @@ const server = app.listen(config.server.port, () => {
 });
 
 export { app, db, legacy };
+
