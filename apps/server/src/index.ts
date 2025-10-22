@@ -1,4 +1,6 @@
+
 import express from "express";
+
 import { Pool } from "pg";
 
 import config from "./config/config";
@@ -11,9 +13,11 @@ const db = new Pool({
   connectionString: config.db.url,
 });
 
+
 const legacy = mountLegacyOrientationServer(app, db);
 
 app.use("/api", buildApiRouter(db));
+
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, env: config.env });
@@ -29,3 +33,4 @@ const server = app.listen(config.server.port, () => {
 });
 
 export { app, db, legacy };
+
