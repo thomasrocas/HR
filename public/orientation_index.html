@@ -175,8 +175,19 @@ const normalizeDateInputValue = (value, fallback = '') => {
   }
   return fallbackString;
 };
+const getTodayIsoString = () => dayjs().format('YYYY-MM-DD');
+const getHireDateFromUser = (user) => {
+  if (!user || typeof user !== 'object') return '';
+  const raw = user.hireDate
+    ?? user.hire_date
+    ?? user.hired_at
+    ?? user.hiredAt
+    ?? user.date_hired
+    ?? null;
+  return normalizeDateInputValue(raw, '');
+};
 const deriveProgramRangeSafe = (rows, options = {}) => {
-  const today = dayjs().format('YYYY-MM-DD');
+  const today = getTodayIsoString();
   const fallbackStart = normalizeDateInputValue(options.fallbackStartDate, today) || today;
   const fallbackWeeks = options.fallbackWeeks || 6;
   if (typeof rangeUtils.deriveProgramRange === 'function') {
@@ -190,7 +201,7 @@ const deriveProgramRangeSafe = (rows, options = {}) => {
   return { startDate: fallbackStart, numWeeks: fallbackWeeks };
 };
 const deriveAllProgramsRangeSafe = (rows, options = {}) => {
-  const today = dayjs().format('YYYY-MM-DD');
+  const today = getTodayIsoString();
   const fallbackStart = normalizeDateInputValue(options.fallbackStartDate, today) || today;
   const fallbackWeeks = options.fallbackWeeks || 6;
   if (typeof rangeUtils.deriveAllProgramsRange === 'function') {
@@ -1176,7 +1187,10 @@ function App({ me, onSignOut }){
     }
     return me?.name || 'Halle Angeles';
   });
-  const [startDate, setStartDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [startDate, setStartDate] = useState(() => {
+    const hireDate = getHireDateFromUser(me);
+    return hireDate || getTodayIsoString();
+  });
   const [numWeeks, setNumWeeks] = useState(6);
   const [weeks, setWeeks] = useState([]);
   const [activeProgramId, setActiveProgramId] = useState(QS_PROGRAM_ID);
@@ -1200,6 +1214,23 @@ function App({ me, onSignOut }){
   const [openSections, setOpenSections] = useLocalStorageState('anx_panel_openKeys', []);
   const [searchTerm, setSearchTerm] = useState('');
   const [userList, setUserList] = useState([]);
+  const defaultStartDate = (() => {
+    const fallback = getTodayIsoString();
+    const targetId = targetUserId ? String(targetUserId) : null;
+    if (targetId) {
+      const match = userList.find(u => sameId(u.id, targetId));
+      const hireFromList = getHireDateFromUser(match);
+      if (hireFromList) return hireFromList;
+      if (sameId(targetId, me?.id)) {
+        const hireFromMe = getHireDateFromUser(me);
+        if (hireFromMe) return hireFromMe;
+      }
+    } else {
+      const hireFromMe = getHireDateFromUser(me);
+      if (hireFromMe) return hireFromMe;
+    }
+    return fallback;
+  })();
   const searchDebounce = useRef(null);
   const touchHover = useRef(null);
   const panelRef = useRef(null);
@@ -1224,6 +1255,19 @@ function App({ me, onSignOut }){
   useEffect(() => {
     rangeOverrideRef.current = rangeOverride;
   }, [rangeOverride]);
+
+  useEffect(() => {
+    if (weeks.length > 0) return;
+    const overrideKey = calendarMode === 'all' ? 'all' : 'single';
+    if (rangeOverrideRef.current[overrideKey]) return;
+    const normalizedDefault = normalizeDateInputValue(defaultStartDate, getTodayIsoString());
+    if (!normalizedDefault) return;
+    setStartDate((prev) => {
+      const normalizedPrev = normalizeDateInputValue(prev, '');
+      if (normalizedPrev === normalizedDefault) return prev;
+      return normalizedDefault;
+    });
+  }, [weeks.length, defaultStartDate, calendarMode]);
 
   const markRangeOverrideForCurrentMode = useCallback(() => {
     const key = calendarMode === 'all' ? 'all' : 'single';
@@ -1730,12 +1774,12 @@ function App({ me, onSignOut }){
     if (shouldApplyDerivedRange) {
       const programInfo = programInfoMap.get(String(QS_PROGRAM_ID)) || null;
       const derivedRange = deriveProgramRangeSafe(active, {
-        fallbackStartDate: dayjs().format('YYYY-MM-DD'),
+        fallbackStartDate: defaultStartDate,
         fallbackWeeks: 6,
         programInfo,
       });
       if (derivedRange && derivedRange.startDate) {
-        const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
+        const normalizedStart = normalizeDateInputValue(derivedRange.startDate, defaultStartDate);
         setStartDate(normalizedStart);
       }
       if (derivedRange && Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
@@ -2109,7 +2153,7 @@ useEffect(() => {
         });
         const dedupedRows = Array.from(dedupe.values());
         const derivedRange = deriveAllProgramsRangeSafe(dedupedRows, {
-          fallbackStartDate: dayjs().format('YYYY-MM-DD'),
+          fallbackStartDate: defaultStartDate,
           fallbackWeeks: 6,
           programInfoMap,
         });
@@ -2125,13 +2169,13 @@ useEffect(() => {
             filterEnd = derivedEnd;
           }
           if (!rangeOverrideRef.current.all) {
-            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
+            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, defaultStartDate);
             setStartDate(normalizedStart);
             setNumWeeks(Math.max(1, Math.trunc(derivedRange.numWeeks)));
           }
         } else if (derivedRange && !rangeOverrideRef.current.all) {
           if (derivedRange.startDate) {
-            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, dayjs().format('YYYY-MM-DD'));
+            const normalizedStart = normalizeDateInputValue(derivedRange.startDate, defaultStartDate);
             setStartDate(normalizedStart);
           }
           if (Number.isFinite(derivedRange.numWeeks) && derivedRange.numWeeks > 0) {
@@ -3140,7 +3184,7 @@ useEffect(() => {
         <button className="btn btn-outline" onClick={()=> handleNumWeeksInput((w)=> w + 1)} aria-label="Increase weeks">+</button>
       </div>
       <div className="h-6 w-px bg-slate-200" />
-      <button className="btn btn-ghost" title="Jump to today" onClick={()=> handleStartDateInput(dayjs().format('YYYY-MM-DD'))}>Today</button>
+      <button className="btn btn-ghost" title="Jump to today" onClick={()=> handleStartDateInput(getTodayIsoString())}>Today</button>
     </div>
   );
   const emptyScheduleNotice = (
