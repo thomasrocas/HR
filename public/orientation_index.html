@@ -1182,8 +1182,13 @@ function App({ me, onSignOut }){
   const [needsInstantiate, setNeedsInstantiate] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [userPrograms, setUserPrograms] = useState([]);
-  const [calendarMode, setCalendarMode] = useState('single');
-  const [calendarSelectValue, setCalendarSelectValue] = useState(() => (QS_PROGRAM_ID ? String(QS_PROGRAM_ID) : '__current__'));
+  const [calendarMode, setCalendarMode] = useState(() => (QS_PROGRAM_ID ? 'single' : 'all'));
+  const [calendarSelectValue, setCalendarSelectValue] = useState(() => {
+    if (QS_PROGRAM_ID) {
+      return String(QS_PROGRAM_ID);
+    }
+    return '__all__';
+  });
   const [allCalendarEvents, setAllCalendarEvents] = useState([]);
   const [allCalendarPrograms, setAllCalendarPrograms] = useState([]);
   const [programVisibility, setProgramVisibility] = useState({});
