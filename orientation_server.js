@@ -352,14 +352,36 @@ passport.use(new GoogleStrategy({
     const name    = profile.displayName || null;
     const picture = profile.photos?.[0]?.value || null;
 
-    const upsert = `
+    const insertUser = `
       insert into public.users (google_id, email, full_name, picture_url, provider)
       values ($1,$2,$3,$4,'google')
       on conflict (google_id) do update
       set email=excluded.email, full_name=excluded.full_name, picture_url=excluded.picture_url, updated_at=now()
       returning *;`;
-    const { rows } = await pool.query(upsert, [profile.id, email, name, picture]);
-    const user = rows[0];
+    let user;
+    try {
+      const { rows } = await pool.query(insertUser, [profile.id, email, name, picture]);
+      user = rows[0];
+    } catch (err) {
+      if (err?.code === '23505' && err?.constraint === 'users_email_unique_ci' && email) {
+        const updateByEmail = `
+          update public.users
+             set google_id   = $1,
+                 full_name   = $2,
+                 picture_url = $3,
+                 provider    = 'google',
+                 updated_at  = now()
+           where lower(email) = lower($4)
+           returning *;`;
+        const { rows } = await pool.query(updateByEmail, [profile.id, name, picture, email]);
+        user = rows[0];
+      } else {
+        throw err;
+      }
+    }
+    if (!user) {
+      return done(null, false, { message: 'account_conflict' });
+    }
     if (isAccountDisabled(user?.status)) {
       return done(null, false, { message: 'account_disabled' });
     }
