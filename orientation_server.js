@@ -243,12 +243,12 @@ const readEnv = (key, fallback) => {
   return trimmed === '' ? fallback : trimmed;
 };
 
-const GOOGLE_CALLBACK_PATH = '/auth/google/callback';
+const GOOGLE_CALLBACK_PATH = '/google/callback';
 const DEFAULT_CALLBACK_BASE = readEnv(
   'PUBLIC_URL',
   readEnv(
     'SERVER_PUBLIC_URL',
-    readEnv('APP_BASE_URL', 'http://localhost:3002')
+    readEnv('APP_BASE_URL', 'https://anxlife.net')
   )
 ).replace(/\/$/, '');
 const GOOGLE_CALLBACK_URL = readEnv(
@@ -393,7 +393,7 @@ app.get('/health', async (_req, res) => {
 // ==== 6) Auth routes ====
 // Google SSO
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-app.get('/auth/google/callback', (req, res, next) => {
+const handleGoogleCallback = (req, res, next) => {
   passport.authenticate('google', (err, user, info) => {
     if (err) return next(err);
     if (!user) {
@@ -422,7 +422,9 @@ app.get('/auth/google/callback', (req, res, next) => {
       return res.redirect('/');
     });
   })(req, res, next);
-});
+};
+app.get('/google/callback', handleGoogleCallback);
+app.get('/auth/google/callback', handleGoogleCallback);
 
 // Local: register
 app.post('/auth/local/register', async (req, res) => {
