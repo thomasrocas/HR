@@ -1,16 +1,22 @@
 const crypto = require('crypto');
 const { transformSync } = require('esbuild');
 
-function getLoader(filename) {
+function getLoader(filename, fileData) {
   if (filename.endsWith('.tsx')) return 'tsx';
-  if (filename.endsWith('.ts')) return 'ts';
+  if (filename.endsWith('.ts')) {
+    if (/<[A-Za-z][^>]*\/>/.test(fileData) || /<\/[A-Za-z]/.test(fileData)) {
+      return 'tsx';
+    }
+    return 'ts';
+  }
+
   if (filename.endsWith('.jsx')) return 'jsx';
   return 'js';
 }
 
 module.exports = {
   process(src, filename) {
-    const loader = getLoader(filename);
+    const loader = getLoader(filename, src);
     const result = transformSync(src, {
       loader,
       format: 'cjs',
@@ -34,9 +40,9 @@ module.exports = {
       .update(filename)
       .update('\0', 'utf8')
       .update(normalizedConfigString)
-
       .update('\0', 'utf8')
       .update(JSON.stringify(options || {}))
       .digest('hex');
   },
 };
+
