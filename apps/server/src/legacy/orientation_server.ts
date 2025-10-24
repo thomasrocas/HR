@@ -316,7 +316,7 @@ export function mountLegacyOrientationServer(app: Express, db: Pool) {
       done(null, rows[0] || false);
     } catch (e) { done(e); }
   });
-  
+ 
   // ---- Local username/password helpers ----
   const SALT_ROUNDS = 12;
   const validUsername = u => /^[a-zA-Z0-9._-]{3,32}$/.test(u || '');
