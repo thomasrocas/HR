@@ -40,14 +40,11 @@ const env = { ...process.env };
 if (existingNodePaths.length) {
   const additional = existingNodePaths.join(delimiter);
   env.NODE_PATH = env.NODE_PATH ? `${additional}${delimiter}${env.NODE_PATH}` : additional;
-
 }
 
 const result = spawnSync(process.execPath, [jestBin, ...argv], {
   stdio: 'inherit',
-
   env,
-
 });
 
 if (result.error) {
