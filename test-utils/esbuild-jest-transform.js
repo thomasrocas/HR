@@ -22,13 +22,19 @@ module.exports = {
     return { code: result.code, map: result.map || null };
   },
   getCacheKey(fileData, filename, configString, options) {
+    const normalizedConfigString =
+      typeof configString === 'string'
+        ? configString
+        : JSON.stringify(configString || {});
+
     return crypto
       .createHash('md5')
       .update(fileData)
       .update('\0', 'utf8')
       .update(filename)
       .update('\0', 'utf8')
-      .update(configString)
+      .update(normalizedConfigString)
+
       .update('\0', 'utf8')
       .update(JSON.stringify(options || {}))
       .digest('hex');
