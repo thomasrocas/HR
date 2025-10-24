@@ -1,7 +1,7 @@
 module.exports = {
   testEnvironment: 'node',
   transform: {
-    '^.+\\.(ts|tsx)$': '<rootDir>/test-utils/esbuild-jest-transform.js',
+    '^.+\\.[tj]sx?$': '<rootDir>/test-utils/esbuild-jest-transform.js',
   },
   moduleNameMapper: {
     '^react$': '<rootDir>/test-utils/reactStub.js',
