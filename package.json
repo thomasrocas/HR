@@ -2,7 +2,8 @@
   "name": "hr",
   "version": "1.0.0",
   "scripts": {
-    "test": "jest"
+    "start": "node orientation_server.js",
+    "test": "node test-utils/runJestWithFallback.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.13",
