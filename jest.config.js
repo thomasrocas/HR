@@ -7,8 +7,14 @@ module.exports = {
     '^react$': '<rootDir>/test-utils/reactStub.js',
     '^react/jsx-runtime$': '<rootDir>/test-utils/reactJsxRuntimeStub.js',
     '^@playwright/test$': '<rootDir>/test-utils/playwrightTestStub.js',
+
+    '^\.\./src/(.*)$': '<rootDir>/public/src/$1',
   },
-  modulePathIgnorePatterns: ['<rootDir>/public/'],
+  modulePathIgnorePatterns: [
+    '<rootDir>/public/node_modules',
+    '<rootDir>/public/package.json',
+  ],
+
   testMatch: [
     '**/__tests__/**/*.{spec,test}.[tj]s?(x)',
     '**/?(*.)+(spec|test).[tj]s?(x)',
