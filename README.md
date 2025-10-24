@@ -35,9 +35,73 @@ Shared component classes introduced for the role manager:
 When creating new interactions, prefer these utilities over bespoke styles so future contributors
 inherit the same spacing, typography, and color behavior.
 
-
 ## Migrations
 
 Run the SQL files in the `migrations/` directory in order. After applying `002_rbac.sql`, run `003_seed_admin.sql`
 to create a default local account (`admin` / `changeme`) and grant it the `admin` role. This ensures at least one
 user can manage roles for others after initial deployment.
+
+---
+
+## Monorepo layout
+
+```
+apps/
+  client/
+    src/
+      components/
+      pages/
+      services/
+      utils/
+  server/
+    src/
+      config/
+      routes/
+      controllers/
+      services/
+      middlewares/
+      utils/
+      legacy/
+    tests/
+packages/
+  shared/
+    src/
+      constants/
+      types/
+      validators/
+```
+
+The existing application code remains in place while the monorepo skeleton is introduced. Future steps will gradually
+move logic into the new structure without changing runtime behavior.
+
+## Setup
+
+1. Install dependencies:
+   ```sh
+   npm install
+   ```
+2. Copy `.env.example` to `.env` and update the values for your environment.
+3. Ensure PostgreSQL is running and the database defined by `DATABASE_URL` exists.
+4. Apply the SQL migrations under `migrations/` in order.
+
+## Development
+
+Start the existing server entry point:
+
+```sh
+npm run start
+```
+
+This command keeps the current flat server running while the new monorepo layout is staged.
+
+## Testing
+
+Run the available Jest tests:
+
+```sh
+npm test
+```
+
+## Docker
+
+A Docker setup will be documented once the server has been fully migrated into the monorepo structure.
