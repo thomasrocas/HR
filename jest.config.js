@@ -6,7 +6,9 @@ module.exports = {
   moduleNameMapper: {
     '^react$': '<rootDir>/test-utils/reactStub.js',
     '^react/jsx-runtime$': '<rootDir>/test-utils/reactJsxRuntimeStub.js',
+    '^@playwright/test$': '<rootDir>/test-utils/playwrightTestStub.js',
   },
+  modulePathIgnorePatterns: ['<rootDir>/public/'],
   testMatch: [
     '**/__tests__/**/*.{spec,test}.[tj]s?(x)',
     '**/?(*.)+(spec|test).[tj]s?(x)',
