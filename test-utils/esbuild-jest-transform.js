@@ -34,9 +34,9 @@ module.exports = {
       .update(filename)
       .update('\0', 'utf8')
       .update(normalizedConfigString)
+
       .update('\0', 'utf8')
       .update(JSON.stringify(options || {}))
       .digest('hex');
   },
 };
-
