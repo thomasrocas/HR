@@ -9,7 +9,6 @@ function getLoader(filename, fileData) {
     }
     return 'ts';
   }
-
   if (filename.endsWith('.jsx')) return 'jsx';
   return 'js';
 }
