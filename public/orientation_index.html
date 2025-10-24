@@ -1364,7 +1364,7 @@ function App({ me, onSignOut }){
   const isReadOnly = (me?.roles || []).some(r => r === 'viewer' || r === 'auditor');
   const isPrivileged = (me?.roles || []).includes('admin') || (me?.roles || []).includes('manager');
   const showKpis = (me?.roles || []).length > 0;
-  const canEditSchedule = hasPerm('task.assign') && isPrivileged && !isTrainee;
+  const canEditSchedule = hasPerm('task.assign') && !isTrainee;
   const canEditResponsible = hasPerm('task.update') && isPrivileged && !isTrainee;
   const canEditJournal = isTrainee || (isPrivileged && hasPerm('task.update'));
   const hasAssignedPrograms = useMemo(() => userPrograms.length > 0, [userPrograms]);
@@ -2727,7 +2727,7 @@ useEffect(() => {
   }, [markRangeOverrideForCurrentMode]);
 
   function handleDragStart(e){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     const { wi, ti, taskid, programId, source, scheduled_for: scheduledFor } = e.currentTarget.dataset;
     const wiNum = typeof wi !== 'undefined' && wi !== '' ? Number(wi) : null;
     const tiNum = typeof ti !== 'undefined' && ti !== '' ? Number(ti) : null;
@@ -2741,20 +2741,20 @@ useEffect(() => {
     });
   }
   function handleDragEnd(){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     setDragBadge(null);
   }
   function handleDragOver(e){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     e.preventDefault();
     e.currentTarget.classList.add('outline-dashed','outline-2','outline-anx-sky');
   }
   function handleDragLeave(e){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     e.currentTarget.classList.remove('outline-dashed','outline-2','outline-anx-sky');
   }
   function handleDrop(e, date){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     e.preventDefault();
     handleDragLeave(e);
     if(dragBadge){
@@ -2778,7 +2778,7 @@ useEffect(() => {
   }
 
   function handleTouchMove(e){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     const touch = e.touches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     if(touchHover.current && touchHover.current !== el){
@@ -2792,7 +2792,7 @@ useEffect(() => {
     e.preventDefault();
   }
   function handleTouchEnd(e){
-    if (!(hasPerm('task.assign') && isPrivileged && !isTrainee)) return;
+    if (!canEditSchedule) return;
     const touch = e.changedTouches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     if(touchHover.current){
@@ -3243,10 +3243,10 @@ useEffect(() => {
             const expanded = expandedDays.has(key);
             return (
               <div key={idx} data-date={key} className={`card p-2 min-h-[96px] ${out?'opacity-60 bg-slate-50':''}`}
-                   onDragOver={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragOver : undefined} onDragLeave={hasPerm('task.assign') && isPrivileged && !isTrainee ? handleDragLeave : undefined} onDrop={hasPerm('task.assign') && isPrivileged && !isTrainee ? (e)=>handleDrop(e,key) : undefined}>
+                   onDragOver={canEditSchedule ? handleDragOver : undefined} onDragLeave={canEditSchedule ? handleDragLeave : undefined} onDrop={canEditSchedule ? (e)=>handleDrop(e,key) : undefined}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-xs font-semibold">{d.format('D')}</div>
-                  {hasPerm('task.assign') && isPrivileged && !isTrainee && <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>}
+                  {canEditSchedule && <button className="btn btn-ghost text-xs" onClick={()=> setAssignPicker({date:key})}>Assign</button>}
                 </div>
                 <div className="space-y-1">
                   {items.slice(0, expanded ? items.length : 3).map((it,i)=> {
@@ -3256,7 +3256,7 @@ useEffect(() => {
                     const isTaskDone = typeof it.done === 'boolean'
                       ? it.done
                       : String(it.done).toLowerCase() === 'true';
-                    const canManageAssignments = hasPerm('task.assign') && isPrivileged && !isTrainee;
+                    const canManageAssignments = canEditSchedule;
                     const isDraggable = canManageAssignments && !isTaskDone;
                     const isAllView = calendarMode === 'all';
                     const palette = it.palette;
@@ -3375,7 +3375,7 @@ useEffect(() => {
             );
           })}
         </div>
-            {assignPicker && hasPerm('task.assign') && isPrivileged && !isTrainee && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
+            {assignPicker && canEditSchedule && <AssignModal date={assignPicker.date} onClose={()=> setAssignPicker(null)} />}
             {programModal.show && <ProgramModal program={programModal.program} onClose={()=> setProgramModal({show:false, program:null})} />}
           </>
         )}
@@ -3620,7 +3620,7 @@ useEffect(() => {
                       const tooltipJournal = toDisplayString(t.journal_entry);
                       const tooltipExternalLink = toDisplayString(t.external_link);
                       const hasTooltipJournal = tooltipJournal && tooltipJournal !== '—';
-                      const showAssignedMeta = hasPerm('task.assign') && isPrivileged && !isTrainee;
+                      const showAssignedMeta = canEditSchedule;
                       return (
                         <div key={t.id} className={`card p-3 relative ${t.completed?'border-emerald-300 bg-emerald-50':''}`}>
                           {hasPerm('task.delete') && isPrivileged && !isTrainee && (
