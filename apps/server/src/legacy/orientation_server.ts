@@ -17,9 +17,9 @@ export function mountLegacyOrientationServer(app: Express, db: Pool) {
   const session = require('express-session');
   const PgStore = require('connect-pg-simple')(session);
   const passport = require('passport');
-  const GoogleStrategy = require('passport-google-oauth20').Strategy;
   const bcrypt = require('bcrypt');
   const crypto = require('crypto');
+  const { buildLegacyAuthRouter, createLegacyGoogleCallbackHandler } = require('../routes/auth.router');
   
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const isValidUuid = value => typeof value === 'string' && UUID_REGEX.test(value);
@@ -233,27 +233,6 @@ export function mountLegacyOrientationServer(app: Express, db: Pool) {
     res.sendFile(path.join(PUBLIC_DIR, 'orientation_index.html'));
   });
   
-  // Normalized callback URL so Google OAuth redirect URIs match exactly.
-  const readEnv = (key, fallback) => {
-    const raw = process.env[key];
-    if (typeof raw !== 'string') return fallback;
-    const trimmed = raw.trim();
-    return trimmed === '' ? fallback : trimmed;
-  };
-  
-  const GOOGLE_CALLBACK_PATH = '/google/callback';
-  const DEFAULT_CALLBACK_BASE = readEnv(
-    'PUBLIC_URL',
-    readEnv(
-      'SERVER_PUBLIC_URL',
-      readEnv('APP_BASE_URL', 'https://anxlife.net')
-    )
-  ).replace(/\/$/, '');
-  const GOOGLE_CALLBACK_URL = readEnv(
-    'GOOGLE_CALLBACK_URL',
-    `${DEFAULT_CALLBACK_BASE}${GOOGLE_CALLBACK_PATH}`
-  );
-  
   // ==== 4) Sessions (stored in Postgres) + Passport ====
   // Use env override so local HTTP works but prod can require HTTPS.
   const COOKIE_SECURE = String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true';
@@ -337,65 +316,7 @@ export function mountLegacyOrientationServer(app: Express, db: Pool) {
       done(null, rows[0] || false);
     } catch (e) { done(e); }
   });
-  
-  // ---- Google Strategy ----
-  passport.use(new GoogleStrategy({
-    clientID:     readEnv('GOOGLE_CLIENT_ID', '80329949703-haj7aludbp14ma3fbg4h97rna0ngbn28.apps.googleusercontent.com'),
-    clientSecret: readEnv('GOOGLE_CLIENT_SECRET', 'ZHhm_oFXdv7C9FELx-bSdsmt'),
-    callbackURL:  GOOGLE_CALLBACK_URL,
-    proxy: true
-  }, async (_at, _rt, profile, done) => {
-    try {
-      const email   = profile.emails?.[0]?.value || null;
-      const name    = profile.displayName || null;
-      const picture = profile.photos?.[0]?.value || null;
-  
-      const insertUser = `
-        insert into public.users (google_id, email, full_name, picture_url, provider)
-        values ($1,$2,$3,$4,'google')
-        on conflict (google_id) do update
-        set email=excluded.email, full_name=excluded.full_name, picture_url=excluded.picture_url, updated_at=now()
-        returning *;`;
-      let user;
-      try {
-        const { rows } = await pool.query(insertUser, [profile.id, email, name, picture]);
-        user = rows[0];
-      } catch (err) {
-        if (err?.code === '23505' && err?.constraint === 'users_email_unique_ci' && email) {
-          const updateByEmail = `
-            update public.users
-               set google_id   = $1,
-                   full_name   = $2,
-                   picture_url = $3,
-                   provider    = 'google',
-                   updated_at  = now()
-             where lower(email) = lower($4)
-             returning *;`;
-          const { rows } = await pool.query(updateByEmail, [profile.id, name, picture, email]);
-          user = rows[0];
-        } else {
-          throw err;
-        }
-      }
-      if (!user) {
-        return done(null, false, { message: 'account_conflict' });
-      }
-      if (isAccountDisabled(user?.status)) {
-        return done(null, false, { message: 'account_disabled' });
-      }
-      // Ensure a default role for SSO users (idempotent)
-      try {
-        await pool.query(
-          `insert into public.user_roles(user_id, role_id)
-           select $1, role_id from roles where role_key = $2
-           on conflict do nothing`,
-          [user.id, process.env.DEFAULT_ROLE || 'viewer']
-        );
-      } catch (_e) { /* ignore role seeding errors */ }
-      return done(null, user);
-    } catch (e) { return done(e); }
-  }));
-  
+ 
   // ---- Local username/password helpers ----
   const SALT_ROUNDS = 12;
   const validUsername = u => /^[a-zA-Z0-9._-]{3,32}$/.test(u || '');
@@ -412,39 +333,10 @@ export function mountLegacyOrientationServer(app: Express, db: Pool) {
   
   // ==== 6) Auth routes ====
   // Google SSO
-  app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-  const handleGoogleCallback = (req, res, next) => {
-    passport.authenticate('google', (err, user, info) => {
-      if (err) return next(err);
-      if (!user) {
-        const message = info?.message || 'auth_failed';
-        const status = message === 'account_disabled' ? 403 : 401;
-        if (req.accepts('json')) {
-          return res.status(status).json({ error: message });
-        }
-        res.status(status);
-        return res.send(`Authentication failed: ${message}`);
-      }
-      req.login(user, async loginErr => {
-        if (loginErr) return next(loginErr);
-        try {
-          await pool.query(`
-            insert into public.user_preferences (user_id, trainee)
-            values ($1, $2)
-            on conflict (user_id) do nothing;`,
-            [req.user.id, req.user.id]);
-        } catch (_e) {
-          /* ignore if preferences table is absent */
-        }
-        if (req.session && req.user?.id) {
-          req.session.trainee = req.user.id;
-        }
-        return res.redirect('/');
-      });
-    })(req, res, next);
-  };
-  app.get('/google/callback', handleGoogleCallback);
-  app.get('/auth/google/callback', handleGoogleCallback);
+  const legacyGoogleRouter = buildLegacyAuthRouter(pool);
+  app.use('/auth', legacyGoogleRouter);
+  const legacyGoogleCallback = createLegacyGoogleCallbackHandler(pool);
+  app.get('/google/callback', legacyGoogleCallback);
   
   // Local: register
   app.post('/auth/local/register', async (req, res) => {
