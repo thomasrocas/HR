@@ -8,15 +8,15 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.1.13",
     "bcrypt": "^5.1.1",
-    "connect-pg-simple": "^9.0.0",
+    "connect-pg-simple": "^9.0.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-session": "^1.17.3",
-    "nodemailer": "^6.9.11",
+    "express": "^4.21.2",
+    "express-session": "^1.18.2",
+    "nodemailer": "^7.0.10",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "pg": "^8.11.3",
+    "pg": "^8.16.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwindcss": "^4.1.13"
@@ -24,8 +24,15 @@
   "devDependencies": {
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/connect-pg-simple": "^7.0.3",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.4",
+    "@types/express-session": "^1.18.2",
+    "@types/node": "^24.9.1",
+    "@types/pg": "^8.15.5",
     "jest": "^29.7.0",
     "pg-mem": "^3.0.5",
-    "supertest": "^6.3.4"
+    "supertest": "^6.3.4",
+    "typescript": "^5.9.3"
   }
 }
